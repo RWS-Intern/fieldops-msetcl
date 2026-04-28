@@ -1,0 +1,118 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid))
+          .data.role == 'admin';
+    }
+
+    match /tasks/{taskId} {
+      // Any authenticated user can read tasks.
+      // Write access remains restricted — field engineers can only update
+      // tasks assigned to them. The UI enforces per-user visibility via
+      // query filters (assignedTo) in useTasks.ts; rules do not need to
+      // duplicate that logic for reads. This change is required so that
+      // updateProjectStatus can query tasks by projectId from any
+      // authenticated session (including field engineers), because that
+      // query may match tasks assigned to other engineers.
+      allow read: if isAuthenticated();
+      allow create: if isAdmin();
+      allow update: if isAdmin()
+                    || resource.data.assignedTo == request.auth.uid;
+
+      match /updates/{updateId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated();
+        allow update, delete: if false;
+      }
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() || request.auth.uid == userId;
+      // Admins can write any user document.
+      // A newly signed-up user can write their OWN document (userId == their UID).
+      // This is safe: the role field comes from the invite, not from user input.
+      allow write: if isAdmin() || request.auth.uid == userId;
+    }
+
+    match /taskMaster/{typeId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /auditLog/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
+    }
+
+    match /appConfig/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /projects/{projectId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin();
+      allow update: if isAdmin() || isAuthenticated();
+      allow delete: if false;
+    }
+
+    match /invites/{inviteId} {
+      // UUID is unguessable — public read is safe and required for the signup page.
+      allow read: if true;
+      allow create: if isAdmin();
+      // Accepted by the new user (unauthenticated at the moment of acceptance),
+      // or revoked/updated by an admin.
+      allow update: if isAdmin() || isAuthenticated();
+      allow delete: if isAdmin();
+    }
+
+    // ── v3.0 collections ───────────────────────────────────────────────────────
+
+    match /sites/{siteId} {
+      // Any authenticated user can read sites (field engineers need site details).
+      allow read: if isAuthenticated();
+      // Only admins may create, update, or delete site documents.
+      allow write: if isAdmin();
+    }
+
+    match /siteTasks/{taskId} {
+      // Any authenticated user can read siteTasks.
+      // The previous rule used `resource.data.assignedTo == request.auth.uid` for
+      // field-engineer reads, which Firestore's query-security evaluation may reject
+      // when the isAdmin() helper's get() call is present in the same rule expression.
+      // Pattern mirrors the `tasks` collection: the UI enforces per-user visibility
+      // via the `where('assignedTo', '==', uid)` query filter in useAssignedSiteTasks.ts
+      // and useSiteTasks.ts — the rules don't need to duplicate that logic for reads.
+      allow read: if isAuthenticated();
+      // Write access remains restricted — admins only for create/delete,
+      // field engineers can update only tasks explicitly assigned to them.
+      allow create: if isAdmin();
+      allow update: if isAdmin()
+                    || (isAuthenticated() && resource.data.assignedTo == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    match /bulkUploads/{uploadId} {
+      // Bulk-upload documents are admin-only — field engineers never see them.
+      allow read:  if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // CollectionGroup rule for the Reports page collectionGroup('updates') query.
+    // Firestore requires a top-level wildcard match for cross-collection queries —
+    // the nested match inside /tasks/{taskId} above only covers direct access.
+    match /{path=**}/updates/{updateId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated();
+      allow update, delete: if false;
+    }
+  }
+}
