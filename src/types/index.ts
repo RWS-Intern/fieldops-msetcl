@@ -328,3 +328,133 @@ export interface BulkUpload {
   errors?: { row: number; message: string }[];
   projectId?: string;
 }
+
+// ─── Phase G — Bulk Site Upload types ─────────────────────────────────────────
+
+/** One parsed row from the sites CSV template. */
+export interface BulkUploadRow {
+  rowNumber:   number;
+  projectCode: string;
+  siteCode:    string;
+  siteName:    string;
+  city:        string;
+  state:       string;
+  address?:    string;
+  latitude?:   string;
+  longitude?:  string;
+}
+
+export type BulkRowStatus = 'valid' | 'error' | 'duplicate';
+
+/** Validation result for a single CSV row. */
+export interface BulkRowResult {
+  rowNumber: number;
+  status:    BulkRowStatus;
+  data:      BulkUploadRow;
+  errors:    string[];
+}
+
+/** Aggregated result of parsing + validating an entire upload file. */
+export interface BulkUploadSummary {
+  totalRows: number;
+  validRows: number;
+  errorRows: number;
+  results:   BulkRowResult[];
+}
+
+/** Audit record written to `bulkUploads` collection after a successful commit. */
+export interface BulkUploadRecord {
+  id:              string;
+  uploadType:      'sites' | 'assignments';
+  uploadedBy:      string;
+  uploadedByName:  string;
+  uploadedAt:      Date;
+  fileName:        string;
+  rowCount:        number;
+  successCount:    number;
+  errorCount:      number;
+  errors:          { row: number; reason: string }[];
+}
+
+// ─── Phase H — Bulk Assignment Upload types ────────────────────────────────────
+
+/** One parsed row from the assignments CSV template. */
+export interface AssignmentUploadRow {
+  rowNumber:    number;
+  siteCode:     string;
+  taskKey:      string;
+  engineerCode: string;
+  dueDate:      string;
+}
+
+export type AssignmentRowStatus = 'valid' | 'error' | 'warning';
+
+/** Validation result for a single assignment CSV row. */
+export interface AssignmentRowResult {
+  rowNumber: number;
+  status:    AssignmentRowStatus;
+  data:      AssignmentUploadRow;
+  errors:    string[];
+  warnings:  string[];
+  /** Fully resolved write-ready data — only set when status is 'valid' or 'warning'. */
+  resolved?: {
+    siteTaskId:   string;
+    siteId:       string;
+    siteCode:     string;
+    taskKey:      string;
+    taskLabel:    string;
+    engineerUid:  string;
+    engineerName: string;
+    engineerCode: string;
+    dueDate:      Date | null;
+  };
+}
+
+/** Aggregated result of parsing + validating an assignments upload file. */
+export interface AssignmentUploadSummary {
+  totalRows:   number;
+  validRows:   number;
+  warningRows: number;
+  errorRows:   number;
+  results:     AssignmentRowResult[];
+}
+
+// ─── Offline queue — Site Task ─────────────────────────────────────────────────
+
+/**
+ * One queued offline submission for a SiteTask.
+ * Stored in IndexedDB (`fieldops-offline-st` / `queue` store).
+ *
+ * `subtaskPhotos` and `completionPhotos` contain either:
+ *   - `https://` Cloudinary URLs (if the photo was uploaded before going offline)
+ *   - `data:` base64 URIs (converted from blob: URLs at queue time)
+ *
+ * The SiteTaskQueueProcessor uploads any `data:` entries to Cloudinary
+ * before writing the final Firestore document.
+ */
+export interface QueuedSiteTaskUpdate {
+  /** IDB auto-increment primary key — undefined before first insert. */
+  id?:            number;
+  siteTaskId:     string;
+  taskCode:       string;
+  siteCode:       string;
+  taskLabel:      string;
+  /** Required to update `completedTaskCount` on the parent Site document. */
+  siteId:         string;
+  /** Status BEFORE this update — used for completedTaskCount delta logic. */
+  previousStatus: TaskStatus;
+  payload: {
+    status:          TaskStatus;
+    blockedReason:   string | null;
+    subtaskAnswers:  Record<string, { value: string; type: CollectionType }>;
+    subtaskPhotos:   Record<string, string[]>;
+    completionPhotos: string[];
+    location:        { lat: number; lng: number } | null;
+    /** ISO timestamp captured at the moment the user tapped Submit. */
+    submittedAt:     string;
+  };
+  /** Date.now() when this entry was queued. */
+  queuedAt:       number;
+  attempts:       number;
+  lastError?:     string;
+}

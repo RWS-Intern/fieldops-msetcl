@@ -16,12 +16,11 @@ const fieldItems = [
 ];
 
 const adminItems = [
-  { to: '/dashboard', label: 'Home',     Icon: LayoutDashboard },
-  { to: '/projects',  label: 'Projects', Icon: FolderKanban },
-  { to: '/sites',     label: 'Sites',    Icon: MapPin },
-  { to: '/tasks',     label: 'Tasks',    Icon: ClipboardList },
-  { to: '/team',      label: 'Team',     Icon: Users },
-  { to: '/reports',   label: 'Reports',  Icon: BarChart2 },
+  { to: '/dashboard', label: 'Home',      Icon: LayoutDashboard },
+  { to: '/projects',  label: 'Projects',  Icon: FolderKanban },
+  { to: '/sites',     label: 'Sites',     Icon: MapPin },
+  { to: '/team',      label: 'Engineers', Icon: Users },
+  { to: '/reports',   label: 'Reports',   Icon: BarChart2 },
 ];
 
 export function BottomNav() {

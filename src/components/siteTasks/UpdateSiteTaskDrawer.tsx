@@ -1,20 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
 import { MapPin } from 'lucide-react';
-import { useSiteTaskActions } from '@/hooks/useSiteTaskActions';
-import { useToast }           from '@/components/ui/toast';
-import { useNetworkStatus }   from '@/hooks/useNetworkStatus';
-import { useAuthStore }       from '@/store/authStore';
+import { useSiteTaskActions }          from '@/hooks/useSiteTaskActions';
+import { useSiteTaskOfflineQueue }     from '@/hooks/useSiteTaskOfflineQueue';
+import { useToast }                    from '@/components/ui/toast';
+import { useNetworkStatus }            from '@/hooks/useNetworkStatus';
+import { useAuthStore }                from '@/store/authStore';
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { Button }       from '@/components/ui/button';
-import { Textarea }     from '@/components/ui/textarea';
+import { Button }        from '@/components/ui/button';
+import { Textarea }      from '@/components/ui/textarea';
 import { ChecklistItem } from '@/components/tasks/checklist/ChecklistItem';
-import { PhotoZone }    from '@/components/photos/PhotoZone';
-import { cn }           from '@/lib/utils';
+import { PhotoZone }     from '@/components/photos/PhotoZone';
+import { cn }            from '@/lib/utils';
 import type { SiteTask, TaskStatus, CollectionType } from '@/types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -24,6 +25,47 @@ const UPDATE_STATUSES: { key: TaskStatus; label: string }[] = [
   { key: 'completed',   label: 'Completed'   },
   { key: 'blocked',     label: 'Blocked'     },
 ];
+
+// ─── Photo base64 conversion helpers (for offline queue) ─────────────────────
+//
+// When a field engineer submits offline, any blob: URLs in the photo arrays
+// must be converted to base64 data URIs before being stored in IndexedDB.
+// Blob URLs only survive the current page session; data URIs persist.
+// After conversion the blob URL is revoked to free memory.
+// Cloudinary https:// URLs and already-converted data: URIs pass through.
+
+async function urlToBase64IfBlob(url: string): Promise<string> {
+  if (url.startsWith('https://') || url.startsWith('data:')) return url;
+  try {
+    const response = await fetch(url);
+    const blob     = await response.blob();
+    return new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        URL.revokeObjectURL(url);         // free memory after reading
+        resolve(reader.result as string);
+      };
+      reader.readAsDataURL(blob);
+    });
+  } catch {
+    console.warn('[OfflineQueue] Could not convert blob URL to base64:', url);
+    return url;                           // pass through as-is on failure
+  }
+}
+
+async function convertSubtaskPhotosToBase64(
+  photos: Record<string, string[]>,
+): Promise<Record<string, string[]>> {
+  const result: Record<string, string[]> = {};
+  for (const [key, urls] of Object.entries(photos)) {
+    result[key] = await Promise.all(urls.map(urlToBase64IfBlob));
+  }
+  return result;
+}
+
+async function convertPhotosArrayToBase64(photos: string[]): Promise<string[]> {
+  return Promise.all(photos.map(urlToBase64IfBlob));
+}
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -41,26 +83,27 @@ export function UpdateSiteTaskDrawer({
   onClose,
 }: UpdateSiteTaskDrawerProps) {
   const { submitSiteTaskUpdate }         = useSiteTaskActions();
+  const { enqueue }                      = useSiteTaskOfflineQueue();
   const { showToast, ToastComponent }    = useToast();
   const isOnline                         = useNetworkStatus();
   const { currentUser }                  = useAuthStore();
 
-  // Subtasks are embedded directly on the SiteTask (snapshot of project template
+  // Subtasks embedded directly on the SiteTask (snapshot of project template
   // at creation time) — no taskMaster lookup needed.
   const subtasks = [...(task.subtasks ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
 
-  // Default status: keep current if it's an actionable status, else start at in_progress
+  // Default status: keep current if actionable, else start at in_progress
   const validStatuses: TaskStatus[] = ['in_progress', 'completed', 'blocked'];
-  const defaultStatus: TaskStatus = validStatuses.includes(task.status)
+  const defaultStatus: TaskStatus   = validStatuses.includes(task.status)
     ? task.status
     : 'in_progress';
 
-  const [status,         setStatus]         = useState<TaskStatus>(defaultStatus);
-  const [blockedReason,  setBlockedReason]  = useState('');
-  const [answers,        setAnswers]        = useState<Record<string, string>>({});
-  const [showErrors,     setShowErrors]     = useState(false);
-  const [blockedError,   setBlockedError]   = useState(false);
-  const [submitting,     setSubmitting]     = useState(false);
+  const [status,        setStatus]        = useState<TaskStatus>(defaultStatus);
+  const [blockedReason, setBlockedReason] = useState('');
+  const [answers,       setAnswers]       = useState<Record<string, string>>({});
+  const [showErrors,    setShowErrors]    = useState(false);
+  const [blockedError,  setBlockedError]  = useState(false);
+  const [submitting,    setSubmitting]    = useState(false);
 
   // ── Geolocation ──────────────────────────────────────────────────────────────
   const [geo,      setGeo]      = useState<{ lat: number; lng: number } | null>(null);
@@ -77,7 +120,7 @@ export function UpdateSiteTaskDrawer({
 
   const firstErrorRef = useRef<HTMLDivElement>(null);
 
-  // ── Reset state when a new task opens ─────────────────────────────────────
+  // ── Reset state when a new task opens ────────────────────────────────────────
   useEffect(() => {
     if (!open) return;
 
@@ -95,7 +138,7 @@ export function UpdateSiteTaskDrawer({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, task.id]);
 
-  // ── Geolocation on open ─────────────────────────────────────────────────────
+  // ── Geolocation on open ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!open) return;
 
@@ -149,14 +192,17 @@ export function UpdateSiteTaskDrawer({
             geoResolveRef.current = null;
           }
         },
-        { enableHighAccuracy: false, timeout: 8000, maximumAge: 120000 },
+        // maximumAge: 300 000 ms — accept a cached position up to 5 minutes old,
+        // giving near-instant GPS on repeat visits without waiting for a fresh fix.
+        // timeout: 5 000 ms — fall back quickly if no fix is available.
+        { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 },
       );
     }
 
     requestGeo();
   }, [open]);
 
-  // ── waitForGeo ──────────────────────────────────────────────────────────────
+  // ── waitForGeo ───────────────────────────────────────────────────────────────
   async function waitForGeo(): Promise<{ lat: number; lng: number } | null> {
     if (latestGeoRef.current) return latestGeoRef.current;
     if (geoError) return null;
@@ -171,15 +217,16 @@ export function UpdateSiteTaskDrawer({
     });
   }
 
-  // ── handleAnswerChange ──────────────────────────────────────────────────────
+  // ── handleAnswerChange ───────────────────────────────────────────────────────
   function handleAnswerChange(subtaskId: string, value: string) {
     setAnswers((prev) => ({ ...prev, [subtaskId]: value }));
   }
 
-  // ── handleSubmit ────────────────────────────────────────────────────────────
+  // ── handleSubmit ─────────────────────────────────────────────────────────────
   async function handleSubmit() {
     if (!currentUser) return;
 
+    // ── Validation ──────────────────────────────────────────────────────────────
     let valid = true;
 
     if (status === 'blocked' && !blockedReason.trim()) {
@@ -222,24 +269,57 @@ export function UpdateSiteTaskDrawer({
 
     if (!valid) return;
 
+    // ── Build subtaskAnswers map (shared for online + offline paths) ─────────────
+    const subtaskAnswers: Record<string, { value: string; type: CollectionType }> = {};
+    for (const s of subtasks) {
+      const val = answers[s.subtaskId];
+      if (val !== undefined && val !== '') {
+        subtaskAnswers[s.subtaskId] = { value: val, type: s.collectionType };
+      }
+    }
+
+    setSubmitting(true);
+
+    // ── OFFLINE PATH — queue for later sync ──────────────────────────────────────
     if (!isOnline) {
-      showToast('No connection. Please go online and try again.', 'error');
+      try {
+        // Convert any blob: preview URLs → durable base64 data URIs
+        const photosForQueue     = await convertSubtaskPhotosToBase64(subtaskPhotos);
+        const completionForQueue = await convertPhotosArrayToBase64(completionPhotos);
+
+        await enqueue({
+          siteTaskId:     task.id,
+          taskCode:       task.taskCode,
+          siteCode:       task.siteCode,
+          taskLabel:      task.taskLabel,
+          siteId:         task.siteId,
+          previousStatus: task.status,
+          payload: {
+            status,
+            blockedReason:    status === 'blocked' ? blockedReason.trim() : null,
+            subtaskAnswers,
+            subtaskPhotos:    photosForQueue,
+            completionPhotos: completionForQueue,
+            location:         latestGeoRef.current,   // use cached GPS if available
+            submittedAt:      new Date().toISOString(),
+          },
+          queuedAt: Date.now(),
+          attempts: 0,
+        });
+
+        showToast('Saved offline — will sync when you reconnect', 'success');
+        onClose();
+      } catch {
+        showToast('Failed to save offline. Please try again.', 'error');
+      } finally {
+        setSubmitting(false);
+      }
       return;
     }
 
-    // Disable button immediately; show "Getting location…" if GPS pending
-    setSubmitting(true);
+    // ── ONLINE PATH — write to Firestore immediately ─────────────────────────────
     try {
       const location = await waitForGeo();
-
-      // Build subtaskAnswers map
-      const subtaskAnswers: Record<string, { value: string; type: CollectionType }> = {};
-      for (const s of subtasks) {
-        const val = answers[s.subtaskId];
-        if (val !== undefined && val !== '') {
-          subtaskAnswers[s.subtaskId] = { value: val, type: s.collectionType };
-        }
-      }
 
       await submitSiteTaskUpdate(task.id, {
         status,
@@ -252,7 +332,7 @@ export function UpdateSiteTaskDrawer({
         siteCode:         task.siteCode,
         taskCode:         task.taskCode,
         taskLabel:        task.taskLabel,
-        previousStatus:   task.status,   // status BEFORE this submission
+        previousStatus:   task.status,
       });
 
       showToast('Task updated successfully', 'success');
@@ -264,7 +344,7 @@ export function UpdateSiteTaskDrawer({
     }
   }
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <>
       {ToastComponent}
@@ -281,6 +361,15 @@ export function UpdateSiteTaskDrawer({
 
           {/* Scrollable body */}
           <div className="flex-1 overflow-y-auto px-5 pb-4 flex flex-col gap-5 mt-4">
+
+            {/* Offline notice */}
+            {!isOnline && (
+              <div className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+                <span className="text-amber-600 text-xs font-medium">
+                  You&apos;re offline — your update will be saved locally and synced when you reconnect.
+                </span>
+              </div>
+            )}
 
             {/* Location bar */}
             <div className="flex items-center gap-2 text-xs rounded-lg bg-gray-50 px-3 py-2">
@@ -337,7 +426,7 @@ export function UpdateSiteTaskDrawer({
               </div>
             )}
 
-            {/* Checklist — subtasks are embedded directly on the SiteTask snapshot */}
+            {/* Checklist — subtasks embedded directly on SiteTask snapshot */}
             {subtasks.length > 0 && (
               <div>
                 <p className="text-sm font-semibold text-gray-700 mb-2">Checklist</p>
@@ -425,10 +514,16 @@ export function UpdateSiteTaskDrawer({
               {submitting ? (
                 <span className="flex items-center gap-2">
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  {!geo && !geoError ? 'Getting location…' : 'Submitting…'}
+                  {!isOnline
+                    ? 'Saving offline…'
+                    : !geo && !geoError
+                    ? 'Getting location…'
+                    : 'Submitting…'}
                 </span>
-              ) : (
+              ) : isOnline ? (
                 'Submit Update'
+              ) : (
+                'Save Offline'
               )}
             </Button>
           </div>

@@ -1,13 +1,15 @@
 import { Wifi } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useEngineerTasks } from '@/hooks/useEngineerTasks';
 import type { User } from '@/types';
 
 interface UserCardProps {
-  user:          User;
-  isSelf:        boolean;
-  onEdit:        (user: User) => void;
-  onToggleActive:(user: User) => void;
+  user:           User;
+  isSelf:         boolean;
+  onEdit:         (user: User) => void;
+  onToggleActive: (user: User) => void;
+  onView?:        (user: User) => void;
 }
 
 // ─── Avatar initial ───────────────────────────────────────────────────────────
@@ -48,7 +50,18 @@ function RoleBadge({ role }: { role: User['role'] }) {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function UserCard({ user, isSelf, onEdit, onToggleActive }: UserCardProps) {
+export function UserCard({ user, isSelf, onEdit, onToggleActive, onView }: UserCardProps) {
+  // Fetch task stats for field engineers; pass '' for admins → returns [] immediately.
+  const { tasks, loading: statsLoading } = useEngineerTasks(
+    user.role === 'field' ? user.id : ''
+  );
+
+  const assignedCount   = tasks.length;
+  const completedCount  = tasks.filter((t) => t.status === 'completed').length;
+  const completionPct   = assignedCount > 0
+    ? Math.round((completedCount / assignedCount) * 100)
+    : 0;
+
   return (
     <div
       className={cn(
@@ -80,16 +93,49 @@ export function UserCard({ user, isSelf, onEdit, onToggleActive }: UserCardProps
         {/* Badges row */}
         <div className="flex items-center gap-2 mt-1.5 flex-wrap">
           <RoleBadge role={user.role} />
+          {user.engineerCode && (
+            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-teal-50 text-teal-700 font-mono">
+              {user.engineerCode}
+            </span>
+          )}
           {!user.active && (
             <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-red-50 text-red-600">
               Disabled
             </span>
           )}
         </div>
+
+        {/* Task stats — field engineers only */}
+        {user.role === 'field' && (
+          <p className="text-xs text-gray-400 mt-1.5">
+            {statsLoading ? (
+              <span className="text-gray-300">Loading tasks…</span>
+            ) : (
+              <>
+                <span className="font-medium text-gray-600">{assignedCount}</span> assigned
+                {' · '}
+                <span className="font-medium text-gray-600">{completedCount}</span> completed
+                {' · '}
+                <span className="font-medium text-gray-600">{completionPct}%</span>
+              </>
+            )}
+          </p>
+        )}
       </div>
 
       {/* Actions */}
       <div className="flex flex-col gap-1.5 shrink-0">
+        {/* View button — field engineers only */}
+        {user.role === 'field' && onView && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs px-2 text-brand-blue border-brand-blue/30 hover:bg-blue-50"
+            onClick={() => onView(user)}
+          >
+            View
+          </Button>
+        )}
         <Button
           size="sm"
           variant="outline"

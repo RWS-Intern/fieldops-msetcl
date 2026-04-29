@@ -1,24 +1,28 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { useTaskStore } from '@/store/taskStore';
+import { useSiteStore } from '@/store/siteStore';
 import { useAppConfig } from '@/hooks/useAppConfig';
-import type { TaskStatus } from '@/types';
+import type { Site } from '@/types';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type AggregateStatus = 'pending' | 'in_progress' | 'completed' | 'blocked';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
 
-/** Dot colours for each task status on the map */
-const PIN_COLOURS: Record<TaskStatus, string> = {
-  pending:     '#6B7280',
-  in_progress: '#F59E0B',
-  completed:   '#16A34A',
+/** Colours for each aggregate-status value on the unclustered pin layer. */
+const STATUS_COLOURS: Record<AggregateStatus, string> = {
+  pending:     '#9CA3AF',
+  in_progress: '#F4A261',
+  completed:   '#2A9D8F',
   blocked:     '#E63946',
 };
 
-/** Active background colour for each filter button */
-const FILTER_COLOURS: Record<TaskStatus | 'all', string> = {
+/** Active background colour for each status filter pill. */
+const FILTER_COLOURS: Record<AggregateStatus | 'all', string> = {
   all:         '#0077B6',
   pending:     '#9CA3AF',
   in_progress: '#F4A261',
@@ -26,7 +30,7 @@ const FILTER_COLOURS: Record<TaskStatus | 'all', string> = {
   blocked:     '#E63946',
 };
 
-const FILTER_LABELS: Record<TaskStatus | 'all', string> = {
+const FILTER_LABELS: Record<AggregateStatus | 'all', string> = {
   all:         'All',
   pending:     'Pending',
   in_progress: 'In Progress',
@@ -34,40 +38,85 @@ const FILTER_LABELS: Record<TaskStatus | 'all', string> = {
   blocked:     'Blocked',
 };
 
-const FILTER_OPTIONS: (TaskStatus | 'all')[] = [
+const FILTER_OPTIONS: (AggregateStatus | 'all')[] = [
   'all', 'pending', 'in_progress', 'completed', 'blocked',
 ];
 
-const SOURCE_ID           = 'tasks-source';
+const SOURCE_ID           = 'sites';
 const LAYER_CLUSTERS      = 'clusters';
 const LAYER_CLUSTER_COUNT = 'cluster-count';
-const LAYER_UNCLUSTERED   = 'unclustered-point';
+const LAYER_UNCLUSTERED   = 'unclustered-site';
 
-// ─── Popup HTML (built from GeoJSON feature properties) ───────────────────────
+// ─── Pure helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Derive the aggregate task status for a site from its denormalised task
+ * counters. Blocked detection requires querying individual siteTasks which
+ * is too expensive for 1,557+ sites — deferred to a future phase.
+ */
+function getSiteAggregateStatus(site: Site): AggregateStatus {
+  if (site.taskCount === 0)                              return 'pending';
+  if (site.completedTaskCount === site.taskCount)        return 'completed';
+  if (site.completedTaskCount > 0)                       return 'in_progress';
+  return 'pending';
+}
 
 function buildPopupHTML(props: Record<string, unknown>): string {
-  const status      = (props['status'] as string) ?? '';
-  const colour      = PIN_COLOURS[status as TaskStatus] ?? '#6B7280';
-  const statusLabel = status.replace('_', ' ');
-  const siteCode    = props['siteCode'] as string | undefined;
+  const aggStatus      = (props['aggregateStatus'] as AggregateStatus) ?? 'pending';
+  const colour         = STATUS_COLOURS[aggStatus] ?? STATUS_COLOURS.pending;
+  const statusLabel    = aggStatus.replace('_', ' ');
+  const completedCount = Number(props['completedTaskCount'] ?? 0);
+  const taskCount      = Number(props['taskCount'] ?? 0);
+  const completionPct  = Number(props['completionPct'] ?? 0);
+  const projectCode    = props['projectCode'] as string | undefined;
+
   return `
-    <div style="font-family:Inter,sans-serif;min-width:180px;padding:4px 0">
-      <p style="font-size:10px;color:#9CA3AF;margin:0 0 2px">${props['taskNum'] ?? ''}</p>
-      <p style="font-size:13px;font-weight:600;color:#111827;margin:0 0 6px;line-height:1.3">
-        ${props['title'] ?? ''}
-      </p>
-      <div style="display:flex;align-items:center;gap:6px">
+    <div style="
+      font-family: Inter, Arial, sans-serif;
+      min-width: 200px;
+      padding: 4px 0;
+    ">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
         <span style="
-          font-size:11px;font-weight:500;
-          background:${colour};color:white;
-          padding:2px 7px;border-radius:99px;
-          text-transform:capitalize
-        ">${statusLabel}</span>
-        <span style="font-size:11px;color:#6B7280">${props['assignedToName'] ?? ''}</span>
+          font-size: 12px;
+          font-weight: 700;
+          color: #023E6B;
+          font-family: monospace;
+        ">${props['siteCode'] ?? ''}</span>
+        ${projectCode
+          ? `<span style="font-size:11px;color:#6B7280">[${projectCode}]</span>`
+          : ''}
       </div>
-      ${siteCode
-        ? `<p style="font-size:11px;color:#6B7280;margin:4px 0 0">Site: ${siteCode}</p>`
-        : ''}
+      <p style="
+        font-size: 13px;
+        font-weight: 600;
+        color: #111827;
+        margin: 0 0 2px;
+        line-height: 1.3;
+      ">${props['siteName'] ?? ''}</p>
+      <p style="
+        font-size: 11px;
+        color: #6B7280;
+        margin: 0 0 8px;
+      ">${props['projectName'] ?? ''} · ${props['city'] ?? ''}</p>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        <span style="
+          display: inline-block;
+          width: 8px; height: 8px;
+          border-radius: 50%;
+          background: ${colour};
+          flex-shrink: 0;
+        "></span>
+        <span style="
+          font-size: 12px;
+          color: #374151;
+          text-transform: capitalize;
+        ">${statusLabel}</span>
+      </div>
+      <p style="font-size:11px;color:#6B7280;margin:0">
+        ${completedCount} of ${taskCount} task${taskCount !== 1 ? 's' : ''} completed
+        (${completionPct}%)
+      </p>
     </div>
   `;
 }
@@ -82,20 +131,46 @@ interface AdminMapProps {
 export function AdminMap({ className = '' }: AdminMapProps) {
   const containerRef   = useRef<HTMLDivElement>(null);
   const mapRef         = useRef<mapboxgl.Map | null>(null);
-  // Tracks whether the GeoJSON source + layers have been added to the map.
-  // Avoids duplicate addSource/addLayer calls if this effect re-fires.
+  // Guards against duplicate addSource/addLayer calls if Effect 2 re-fires.
   const sourceAddedRef = useRef<boolean>(false);
 
-  // mapReady flips to true inside map.on('load') — bridges Effect 1 → Effect 2.
-  const [mapReady, setMapReady]         = useState(false);
-  const [mapError, setMapError]         = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<TaskStatus | 'all'>('all');
+  // mapReady bridges Effect 1 → Effect 2.
+  const [mapReady,  setMapReady]  = useState(false);
+  const [mapError,  setMapError]  = useState<string | null>(null);
 
-  const { tasks }                          = useTaskStore();
+  // ── Filter state ────────────────────────────────────────────────────────────
+  const [activeFilter,    setActiveFilter]    = useState<AggregateStatus | 'all'>('all');
+  const [activeProjectId, setActiveProjectId] = useState<string>('all');
+  const [activeCity,      setActiveCity]      = useState<string>('all');
+
+  const { sites }                          = useSiteStore();
   const { config, loading: configLoading } = useAppConfig();
 
-  // ── Effect 1: Map initialisation ─────────────────────────────────────────
-  // Runs ONCE after appConfig is loaded. Sets mapReady=true on the 'load'
+  // ── Derived dropdown options (non-archived sites only) ──────────────────────
+  const uniqueProjects = useMemo(() => {
+    const seen = new Map<string, string>(); // projectId → projectName
+    sites
+      .filter((s) => !s.archived)
+      .forEach((s) => {
+        if (s.projectId && !seen.has(s.projectId)) {
+          seen.set(s.projectId, s.projectName);
+        }
+      });
+    return Array.from(seen.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [sites]);
+
+  const uniqueCities = useMemo(() => {
+    const seen = new Set<string>();
+    sites.filter((s) => !s.archived).forEach((s) => {
+      if (s.city) seen.add(s.city);
+    });
+    return Array.from(seen).sort();
+  }, [sites]);
+
+  // ── Effect 1: Map initialisation ────────────────────────────────────────────
+  // Runs once after appConfig is loaded. Sets mapReady=true on the 'load'
   // event so Effect 2 can safely add the GeoJSON source and layers.
   useEffect(() => {
     if (configLoading || mapRef.current || !containerRef.current) return;
@@ -130,7 +205,7 @@ export function AdminMap({ className = '' }: AdminMapProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [configLoading]);
 
-  // ── Effect 2: Add GeoJSON source + layers (once, when map is ready) ───────
+  // ── Effect 2: Add GeoJSON source + layers (once, when map is ready) ─────────
   // Adds the clustering source, three layers, click handlers, and cursor
   // changes. Runs only once because sourceAddedRef guards against re-entry.
   useEffect(() => {
@@ -143,8 +218,8 @@ export function AdminMap({ className = '' }: AdminMapProps) {
       type:           'geojson',
       data:           { type: 'FeatureCollection', features: [] },
       cluster:        true,
-      clusterMaxZoom: 14,   // stop clustering beyond zoom 14
-      clusterRadius:  40,   // pixels within which points are merged
+      clusterMaxZoom: 14,
+      clusterRadius:  50,
     });
 
     // ── Cluster circle ────────────────────────────────────────────────────
@@ -156,18 +231,19 @@ export function AdminMap({ className = '' }: AdminMapProps) {
       paint:  {
         'circle-color': [
           'step', ['get', 'point_count'],
-          '#0077B6',       // 1 – 9
-          10, '#0096C7',   // 10 – 29
+          '#0077B6',       // 1–9
+          10, '#0096C7',   // 10–29
           30, '#00B4D8',   // 30+
         ],
         'circle-radius': [
           'step', ['get', 'point_count'],
-          18,        // 1 – 9
-          10, 22,    // 10 – 29
-          30, 28,    // 30+
+          20,        // 1–9
+          10, 25,    // 10–29
+          30, 30,    // 30+
         ],
         'circle-stroke-width': 2,
         'circle-stroke-color': '#ffffff',
+        'circle-opacity':      0.9,
       },
     });
 
@@ -185,7 +261,7 @@ export function AdminMap({ className = '' }: AdminMapProps) {
       paint: { 'text-color': '#ffffff' },
     });
 
-    // ── Individual (unclustered) point ────────────────────────────────────
+    // ── Unclustered site pin — coloured by aggregateStatus ────────────────
     map.addLayer({
       id:     LAYER_UNCLUSTERED,
       type:   'circle',
@@ -193,20 +269,20 @@ export function AdminMap({ className = '' }: AdminMapProps) {
       filter: ['!', ['has', 'point_count']],
       paint:  {
         'circle-color': [
-          'match', ['get', 'status'],
-          'pending',     PIN_COLOURS.pending,
-          'in_progress', PIN_COLOURS.in_progress,
-          'completed',   PIN_COLOURS.completed,
-          'blocked',     PIN_COLOURS.blocked,
-          /* default */  '#6B7280',
+          'match', ['get', 'aggregateStatus'],
+          'pending',     STATUS_COLOURS.pending,
+          'in_progress', STATUS_COLOURS.in_progress,
+          'completed',   STATUS_COLOURS.completed,
+          'blocked',     STATUS_COLOURS.blocked,
+          /* default */  STATUS_COLOURS.pending,
         ],
-        'circle-radius':       8,
+        'circle-radius':       10,
         'circle-stroke-width': 2,
         'circle-stroke-color': '#ffffff',
       },
     });
 
-    // ── Click cluster → zoom in to expand ────────────────────────────────
+    // ── Click cluster → zoom to expand ────────────────────────────────────
     map.on('click', LAYER_CLUSTERS, (e) => {
       const features = map.queryRenderedFeatures(e.point, { layers: [LAYER_CLUSTERS] });
       if (!features.length) return;
@@ -221,7 +297,7 @@ export function AdminMap({ className = '' }: AdminMapProps) {
       });
     });
 
-    // ── Click individual point → popup ────────────────────────────────────
+    // ── Click site pin → popup ────────────────────────────────────────────
     map.on('click', LAYER_UNCLUSTERED, (e) => {
       if (!e.features?.length) return;
       const feature = e.features[0];
@@ -235,16 +311,16 @@ export function AdminMap({ className = '' }: AdminMapProps) {
     });
 
     // ── Cursor: pointer on hover ──────────────────────────────────────────
-    map.on('mouseenter', LAYER_CLUSTERS,      () => { map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', LAYER_CLUSTERS,      () => { map.getCanvas().style.cursor = ''; });
-    map.on('mouseenter', LAYER_UNCLUSTERED,   () => { map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', LAYER_UNCLUSTERED,   () => { map.getCanvas().style.cursor = ''; });
+    map.on('mouseenter', LAYER_CLUSTERS,    () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', LAYER_CLUSTERS,    () => { map.getCanvas().style.cursor = ''; });
+    map.on('mouseenter', LAYER_UNCLUSTERED, () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', LAYER_UNCLUSTERED, () => { map.getCanvas().style.cursor = ''; });
 
     sourceAddedRef.current = true;
   }, [mapReady]);
 
-  // ── Effect 3: Push updated GeoJSON to the source ──────────────────────────
-  // Fires whenever tasks stream in from Firestore, the filter changes, or
+  // ── Effect 3: Push updated GeoJSON to the source ────────────────────────────
+  // Fires whenever sites load/update from Firestore, any filter changes, or
   // the map first becomes ready. Calls source.setData() — no layers touched.
   useEffect(() => {
     if (!mapReady || !sourceAddedRef.current) return;
@@ -254,27 +330,45 @@ export function AdminMap({ className = '' }: AdminMapProps) {
     const source = map.getSource(SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
     if (!source) return;
 
-    // Apply status filter; only include tasks with a valid GPS fix
-    const visible = tasks.filter((t) => {
-      if (!t.location?.lat || !t.location?.lng) return false;
-      return activeFilter === 'all' || t.status === activeFilter;
+    // Apply all three filters; exclude archived sites
+    const filteredSites = sites.filter((s) => {
+      if (s.archived) return false;
+      const aggStatus    = getSiteAggregateStatus(s);
+      const statusMatch  = activeFilter === 'all' || aggStatus === activeFilter;
+      const projectMatch = activeProjectId === 'all' || s.projectId === activeProjectId;
+      const cityMatch    = activeCity === 'all' || s.city === activeCity;
+      return statusMatch && projectMatch && cityMatch;
     });
+
+    // Only sites with a valid GPS fix appear as map pins
+    const visible = filteredSites.filter(
+      (s) => s.location?.lat && s.location?.lng
+    );
 
     const geojson: GeoJSON.FeatureCollection = {
       type:     'FeatureCollection',
-      features: visible.map((t) => ({
+      features: visible.map((s) => ({
         type:     'Feature',
         geometry: {
           type:        'Point',
-          coordinates: [t.location!.lng, t.location!.lat],
+          coordinates: [s.location!.lng, s.location!.lat],
         },
         properties: {
-          taskId:         t.id,
-          taskNum:        t.taskNum,
-          title:          t.title,
-          status:         t.status,
-          assignedToName: t.assignedToName,
-          siteCode:       t.siteCode ?? '',
+          siteId:             s.id,
+          siteCode:           s.siteCode,
+          siteName:           s.siteName,
+          city:               s.city,
+          projectId:          s.projectId,
+          projectName:        s.projectName,
+          projectCode:        s.projectCode,
+          status:             s.status,
+          aggregateStatus:    getSiteAggregateStatus(s),
+          taskCount:          s.taskCount,
+          completedTaskCount: s.completedTaskCount,
+          completionPct:
+            s.taskCount > 0
+              ? Math.round((s.completedTaskCount / s.taskCount) * 100)
+              : 0,
         },
       })),
     };
@@ -284,25 +378,29 @@ export function AdminMap({ className = '' }: AdminMapProps) {
     // Auto-fit bounds to show all visible pins
     if (visible.length > 0) {
       const bounds = new mapboxgl.LngLatBounds();
-      visible.forEach((t) => bounds.extend([t.location!.lng, t.location!.lat]));
-      map.fitBounds(bounds, { padding: 80, maxZoom: 14, duration: 500 });
+      visible.forEach((s) => bounds.extend([s.location!.lng, s.location!.lat]));
+      map.fitBounds(bounds, { padding: 60, maxZoom: 14, duration: 500 });
     }
-  }, [tasks, mapReady, activeFilter]);
+  }, [sites, mapReady, activeFilter, activeProjectId, activeCity]);
 
-  // ── Derived counts ────────────────────────────────────────────────────────
-  const totalForFilter =
-    activeFilter === 'all'
-      ? tasks.length
-      : tasks.filter((t) => t.status === activeFilter).length;
+  // ── Derived counts for the counter line (Part 9) ─────────────────────────────
+  // Recompute outside the effect so the UI updates synchronously with filters.
+  const filteredForCount = sites.filter((s) => {
+    if (s.archived) return false;
+    const aggStatus    = getSiteAggregateStatus(s);
+    const statusMatch  = activeFilter === 'all' || aggStatus === activeFilter;
+    const projectMatch = activeProjectId === 'all' || s.projectId === activeProjectId;
+    const cityMatch    = activeCity === 'all' || s.city === activeCity;
+    return statusMatch && projectMatch && cityMatch;
+  });
 
-  const pinnedForFilter =
-    activeFilter === 'all'
-      ? tasks.filter((t) => t.location?.lat && t.location?.lng).length
-      : tasks.filter(
-          (t) => t.status === activeFilter && t.location?.lat && t.location?.lng
-        ).length;
+  const totalForFilter  = filteredForCount.length;
+  const pinnedForFilter = filteredForCount.filter(
+    (s) => s.location?.lat && s.location?.lng
+  ).length;
+  const noGpsCount = totalForFilter - pinnedForFilter;
 
-  // ── Error state ───────────────────────────────────────────────────────────
+  // ── Error state ───────────────────────────────────────────────────────────────
   if (mapError) {
     return (
       <div
@@ -313,10 +411,10 @@ export function AdminMap({ className = '' }: AdminMapProps) {
     );
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div>
-      {/* ── Filter buttons ─────────────────────────────────────────────── */}
+      {/* ── Status filter pills ─────────────────────────────────────────── */}
       <div className="flex gap-2 mb-3 flex-wrap">
         {FILTER_OPTIONS.map((f) => {
           const isActive = activeFilter === f;
@@ -327,9 +425,7 @@ export function AdminMap({ className = '' }: AdminMapProps) {
               type="button"
               onClick={() => setActiveFilter(f)}
               style={
-                isActive
-                  ? { backgroundColor: colour, borderColor: colour }
-                  : {}
+                isActive ? { backgroundColor: colour, borderColor: colour } : {}
               }
               className={[
                 'px-2 py-1 rounded-full text-xs font-medium border transition-colors',
@@ -344,24 +440,63 @@ export function AdminMap({ className = '' }: AdminMapProps) {
         })}
       </div>
 
-      {/* ── Map canvas ─────────────────────────────────────────────────── */}
+      {/* ── Project + City filter dropdowns ────────────────────────────── */}
+      {(uniqueProjects.length > 1 || uniqueCities.length > 1) && (
+        <div className="flex gap-2 mb-3 flex-wrap">
+          {uniqueProjects.length > 1 && (
+            <select
+              value={activeProjectId}
+              onChange={(e) => setActiveProjectId(e.target.value)}
+              className="px-2.5 py-1 rounded-lg text-xs border border-gray-200 bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-brand-blue/40 focus:border-brand-blue cursor-pointer"
+            >
+              <option value="all">All Projects</option>
+              {uniqueProjects.map(({ id, name }) => (
+                <option key={id} value={id}>{name}</option>
+              ))}
+            </select>
+          )}
+          {uniqueCities.length > 1 && (
+            <select
+              value={activeCity}
+              onChange={(e) => setActiveCity(e.target.value)}
+              className="px-2.5 py-1 rounded-lg text-xs border border-gray-200 bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-brand-blue/40 focus:border-brand-blue cursor-pointer"
+            >
+              <option value="all">All Cities</option>
+              {uniqueCities.map((city) => (
+                <option key={city} value={city}>{city}</option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
+
+      {/* ── Map canvas ──────────────────────────────────────────────────── */}
       <div
         className={`relative rounded-xl overflow-hidden shadow-sm border border-gray-200 ${className}`}
       >
         <div ref={containerRef} className="w-full h-full" />
       </div>
 
-      {/* ── Count line / empty state ────────────────────────────────────── */}
-      {pinnedForFilter === 0 ? (
-        <p className="mt-2 text-xs text-gray-400">
-          No tasks with GPS location for this filter.
-        </p>
-      ) : (
-        <p className="mt-2 text-xs text-gray-400">
-          Showing {pinnedForFilter} of {totalForFilter} task
-          {totalForFilter !== 1 ? 's' : ''} on map
-        </p>
-      )}
+      {/* ── Counter line (Part 9) ────────────────────────────────────────── */}
+      <p className="mt-2 text-xs text-gray-400">
+        {totalForFilter === 0
+          ? 'No sites match the current filters.'
+          : pinnedForFilter === 0
+          ? `${totalForFilter} site${totalForFilter !== 1 ? 's' : ''} match — none have GPS coordinates yet.`
+          : (
+            <>
+              Showing{' '}
+              <span className="font-medium text-gray-600">{pinnedForFilter}</span>
+              {' '}of{' '}
+              <span className="font-medium text-gray-600">{totalForFilter}</span>
+              {' '}site{totalForFilter !== 1 ? 's' : ''} on map
+              {noGpsCount > 0 && (
+                <> ({noGpsCount} have no GPS location yet)</>
+              )}
+            </>
+          )
+        }
+      </p>
     </div>
   );
 }

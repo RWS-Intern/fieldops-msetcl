@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { useTaskStore } from '@/store/taskStore';
 import { useUserStore } from '@/store/userStore';
+import type { SiteTask } from '@/types';
 
 // ─── Exported types ───────────────────────────────────────────────────────────
 
@@ -25,82 +25,89 @@ export interface EngineerStat {
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
-export function useReports() {
-  const { tasks } = useTaskStore();
+/**
+ * Derives chart-ready datasets from a pre-filtered array of SiteTasks.
+ * The caller (ReportsPage) owns the filter logic and passes the result in;
+ * this hook just computes the aggregations.
+ */
+export function useReports(siteTasks: SiteTask[]) {
   const { users } = useUserStore();
 
-  // Tasks by status — used by doughnut chart
+  // Tasks by status — doughnut chart
   const byStatus = useMemo((): StatusCount[] => [
     {
       name:   'Pending',
-      value:  tasks.filter((t) => t.status === 'pending').length,
+      value:  siteTasks.filter((t) => t.status === 'pending').length,
       colour: '#9CA3AF',
     },
     {
       name:   'In Progress',
-      value:  tasks.filter((t) => t.status === 'in_progress').length,
+      value:  siteTasks.filter((t) => t.status === 'in_progress').length,
       colour: '#F4A261',
     },
     {
       name:   'Completed',
-      value:  tasks.filter((t) => t.status === 'completed').length,
+      value:  siteTasks.filter((t) => t.status === 'completed').length,
       colour: '#2A9D8F',
     },
     {
       name:   'Blocked',
-      value:  tasks.filter((t) => t.status === 'blocked').length,
+      value:  siteTasks.filter((t) => t.status === 'blocked').length,
       colour: '#E63946',
     },
-  ], [tasks]);
+  ], [siteTasks]);
 
-  // Tasks by type — used by bar chart
+  // Tasks by task label — bar chart
   const byType = useMemo((): TypeCount[] => {
     const counts: Record<string, { count: number; colour: string }> = {};
-    tasks.forEach((t) => {
-      if (!counts[t.type]) {
-        counts[t.type] = { count: 0, colour: '#0077B6' };
+    siteTasks.forEach((t) => {
+      const key = t.taskLabel || t.taskKey || 'Unknown';
+      if (!counts[key]) {
+        counts[key] = { count: 0, colour: t.taskColour || '#0077B6' };
       }
-      counts[t.type].count++;
+      counts[key].count++;
     });
     return Object.entries(counts)
       .map(([name, { count, colour }]) => ({ name, count, colour }))
       .sort((a, b) => b.count - a.count);
-  }, [tasks]);
+  }, [siteTasks]);
 
-  // Completion rate per field engineer
+  // Completion rate per active field engineer
   const byEngineer = useMemo((): EngineerStat[] => {
     const fieldUsers = users.filter((u) => u.role === 'field' && u.active);
-    return fieldUsers.map((user) => {
-      const assigned  = tasks.filter((t) => t.assignedTo === user.id);
-      const completed = assigned.filter((t) => t.status === 'completed').length;
-      return {
-        name:      user.name,
-        completed,
-        total:     assigned.length,
-        rate:      assigned.length > 0
-          ? Math.round((completed / assigned.length) * 100)
-          : 0,
-      };
-    });
-  }, [tasks, users]);
+    return fieldUsers
+      .map((user) => {
+        const assigned  = siteTasks.filter((t) => t.assignedTo === user.id);
+        const completed = assigned.filter((t) => t.status === 'completed').length;
+        return {
+          name:      user.name,
+          completed,
+          total:     assigned.length,
+          rate:      assigned.length > 0
+            ? Math.round((completed / assigned.length) * 100)
+            : 0,
+        };
+      })
+      .filter((e) => e.total > 0); // only engineers with at least one task in view
+  }, [siteTasks, users]);
 
   // Summary KPI cards
   const summary = useMemo(() => {
-    const now = new Date();
-    const completed = tasks.filter((t) => t.status === 'completed').length;
+    const now       = new Date();
+    const completed = siteTasks.filter((t) => t.status === 'completed').length;
     return {
-      total:          tasks.length,
+      total:          siteTasks.length,
       completed,
-      inProgress:     tasks.filter((t) => t.status === 'in_progress').length,
-      blocked:        tasks.filter((t) => t.status === 'blocked').length,
-      overdue:        tasks.filter(
-        (t) => t.status !== 'completed' && t.dueDate < now,
+      inProgress:     siteTasks.filter((t) => t.status === 'in_progress').length,
+      blocked:        siteTasks.filter((t) => t.status === 'blocked').length,
+      overdue:        siteTasks.filter(
+        (t) => t.status !== 'completed' && t.dueDate != null && t.dueDate < now,
       ).length,
-      completionRate: tasks.length > 0
-        ? Math.round((completed / tasks.length) * 100)
+      completionRate: siteTasks.length > 0
+        ? Math.round((completed / siteTasks.length) * 100)
         : 0,
     };
-  }, [tasks]);
+  }, [siteTasks]);
 
-  return { byStatus, byType, byEngineer, summary, tasks };
+  return { byStatus, byType, byEngineer, summary };
 }

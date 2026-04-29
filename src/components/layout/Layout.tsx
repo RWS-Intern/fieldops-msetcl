@@ -8,8 +8,9 @@ import { useAssignedSiteTasks }   from '@/hooks/useAssignedSiteTasks';
 import { Header } from './Header';
 import { BottomNav } from './BottomNav';
 import { SideNav } from './SideNav';
-import { OfflineBanner } from '@/components/offline/OfflineBanner';
-import { OfflineQueueProcessor } from '@/components/offline/OfflineQueueProcessor';
+import { OfflineBanner }           from '@/components/offline/OfflineBanner';
+import { OfflineQueueProcessor }   from '@/components/offline/OfflineQueueProcessor';
+import { SiteTaskQueueProcessor }  from '@/components/offline/SiteTaskQueueProcessor';
 
 // Starts the single shared Firestore tasks listener for the whole session.
 function TasksListener() {
@@ -60,9 +61,6 @@ export function Layout() {
     return <Navigate to="/login" replace />;
   }
 
-  // Diagnostic — remove once confirmed working
-  console.log('[Layout] currentUser role:', currentUser?.role, 'uid:', currentUser?.uid);
-
   return (
     <div className="min-h-screen bg-brand-background">
       {/* One listener wired here; Dashboard + Tasks read from taskStore */}
@@ -81,8 +79,10 @@ export function Layout() {
        * mounts regardless of whatever role string is stored in the user doc.
        */}
       <AssignedSiteTasksListener />
-      {/* Drains IndexedDB queue when connection is restored */}
+      {/* Drains v2.1 IndexedDB queue when connection is restored */}
       <OfflineQueueProcessor />
+      {/* Drains site-task IndexedDB queue when connection is restored */}
+      <SiteTaskQueueProcessor />
       <Header />
       <SideNav />
       {/* Offline / syncing banner sits below the header */}

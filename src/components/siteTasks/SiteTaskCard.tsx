@@ -26,6 +26,14 @@ interface SiteTaskCardProps {
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
+//
+// Layout (per SRS §7.2 + Build Plan Phase F):
+//
+//   [colour stripe] │ SUB-PUNE-047 · Pune        ← Line 1: siteCode + city (prominent)
+//                   │ IoT Substation              ← Line 2: projectName (muted)
+//                   │ Solar Addition              ← Line 3: taskLabel (bold)
+//                   │ [In Progress]  Due 25 Apr   ← Line 4: status badge + due date
+//                   │                  [Update]   ← Footer: action button
 
 export function SiteTaskCard({ task, onUpdate }: SiteTaskCardProps) {
   return (
@@ -33,45 +41,47 @@ export function SiteTaskCard({ task, onUpdate }: SiteTaskCardProps) {
       className="flex rounded-lg border border-gray-100 bg-white shadow-sm overflow-hidden cursor-pointer hover:border-brand-blue transition-colors"
       onClick={onUpdate}
     >
-      {/* Colour stripe */}
+      {/* Left colour stripe — taskColour from project template */}
       <div className="w-1.5 shrink-0" style={{ backgroundColor: task.taskColour }} />
 
       <div className="flex-1 p-3 min-w-0">
-        {/* Site code + status badge */}
-        <div className="flex items-center justify-between gap-2 mb-0.5">
-          <span className="text-sm font-bold text-gray-900 font-mono leading-snug">
-            {task.siteCode}
-          </span>
+
+        {/* Line 1 — site code · city (prominent) */}
+        <p className="text-sm font-bold text-gray-900 font-mono leading-snug">
+          {task.siteCode}
+          <span className="font-normal text-gray-500 mx-1">·</span>
+          {task.city}
+        </p>
+
+        {/* Line 2 — project name (muted) */}
+        <p className="text-xs text-gray-400 mt-0.5 leading-snug">
+          {task.projectName}
+        </p>
+
+        {/* Line 3 — task label (bold) */}
+        <p className="text-sm font-semibold text-gray-800 mt-1 leading-snug">
+          {task.taskLabel}
+        </p>
+
+        {/* Line 4 — status badge + due date */}
+        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
           <span
             className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${STATUS_BADGE[task.status]}`}
           >
             {STATUS_LABELS[task.status]}
           </span>
-        </div>
-
-        {/* City */}
-        <p className="text-xs text-gray-500">{task.city}</p>
-
-        {/* Task label */}
-        <p className="text-sm font-semibold text-gray-800 mt-1 leading-snug">
-          {task.taskLabel}
-        </p>
-
-        {/* Project name */}
-        <p className="text-xs text-gray-400 mt-0.5">{task.projectName}</p>
-
-        {/* Due date + action button */}
-        <div className="flex items-center justify-between mt-2 gap-2">
-          {task.dueDate ? (
+          {task.dueDate && (
             <span className="text-xs text-gray-400">
               Due{' '}
               {task.dueDate.toLocaleDateString('en-GB', {
                 day: '2-digit', month: 'short', year: 'numeric',
               })}
             </span>
-          ) : (
-            <span />
           )}
+        </div>
+
+        {/* Footer — action button */}
+        <div className="flex justify-end mt-2">
           <Button
             variant="outline"
             size="sm"
@@ -80,6 +90,7 @@ export function SiteTaskCard({ task, onUpdate }: SiteTaskCardProps) {
             {task.status === 'completed' ? 'View' : 'Update'}
           </Button>
         </div>
+
       </div>
     </div>
   );

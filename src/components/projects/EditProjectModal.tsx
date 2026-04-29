@@ -81,6 +81,12 @@ export function EditProjectModal({ project, onClose }: EditProjectModalProps) {
 
     templates.forEach((t, i) => {
       if (!t.label.trim()) errs[`tmpl_label_${i}`] = 'Task type name is required';
+      if (!t.taskKey.trim()) errs[`tmpl_taskKey_${i}`] = 'Task key cannot be empty';
+      const dupIdx = templates.findIndex(
+        (t2, j) => j !== i && t2.taskKey.trim() === t.taskKey.trim() && !!t.taskKey.trim()
+      );
+      if (dupIdx !== -1)
+        errs[`tmpl_taskKey_${i}`] = `Duplicate — same key as template ${dupIdx + 1}`;
       t.subtasks.forEach((s, j) => {
         if (!s.label.trim())
           errs[`subtask_label_${i}_${j}`] = `Subtask ${j + 1} label required`;
@@ -107,6 +113,7 @@ export function EditProjectModal({ project, onClose }: EditProjectModalProps) {
       const finalTemplates: TaskTemplate[] = templates.map((t, i) => ({
         ...t,
         label:     t.label.trim(),
+        taskKey:   t.taskKey.trim(),
         sortOrder: i,
         subtasks:  t.subtasks.map((s, j) => ({
           ...s, sortOrder: j, label: s.label.trim(),
@@ -231,6 +238,7 @@ export function EditProjectModal({ project, onClose }: EditProjectModalProps) {
               templates={templates}
               onChange={setTemplates}
               disabled={saving}
+              isEditing={true}
               errors={errors}
             />
           </div>

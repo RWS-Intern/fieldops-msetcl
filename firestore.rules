@@ -84,14 +84,22 @@ service cloud.firestore {
     }
 
     match /siteTasks/{taskId} {
-      // Any authenticated user can read siteTasks.
-      // The previous rule used `resource.data.assignedTo == request.auth.uid` for
-      // field-engineer reads, which Firestore's query-security evaluation may reject
-      // when the isAdmin() helper's get() call is present in the same rule expression.
-      // Pattern mirrors the `tasks` collection: the UI enforces per-user visibility
-      // via the `where('assignedTo', '==', uid)` query filter in useAssignedSiteTasks.ts
-      // and useSiteTasks.ts — the rules don't need to duplicate that logic for reads.
-      allow read: if isAuthenticated();
+      // Split get vs list to enforce document-level isolation for field engineers
+      // while keeping list queries working for both roles.
+      //
+      // get  (single-document read by ID): admin sees all; field engineer sees only
+      //       tasks explicitly assigned to them.  resource.data is safe in get rules.
+      //
+      // list (collection query): any authenticated user may run a query.
+      //       Field-engineer isolation is enforced at the query layer via
+      //       where('assignedTo', '==', uid) in useAssignedSiteTasks.ts.
+      //       Admin queries (useSiteTasks / useSiteTaskActions) run under admin
+      //       sessions and use their own query filters.
+      //
+      // This pattern avoids the isAdmin()+resource.data+OR combination that causes
+      // Firestore to reject field-engineer list queries with permission-denied.
+      allow get:  if isAdmin() || resource.data.assignedTo == request.auth.uid;
+      allow list: if isAuthenticated();
       // Write access remains restricted — admins only for create/delete,
       // field engineers can update only tasks explicitly assigned to them.
       allow create: if isAdmin();

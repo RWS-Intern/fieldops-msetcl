@@ -1,40 +1,47 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   collection,
   query,
-  where,
+  orderBy,
+  limit,
   onSnapshot,
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
-import { useAuthStore }              from '@/store/authStore';
-import { useAssignedSiteTaskStore }  from '@/store/assignedSiteTaskStore';
 import type { SiteTask, TaskStatus } from '@/types';
 
 /**
- * Real-time listener for siteTasks assigned to the current user.
- * Intended for field engineer sessions — mount once via AssignedSiteTasksListener
- * in Layout.tsx.
+ * Real-time listener for all (non-archived) site tasks, ordered by most
+ * recently updated first. Used by the Reports page so filters can be applied
+ * client-side across charts AND the submission history table simultaneously.
  *
- * Query: where('assignedTo', '==', uid) — uses the auto-indexed assignedTo field.
- * No orderBy to avoid needing a composite index.  Archived filtering and
- * sorting are done client-side (same pattern as useSiteTasks).
+ * Pass `enabled = false` to skip the subscription entirely (returns an empty
+ * result immediately). Used on DashboardPage to avoid subscribing when the
+ * current user is a field engineer (they use useAssignedSiteTasks instead).
+ *
+ * Capped at 1 000 documents — sufficient for the current scale. Increase the
+ * limit if the corpus grows significantly.
  */
-export function useAssignedSiteTasks() {
-  const { currentUser }           = useAuthStore();
-  const { setAssignedSiteTasks }  = useAssignedSiteTaskStore();
+export function useAllSiteTasks(enabled = true) {
+  const [tasks,   setTasks]   = useState<SiteTask[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!enabled) {
+      setTasks([]);
+      setLoading(false);
+      return;
+    }
 
     const q = query(
       collection(db, 'siteTasks'),
-      where('assignedTo', '==', currentUser.uid),
+      orderBy('updatedAt', 'desc'),
+      limit(1000),
     );
 
     const unsubscribe = onSnapshot(
       q,
       (snap) => {
-        const tasks: SiteTask[] = snap.docs
+        const result: SiteTask[] = snap.docs
           .map((d) => {
             const data = d.data();
             return {
@@ -70,19 +77,19 @@ export function useAssignedSiteTasks() {
               archivedAt:       data['archivedAt']?.toDate?.()  ?? null,
             } as SiteTask;
           })
-          // Client-side archived filter — avoids needing a multi-field composite index.
-          .filter((t) => !t.archived)
-          // Most-recently-updated first.
-          .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+          .filter((t) => !t.archived);
 
-        setAssignedSiteTasks(tasks);
+        setTasks(result);
+        setLoading(false);
       },
       (err) => {
-        console.error('[AssignedSiteTasks] listener error:', err.code, err.message);
+        console.error('[useAllSiteTasks] listener error:', err);
+        setLoading(false);
       },
     );
 
     return () => unsubscribe();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.uid]);
+  }, [enabled]);
+
+  return { tasks, loading };
 }

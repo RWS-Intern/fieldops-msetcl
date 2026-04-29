@@ -3,7 +3,8 @@
  *
  * Inline editor for the taskTemplates array on a project document.
  * Each template row has:
- *   • label input
+ *   • label input (auto-suggests a taskKey while the key hasn't been manually edited)
+ *   • task key input (monospace, sanitised to a-z 0-9 _)
  *   • colour swatch picker
  *   • expand/collapse toggle to reveal the subtask checklist
  *   • up / down reorder arrows
@@ -11,7 +12,7 @@
  * The subtask checklist is the same SubtaskChecklist component used by
  * the Task Master page — reused directly, not rebuilt.
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, X, ChevronUp, ChevronDown } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -34,37 +35,94 @@ function newTemplate(sortOrder: number): TaskTemplate {
   };
 }
 
+/**
+ * Derive a URL-safe task key from a label string.
+ * e.g. "Solar Addition" → "solar_addition"
+ *      "New Feeder #2"  → "new_feeder_2"
+ */
+function suggestTaskKey(label: string): string {
+  return label
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s_]/g, '')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_');
+}
+
+/** True if the key matches the auto-generated placeholder pattern tk_xxx_yyy. */
+const AUTO_GEN_RE = /^tk_[a-z0-9]+_[a-z0-9]+$/;
+
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface TaskTemplateEditorProps {
   templates:  TaskTemplate[];
   onChange:   (templates: TaskTemplate[]) => void;
   disabled?:  boolean;
-  /** Validation error keys: tmpl_label_N, subtask_label_N_M, subtask_options_N_M */
+  /**
+   * Pass true when editing an existing project (EditProjectModal).
+   * Displays a warning in the Task Key field for templates that were originally
+   * loaded from Firestore, reminding admins that changing a key does not
+   * back-fill existing site task records.
+   */
+  isEditing?: boolean;
+  /** Validation error keys: tmpl_label_N, tmpl_taskKey_N, subtask_label_N_M, subtask_options_N_M */
   errors?:    Record<string, string>;
 }
 
 // ─── TemplateRow ──────────────────────────────────────────────────────────────
 
 interface TemplateRowProps {
-  template:   TaskTemplate;
-  index:      number;
-  total:      number;
-  onUpdate:   (index: number, patch: Partial<TaskTemplate>) => void;
-  onDelete:   (index: number) => void;
-  onMoveUp:   (index: number) => void;
-  onMoveDown: (index: number) => void;
-  disabled:   boolean;
-  errors:     Record<string, string>;
+  template:      TaskTemplate;
+  index:         number;
+  total:         number;
+  /** All other templates' taskKeys (for duplicate detection). */
+  otherTaskKeys: string[];
+  isEditing:     boolean;
+  onUpdate:      (index: number, patch: Partial<TaskTemplate>) => void;
+  onDelete:      (index: number) => void;
+  onMoveUp:      (index: number) => void;
+  onMoveDown:    (index: number) => void;
+  disabled:      boolean;
+  errors:        Record<string, string>;
 }
 
 function TemplateRow({
-  template, index, total, onUpdate, onDelete, onMoveUp, onMoveDown, disabled, errors,
+  template, index, total, otherTaskKeys, isEditing,
+  onUpdate, onDelete, onMoveUp, onMoveDown, disabled, errors,
 }: TemplateRowProps) {
   const [expanded, setExpanded] = useState(false);
 
-  // Build subtask-level error keys scoped to this template row:
-  // e.g. errors["subtask_label_2_1"] → subtask_label_1 for SubtaskChecklist
+  // Capture on mount whether this template's key looked auto-generated.
+  // Firestore-loaded templates have human-readable keys (e.g. "solar_addition")
+  // while newly-added templates start with the tk_xxx placeholder.
+  // We only show the "changing this key won't update existing records" warning
+  // for templates that were loaded from Firestore (i.e. NOT auto-gen at mount).
+  const [wasAutoGenOnMount] = useState(
+    () => AUTO_GEN_RE.test(template.taskKey)
+  );
+
+  // If the admin has manually typed in the Task Key field, stop auto-suggesting
+  // from the label. Initialise to true for templates with a real (non-auto-gen)
+  // key so we never clobber an existing key when the label is edited.
+  const [manuallyEdited, setManuallyEdited] = useState(
+    () => !AUTO_GEN_RE.test(template.taskKey)
+  );
+
+  // Auto-expand the row when the parent's validation fires a taskKey error here,
+  // so the error is visible without the admin needing to manually expand.
+  useEffect(() => {
+    if (errors[`tmpl_taskKey_${index}`]) setExpanded(true);
+  }, [errors, index]);
+
+  // ── Inline task-key validation ────────────────────────────────────────────
+  const taskKeyError: string | null =
+    !template.taskKey.trim()
+      ? 'Task key cannot be empty'
+      : otherTaskKeys.includes(template.taskKey.trim())
+      ? 'Task key must be unique within this project'
+      : (errors[`tmpl_taskKey_${index}`] ?? null);
+
+  // ── Subtask error keys scoped to this row ─────────────────────────────────
   const subtaskErrors: Record<string, string> = {};
   for (const [k, v] of Object.entries(errors)) {
     const match = k.match(new RegExp(`^subtask_(.+)_${index}_(.+)$`));
@@ -78,8 +136,9 @@ function TemplateRow({
         <div className="w-1 shrink-0 rounded-l-xl" style={{ backgroundColor: template.colour }} />
 
         <div className="flex-1 p-3 min-w-0">
-          {/* Header row: up/down · swatch · label · subtask count · delete */}
+          {/* Header row: up/down · swatch · label input · subtask count · delete */}
           <div className="flex items-center gap-2">
+
             {/* Up / Down */}
             <div className="flex flex-col gap-0.5 shrink-0">
               <button
@@ -102,7 +161,7 @@ function TemplateRow({
               </button>
             </div>
 
-            {/* Colour swatch (click to expand and change colour) */}
+            {/* Colour swatch — click to expand */}
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
@@ -111,10 +170,19 @@ function TemplateRow({
               aria-label="Toggle expand"
             />
 
-            {/* Label input */}
+            {/* Label input — drives taskKey auto-suggest while not manually edited */}
             <Input
               value={template.label}
-              onChange={(e) => onUpdate(index, { label: e.target.value })}
+              onChange={(e) => {
+                const newLabel = e.target.value;
+                const patch: Partial<TaskTemplate> = { label: newLabel };
+                if (!manuallyEdited) {
+                  const suggested = suggestTaskKey(newLabel);
+                  // Only apply suggestion if it's non-empty (avoids wiping a good key)
+                  if (suggested) patch.taskKey = suggested;
+                }
+                onUpdate(index, patch);
+              }}
               placeholder="Task type name…"
               disabled={disabled}
               className={cn(
@@ -152,7 +220,7 @@ function TemplateRow({
             </p>
           )}
 
-          {/* Expanded panel: colour picker + subtask checklist */}
+          {/* Expanded panel: colour picker · task key · subtask checklist */}
           {expanded && (
             <div className="mt-3 flex flex-col gap-4 pt-3 border-t border-gray-100">
 
@@ -178,6 +246,39 @@ function TemplateRow({
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Task Key */}
+              <div>
+                <p className="text-xs font-medium text-gray-600 mb-1">
+                  Task Key{' '}
+                  <span className="font-normal text-gray-400">(used in CSV uploads)</span>
+                </p>
+                <Input
+                  value={template.taskKey}
+                  onChange={(e) => {
+                    // Sanitise to lowercase a-z, 0-9, underscore only
+                    const raw = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '');
+                    setManuallyEdited(true);
+                    onUpdate(index, { taskKey: raw });
+                  }}
+                  placeholder="e.g. solar_addition"
+                  disabled={disabled}
+                  className={cn(
+                    'h-8 text-sm font-mono',
+                    taskKeyError ? 'border-brand-red' : '',
+                  )}
+                />
+                {/* Inline error */}
+                {taskKeyError && (
+                  <p className="text-xs text-brand-red mt-1">{taskKeyError}</p>
+                )}
+                {/* Warning: only for Firestore-loaded templates in edit mode */}
+                {isEditing && !wasAutoGenOnMount && (
+                  <p className="text-xs text-amber-600 mt-1.5">
+                    ⚠️ Changing this key won&apos;t update existing site task records — only new site assignments will use the updated key.
+                  </p>
+                )}
               </div>
 
               {/* Subtask checklist */}
@@ -206,8 +307,9 @@ function TemplateRow({
 export function TaskTemplateEditor({
   templates,
   onChange,
-  disabled = false,
-  errors   = {},
+  disabled  = false,
+  isEditing = false,
+  errors    = {},
 }: TaskTemplateEditorProps) {
 
   function handleUpdate(index: number, patch: Partial<TaskTemplate>) {
@@ -222,7 +324,6 @@ export function TaskTemplateEditor({
     if (index === 0) return;
     const next = [...templates];
     [next[index - 1], next[index]] = [next[index], next[index - 1]];
-    // Re-assign sortOrder to match array position
     onChange(next.map((t, i) => ({ ...t, sortOrder: i })));
   }
 
@@ -247,10 +348,14 @@ export function TaskTemplateEditor({
 
       {templates.map((t, i) => (
         <TemplateRow
-          key={t.taskKey}
+          // Use index as key so the row component isn't remounted when the
+          // taskKey is edited — this preserves manuallyEdited / wasAutoGenOnMount state.
+          key={i}
           template={t}
           index={i}
           total={templates.length}
+          otherTaskKeys={templates.filter((_, j) => j !== i).map((t2) => t2.taskKey.trim())}
+          isEditing={isEditing}
           onUpdate={handleUpdate}
           onDelete={handleDelete}
           onMoveUp={handleMoveUp}

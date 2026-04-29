@@ -1,11 +1,12 @@
 import { useState, useMemo } from 'react';
-import { Search, UserPlus } from 'lucide-react';
+import { Search, UserPlus, Download } from 'lucide-react';
 import { useUserStore } from '@/store/userStore';
 import { useUserActions } from '@/hooks/useUserActions';
 import { useAuthStore } from '@/store/authStore';
-import { UserCard } from '@/components/team/UserCard';
-import { EditUserModal } from '@/components/team/EditUserModal';
-import { CreateUserModal } from '@/components/team/CreateUserModal';
+import { UserCard }              from '@/components/team/UserCard';
+import { EditUserModal }         from '@/components/team/EditUserModal';
+import { CreateUserModal }       from '@/components/team/CreateUserModal';
+import { EngineerDetailDrawer }  from '@/components/team/EngineerDetailDrawer';
 import {
   Dialog,
   DialogContent,
@@ -17,6 +18,31 @@ import { Button }   from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import type { User } from '@/types';
+
+// ─── CSV export ───────────────────────────────────────────────────────────────
+
+function exportEngineersCsv(users: User[]): void {
+  const headers = ['Name', 'Engineer Code', 'Email', 'Role', 'Status'].join(',');
+  const rows = users.map((u) =>
+    [
+      `"${u.name  ?? ''}"`,
+      `"${u.engineerCode ?? ''}"`,
+      `"${u.email ?? ''}"`,
+      `"${u.role  ?? ''}"`,
+      `"${u.active === false ? 'Disabled' : 'Active'}"`,
+    ].join(',')
+  );
+  const csv  = [headers, ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'engineers.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 // ─── Filter tabs ──────────────────────────────────────────────────────────────
 
@@ -40,6 +66,7 @@ export function TeamPage() {
   const [activeTab,      setActiveTab]      = useState<FilterTab>('all');
   const [editUser,       setEditUser]       = useState<User | null>(null);
   const [showCreateUser, setShowCreateUser] = useState(false);
+  const [viewEngineer,   setViewEngineer]   = useState<User | null>(null);
   // Confirm dialog state
   const [confirmUser, setConfirmUser] = useState<User | null>(null);
   const [confirming,  setConfirming]  = useState(false);
@@ -92,7 +119,7 @@ export function TeamPage() {
       {/* Page header */}
       <div className="flex items-start justify-between gap-4 mb-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-0.5">Team</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-0.5">Engineers</h2>
           <p className="text-sm text-gray-500">
             {loading
               ? 'Loading…'
@@ -100,13 +127,23 @@ export function TeamPage() {
             }
           </p>
         </div>
-        <Button
-          onClick={() => setShowCreateUser(true)}
-          className="shrink-0 flex items-center gap-1.5"
-        >
-          <UserPlus className="h-4 w-4" />
-          Add User
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            variant="outline"
+            onClick={() => exportEngineersCsv(filtered)}
+            className="flex items-center gap-1.5"
+          >
+            <Download className="h-4 w-4" />
+            Export CSV
+          </Button>
+          <Button
+            onClick={() => setShowCreateUser(true)}
+            className="flex items-center gap-1.5"
+          >
+            <UserPlus className="h-4 w-4" />
+            Add User
+          </Button>
+        </div>
       </div>
 
       {/* Search */}
@@ -166,6 +203,7 @@ export function TeamPage() {
               isSelf={user.id === currentUser?.uid}
               onEdit={setEditUser}
               onToggleActive={requestToggleActive}
+              onView={setViewEngineer}
             />
           ))}
         </div>
@@ -181,6 +219,13 @@ export function TeamPage() {
       <EditUserModal
         user={editUser}
         onClose={() => setEditUser(null)}
+      />
+
+      {/* Engineer detail drawer */}
+      <EngineerDetailDrawer
+        engineer={viewEngineer}
+        open={!!viewEngineer}
+        onClose={() => setViewEngineer(null)}
       />
 
       {/* Disable / Enable confirmation dialog */}

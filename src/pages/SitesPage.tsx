@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { Plus, Search, RotateCcw } from 'lucide-react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { Plus, Search, RotateCcw, Upload, UserPlus, ChevronDown } from 'lucide-react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useSiteStore } from '@/store/siteStore';
@@ -8,6 +8,8 @@ import { useToast } from '@/components/ui/toast';
 import { SiteCard } from '@/components/sites/SiteCard';
 import { SiteDetailDrawer } from '@/components/sites/SiteDetailDrawer';
 import { CreateSiteModal } from '@/components/sites/CreateSiteModal';
+import { BulkUploadSitesModal }       from '@/components/sites/BulkUploadSitesModal';
+import { BulkUploadAssignmentsModal } from '@/components/sites/BulkUploadAssignmentsModal';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -30,8 +32,6 @@ const STATUS_PILL_COLOURS: Record<SiteStatus | 'all', string> = {
   completed: 'bg-green-600 text-white border-green-600',
   on_hold:   'bg-gray-500 text-white border-gray-500',
 };
-
-const PAGE_SIZE = 50;
 
 // ─── Skeletons ────────────────────────────────────────────────────────────────
 
@@ -96,35 +96,116 @@ function ArchivedSiteCard({
   );
 }
 
+// ─── Grouped data type ────────────────────────────────────────────────────────
+
+interface CityGroup {
+  city:  string;
+  sites: Site[];
+}
+
+interface ProjectGroup {
+  projectId:   string;
+  projectName: string;
+  projectCode: string;
+  cities:      CityGroup[];
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function SitesPage() {
   const { sites, lastUpdated } = useSiteStore();
   const { showToast }          = useToast();
 
-  const [activeFilter, setActiveFilter]       = useState<SiteStatus | 'all'>('all');
-  const [search,       setSearch]             = useState('');
-  const [page,         setPage]               = useState(1);
-  const [showCreate,   setShowCreate]         = useState(false);
-  const [selectedSite, setSelectedSite]       = useState<Site | null>(null);
-  const [showDetail,   setShowDetail]         = useState(false);
+  // ── Filter state ─────────────────────────────────────────────────────────────
+  const [activeFilter,     setActiveFilter]     = useState<SiteStatus | 'all'>('all');
+  const [search,           setSearch]           = useState('');
+  const [selectedProject,  setSelectedProject]  = useState('');   // '' = all
+  const [selectedCity,     setSelectedCity]     = useState('');   // '' = all
 
-  // Archived view state
-  const [showArchived,     setShowArchived]     = useState(false);
-  const [archivedSites,    setArchivedSites]    = useState<Site[]>([]);
-  const [loadingArchived,  setLoadingArchived]  = useState(false);
+  // ── Expand/collapse state ─────────────────────────────────────────────────────
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
+  const [expandedCities,   setExpandedCities]   = useState<Set<string>>(new Set());
+  const initialExpandRef = useRef(false);
+
+  // ── Modal / drawer state ──────────────────────────────────────────────────────
+  const [showCreate,      setShowCreate]      = useState(false);
+  const [showBulkUpload,  setShowBulkUpload]  = useState(false);
+  const [showBulkAssign,  setShowBulkAssign]  = useState(false);
+  const [selectedSite,    setSelectedSite]    = useState<Site | null>(null);
+  const [showDetail,      setShowDetail]      = useState(false);
+
+  // ── Archived view ─────────────────────────────────────────────────────────────
+  const [showArchived,    setShowArchived]    = useState(false);
+  const [archivedSites,   setArchivedSites]   = useState<Site[]>([]);
+  const [loadingArchived, setLoadingArchived] = useState(false);
 
   const isLoading = !lastUpdated && sites.length === 0;
 
-  // ── Filtering ───────────────────────────────────────────────────────────────
+  // ── Auto-expand all sections on initial data load ─────────────────────────────
+  useEffect(() => {
+    if (sites.length === 0 || initialExpandRef.current) return;
+    initialExpandRef.current = true;
+    setExpandedProjects(new Set(sites.map((s) => s.projectId).filter(Boolean)));
+    setExpandedCities(new Set(
+      sites
+        .filter((s) => s.projectId && s.city)
+        .map((s) => `${s.projectId}::${s.city}`)
+    ));
+  }, [sites.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const filtered = useMemo(() => {
-    let result = sites;
+  // ── Dropdown options ──────────────────────────────────────────────────────────
 
-    if (activeFilter !== 'all') {
-      result = result.filter((s) => s.status === activeFilter);
+  const uniqueProjects = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; code: string }>();
+    for (const s of sites) {
+      if (s.projectId && !map.has(s.projectId)) {
+        map.set(s.projectId, { id: s.projectId, name: s.projectName || '—', code: s.projectCode || '' });
+      }
     }
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [sites]);
 
+  const uniqueCities = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of sites) { if (s.city) set.add(s.city); }
+    return Array.from(set).sort();
+  }, [sites]);
+
+  // ── Status pill counts (respect project/city/search filters, not status) ──────
+
+  const countsBase = useMemo(() => {
+    let base = sites;
+    if (selectedProject) base = base.filter((s) => s.projectId === selectedProject);
+    if (selectedCity)    base = base.filter((s) => s.city === selectedCity);
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      base = base.filter(
+        (s) =>
+          s.siteName.toLowerCase().includes(q) ||
+          s.siteCode.toLowerCase().includes(q) ||
+          s.city.toLowerCase().includes(q) ||
+          s.projectName.toLowerCase().includes(q) ||
+          (s.projectCode && s.projectCode.toLowerCase().includes(q))
+      );
+    }
+    return base;
+  }, [sites, selectedProject, selectedCity, search]);
+
+  const counts = useMemo(() => ({
+    all:       countsBase.length,
+    active:    countsBase.filter((s) => s.status === 'active').length,
+    completed: countsBase.filter((s) => s.status === 'completed').length,
+    on_hold:   countsBase.filter((s) => s.status === 'on_hold').length,
+  }), [countsBase]);
+
+  // ── Grouped data ──────────────────────────────────────────────────────────────
+
+  const grouped = useMemo<ProjectGroup[]>(() => {
+    // Apply all filters
+    let result = sites;
+    if (activeFilter !== 'all')  result = result.filter((s) => s.status === activeFilter);
+    if (selectedProject)         result = result.filter((s) => s.projectId === selectedProject);
+    if (selectedCity)            result = result.filter((s) => s.city === selectedCity);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       result = result.filter(
@@ -137,22 +218,71 @@ export function SitesPage() {
       );
     }
 
-    return result;
-  }, [sites, activeFilter, search]);
+    // Group: projectId → city → sites
+    const projectMap = new Map<string, {
+      projectId:   string;
+      projectName: string;
+      projectCode: string;
+      cityMap:     Map<string, Site[]>;
+    }>();
 
-  const paginated   = filtered.slice(0, page * PAGE_SIZE);
-  const hasMore     = paginated.length < filtered.length;
+    for (const site of result) {
+      const pid = site.projectId || '__none__';
+      if (!projectMap.has(pid)) {
+        projectMap.set(pid, {
+          projectId:   pid,
+          projectName: site.projectName || 'Unassigned',
+          projectCode: site.projectCode || '',
+          cityMap:     new Map(),
+        });
+      }
+      const proj    = projectMap.get(pid)!;
+      const cityKey = site.city || 'Unknown';
+      if (!proj.cityMap.has(cityKey)) proj.cityMap.set(cityKey, []);
+      proj.cityMap.get(cityKey)!.push(site);
+    }
 
-  // ── Stats for filter pills ──────────────────────────────────────────────────
+    // Convert to sorted arrays
+    return Array.from(projectMap.values())
+      .sort((a, b) => a.projectName.localeCompare(b.projectName))
+      .map((proj) => ({
+        projectId:   proj.projectId,
+        projectName: proj.projectName,
+        projectCode: proj.projectCode,
+        cities: Array.from(proj.cityMap.entries())
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([city, citySites]) => ({
+            city,
+            sites: citySites.slice().sort((a, b) => a.siteCode.localeCompare(b.siteCode)),
+          })),
+      }));
+  }, [sites, activeFilter, selectedProject, selectedCity, search]);
 
-  const counts = useMemo(() => ({
-    all:       sites.length,
-    active:    sites.filter((s) => s.status === 'active').length,
-    completed: sites.filter((s) => s.status === 'completed').length,
-    on_hold:   sites.filter((s) => s.status === 'on_hold').length,
-  }), [sites]);
+  const totalFiltered = useMemo(
+    () => grouped.reduce((sum, p) => sum + p.cities.reduce((s2, c) => s2 + c.sites.length, 0), 0),
+    [grouped]
+  );
 
-  // ── Archived ────────────────────────────────────────────────────────────────
+  // ── Expand / collapse toggles ─────────────────────────────────────────────────
+
+  function toggleProject(projectId: string) {
+    setExpandedProjects((prev) => {
+      const next = new Set(prev);
+      if (next.has(projectId)) next.delete(projectId); else next.add(projectId);
+      return next;
+    });
+  }
+
+  function toggleCity(projectId: string, city: string) {
+    const key = `${projectId}::${city}`;
+    setExpandedCities((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  // ── Archived helpers ──────────────────────────────────────────────────────────
 
   async function loadArchivedSites() {
     setLoadingArchived(true);
@@ -205,35 +335,94 @@ export function SitesPage() {
   }
 
   const currentlyLoading = showArchived ? loadingArchived : isLoading;
-  const displaySites     = showArchived ? archivedSites   : paginated;
+
+  // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col gap-4 max-w-2xl mx-auto pb-4">
-      {/* Heading + count badge + New Site button */}
+
+      {/* Heading + action buttons */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <h2 className="text-xl font-bold text-gray-900">
             {showArchived ? 'Archived Sites' : 'Sites'}
           </h2>
           <span className="rounded-full bg-brand-blue/10 text-brand-blue text-xs font-semibold px-2 py-0.5">
-            {currentlyLoading ? '…' : displaySites.length}
+            {currentlyLoading ? '…' : showArchived ? archivedSites.length : totalFiltered}
           </span>
         </div>
         {!showArchived && (
-          <button
-            onClick={() => setShowCreate(true)}
-            className="flex items-center gap-1.5 rounded-full bg-brand-blue px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-brand-navy active:scale-95 transition-all"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            New Site
-          </button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1.5"
+              onClick={() => setShowBulkUpload(true)}
+            >
+              <Upload className="h-3.5 w-3.5" />
+              Bulk Upload
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1.5"
+              onClick={() => setShowBulkAssign(true)}
+            >
+              <UserPlus className="h-3.5 w-3.5" />
+              Bulk Assign
+            </Button>
+            <button
+              onClick={() => setShowCreate(true)}
+              className="flex items-center gap-1.5 rounded-full bg-brand-blue px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-brand-navy active:scale-95 transition-all"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New Site
+            </button>
+          </div>
         )}
       </div>
 
-      {/* Filter pills + search — hidden in archived view */}
+      {/* Filter bar — hidden in archived view */}
       {!showArchived && !isLoading && (
         <>
-          {/* Status filter pills */}
+          {/* Row 1: Project dropdown + City dropdown + Search */}
+          <div className="flex gap-2 flex-wrap">
+            <select
+              value={selectedProject}
+              onChange={(e) => { setSelectedProject(e.target.value); setSelectedCity(''); }}
+              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue max-w-[180px]"
+            >
+              <option value="">All Projects</option>
+              {uniqueProjects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.code ? `${p.code} — ${p.name}` : p.name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={selectedCity}
+              onChange={(e) => setSelectedCity(e.target.value)}
+              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue max-w-[140px]"
+            >
+              <option value="">All Cities</option>
+              {uniqueCities.map((city) => (
+                <option key={city} value={city}>{city}</option>
+              ))}
+            </select>
+
+            <div className="relative flex-1 min-w-[160px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name, code, city…"
+                className="pl-8 text-sm h-9"
+              />
+            </div>
+          </div>
+
+          {/* Row 2: Status filter pills */}
           <div className="flex gap-1.5 flex-wrap">
             {STATUS_FILTERS.map(({ key, label }) => {
               const isActive = activeFilter === key;
@@ -241,10 +430,7 @@ export function SitesPage() {
                 <button
                   key={key}
                   type="button"
-                  onClick={() => {
-                    setActiveFilter((prev) => (prev === key ? 'all' : key));
-                    setPage(1);
-                  }}
+                  onClick={() => setActiveFilter((prev) => (prev === key ? 'all' : key))}
                   className={cn(
                     'px-3 py-1 rounded-full text-xs font-medium border transition-colors',
                     isActive
@@ -259,17 +445,6 @@ export function SitesPage() {
                 </button>
               );
             })}
-          </div>
-
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
-            <Input
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              placeholder="Search by name, code, city or project…"
-              className="pl-8 text-sm h-9"
-            />
           </div>
         </>
       )}
@@ -295,21 +470,39 @@ export function SitesPage() {
         </button>
       </div>
 
-      {/* Site list */}
+      {/* ── Content ── */}
       {currentlyLoading ? (
         <SiteSkeletons />
-      ) : displaySites.length === 0 ? (
+
+      ) : showArchived ? (
+        /* Archived flat list */
+        archivedSites.length === 0 ? (
+          <div className="py-16 text-center">
+            <p className="text-sm text-gray-400">No archived sites found.</p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {archivedSites.map((site) => (
+              <ArchivedSiteCard
+                key={site.id}
+                site={site}
+                onRestore={() => handleRestore(site.id)}
+              />
+            ))}
+          </div>
+        )
+
+      ) : grouped.length === 0 ? (
+        /* Empty state */
         <div className="py-16 text-center">
           <p className="text-sm text-gray-400">
-            {showArchived
-              ? 'No archived sites found.'
-              : search
-              ? 'No sites match your search.'
-              : sites.length === 0
+            {sites.length === 0
               ? 'No sites yet.'
-              : 'No sites match this filter.'}
+              : search || selectedProject || selectedCity || activeFilter !== 'all'
+              ? 'No sites match your filters.'
+              : 'No sites to display.'}
           </p>
-          {!showArchived && sites.length === 0 && (
+          {sites.length === 0 && (
             <button
               type="button"
               onClick={() => setShowCreate(true)}
@@ -319,54 +512,119 @@ export function SitesPage() {
             </button>
           )}
         </div>
-      ) : showArchived ? (
-        <div className="flex flex-col gap-2">
-          {displaySites.map((site) => (
-            <ArchivedSiteCard
-              key={site.id}
-              site={site}
-              onRestore={() => handleRestore(site.id)}
-            />
+
+      ) : (
+        /* ── Grouped view ── */
+        <div className="flex flex-col gap-4">
+          {grouped.map((proj) => (
+            <div key={proj.projectId}>
+
+              {/* Project header — only when no project filter is active */}
+              {!selectedProject && (
+                <button
+                  type="button"
+                  onClick={() => toggleProject(proj.projectId)}
+                  className="w-full flex items-center gap-2 py-1.5 text-left group"
+                >
+                  <ChevronDown
+                    className={cn(
+                      'h-4 w-4 text-gray-400 shrink-0 transition-transform duration-150',
+                      !expandedProjects.has(proj.projectId) && '-rotate-90'
+                    )}
+                  />
+                  <span className="text-sm font-bold text-gray-900 leading-snug">
+                    {proj.projectName}
+                  </span>
+                  {proj.projectCode && (
+                    <span className="text-xs font-mono font-semibold text-brand-blue bg-blue-50 rounded px-1.5 py-0.5 shrink-0">
+                      {proj.projectCode}
+                    </span>
+                  )}
+                  <span className="ml-auto text-xs text-gray-400 shrink-0">
+                    {proj.cities.reduce((sum, c) => sum + c.sites.length, 0)} sites
+                  </span>
+                </button>
+              )}
+
+              {/* City groups — shown when project expanded (or project filter active) */}
+              {(selectedProject || expandedProjects.has(proj.projectId)) && (
+                <div className={cn('flex flex-col gap-2', !selectedProject && 'mt-1 ml-5')}>
+                  {proj.cities.map(({ city, sites: citySites }) => {
+                    const cityKey      = `${proj.projectId}::${city}`;
+                    const cityExpanded = expandedCities.has(cityKey);
+
+                    return (
+                      <div key={cityKey}>
+                        {/* City header */}
+                        <button
+                          type="button"
+                          onClick={() => toggleCity(proj.projectId, city)}
+                          className="w-full flex items-center gap-2 py-1 text-left"
+                        >
+                          <ChevronDown
+                            className={cn(
+                              'h-3.5 w-3.5 text-gray-400 shrink-0 transition-transform duration-150',
+                              !cityExpanded && '-rotate-90'
+                            )}
+                          />
+                          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                            {city}
+                          </span>
+                          <span className="text-xs text-gray-400">
+                            · {citySites.length} site{citySites.length !== 1 ? 's' : ''}
+                          </span>
+                        </button>
+
+                        {/* Site cards */}
+                        {cityExpanded && (
+                          <div className="flex flex-col gap-1.5 mt-1.5">
+                            {citySites.map((site) => (
+                              <SiteCard
+                                key={site.id}
+                                site={site}
+                                onView={() => {
+                                  setSelectedSite(site);
+                                  setShowDetail(true);
+                                }}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           ))}
         </div>
-      ) : (
-        <>
-          <div className="flex flex-col gap-2">
-            {displaySites.map((site) => (
-              <SiteCard
-                key={site.id}
-                site={site}
-                onView={() => {
-                  setSelectedSite(site);
-                  setShowDetail(true);
-                }}
-              />
-            ))}
-          </div>
-
-          {/* Load More */}
-          {hasMore && (
-            <div className="flex justify-center pt-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-xs"
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Load more ({filtered.length - paginated.length} remaining)
-              </Button>
-            </div>
-          )}
-        </>
       )}
 
-      {/* Create Site modal */}
+      {/* ── Modals ── */}
+
       <CreateSiteModal
         open={showCreate}
         onClose={() => setShowCreate(false)}
       />
 
-      {/* Site detail drawer */}
+      <BulkUploadSitesModal
+        open={showBulkUpload}
+        onClose={() => setShowBulkUpload(false)}
+        onSuccess={(count) => {
+          setShowBulkUpload(false);
+          showToast(`${count} site${count !== 1 ? 's' : ''} created successfully`, 'success');
+        }}
+      />
+
+      <BulkUploadAssignmentsModal
+        open={showBulkAssign}
+        onClose={() => setShowBulkAssign(false)}
+        onSuccess={(count) => {
+          setShowBulkAssign(false);
+          showToast(`${count} engineer${count !== 1 ? 's' : ''} assigned`, 'success');
+        }}
+      />
+
       {selectedSite && (
         <SiteDetailDrawer
           site={selectedSite}

@@ -81,6 +81,10 @@ function SiteTaskRow({
             {TASK_STATUS_LABELS[task.status]}
           </span>
         </div>
+        {/* taskKey — shown so admins know the exact string for bulk assignment CSV */}
+        <span className="text-xs text-gray-400 font-mono mt-0.5 block">
+          {task.taskKey}
+        </span>
         {/* Assignee + Assign/View button */}
         <div className="flex items-center justify-between mt-1.5 gap-2">
           <span className={`text-xs ${task.assignedTo ? 'text-gray-600' : 'text-gray-400'}`}>

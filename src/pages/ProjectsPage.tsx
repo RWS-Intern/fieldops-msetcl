@@ -10,7 +10,6 @@ import { ProjectCard }        from '@/components/projects/ProjectCard';
 import { CreateProjectModal } from '@/components/projects/CreateProjectModal';
 import { EditProjectModal }   from '@/components/projects/EditProjectModal';
 import { ProjectDetailDrawer } from '@/components/projects/ProjectDetailDrawer';
-import { CreateTaskModal } from '@/components/tasks/CreateTaskModal';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -75,9 +74,6 @@ function ArchivedProjectCard({
   project:   Project;
   onRestore: () => void;
 }) {
-  const overdue =
-    project.status !== 'completed' && project.dueDate < new Date();
-
   return (
     <Card className="overflow-hidden border-0 shadow-sm opacity-75">
       <div className="flex">
@@ -100,17 +96,12 @@ function ArchivedProjectCard({
           {project.description && (
             <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{project.description}</p>
           )}
-          <div className="flex items-center gap-2 mt-1.5">
-            {project.assignedToNames.length > 0 && (
-              <span className="text-xs text-gray-400">
-                {project.assignedToNames.slice(0, 2).join(', ')}
-                {project.assignedToNames.length > 2 && ` +${project.assignedToNames.length - 2} more`}
-              </span>
-            )}
-            {overdue && (
-              <span className="text-xs font-semibold text-red-500">Overdue</span>
-            )}
-          </div>
+          {project.assignedToNames.length > 0 && (
+            <p className="text-xs text-gray-400 mt-1.5">
+              {project.assignedToNames.slice(0, 2).join(', ')}
+              {project.assignedToNames.length > 2 && ` +${project.assignedToNames.length - 2} more`}
+            </p>
+          )}
           <div className="flex justify-end mt-2">
             <Button
               variant="outline"
@@ -142,8 +133,6 @@ export function ProjectsPage() {
   const [editProject, setEditProject]         = useState<Project | null>(null);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [showDetail, setShowDetail]           = useState(false);
-  const [showCreateTask, setShowCreateTask]   = useState(false);
-  const [drawerRefreshKey, setDrawerRefreshKey] = useState(0);
 
   // Archived-view state
   const [showArchived, setShowArchived]         = useState(false);
@@ -364,22 +353,12 @@ export function ProjectsPage() {
         <ProjectDetailDrawer
           project={selectedProject}
           open={showDetail}
-          refreshKey={drawerRefreshKey}
-          onAddTask={() => setShowCreateTask(true)}
           onClose={() => {
             setShowDetail(false);
             setTimeout(() => setSelectedProject(null), 350);
           }}
         />
       )}
-
-      {/* Create Task modal — opened from inside the project drawer */}
-      <CreateTaskModal
-        open={showCreateTask}
-        preselectedProject={selectedProject ?? undefined}
-        onSuccess={() => setDrawerRefreshKey((k) => k + 1)}
-        onClose={() => setShowCreateTask(false)}
-      />
     </div>
   );
 }

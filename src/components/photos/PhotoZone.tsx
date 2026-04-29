@@ -108,8 +108,20 @@ export function PhotoZone({
       })
       .catch(() => {
         setPendingUploads((prev) => prev.filter((p) => p.tempId !== tempId));
-        URL.revokeObjectURL(previewUrl);
-        _emitToast('Failed to upload photo. Try again.', 'error');
+
+        if (!navigator.onLine) {
+          // Keep the blob URL as a committed "local" photo.
+          // When the user taps Submit offline, UpdateSiteTaskDrawer converts
+          // all blob: URLs to base64 data URIs before queuing in IndexedDB.
+          // Do NOT revoke the blob URL here — the thumbnail still needs it.
+          const updated = [...latestPhotosRef.current, previewUrl];
+          latestPhotosRef.current = updated;
+          onChangeRef.current(updated);
+          _emitToast('Photo saved locally — will upload when you reconnect', 'success');
+        } else {
+          URL.revokeObjectURL(previewUrl);
+          _emitToast('Failed to upload photo. Try again.', 'error');
+        }
       });
   }
 

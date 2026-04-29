@@ -27,21 +27,6 @@ const STATUS_LABELS: Record<ProjectStatus, string> = {
   blocked:     'Blocked',
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function isOverdue(project: Project): boolean {
-  if (project.status === 'completed') return false;
-  return project.dueDate < new Date();
-}
-
-function formatDate(date: Date): string {
-  return date.toLocaleDateString('en-GB', {
-    day:   '2-digit',
-    month: 'short',
-    year:  'numeric',
-  });
-}
-
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface ProjectCardProps {
@@ -55,7 +40,6 @@ interface ProjectCardProps {
 export function ProjectCard({ project, onView, onEdit }: ProjectCardProps) {
   const { currentUser } = useAuthStore();
   const stripe         = STATUS_STRIPE[project.status] ?? '#9CA3AF';
-  const overdue        = isOverdue(project);
   const templateCount  = (project.taskTemplates ?? []).length;
   const isInactive     = project.active === false;
 
@@ -76,7 +60,7 @@ export function ProjectCard({ project, onView, onEdit }: ProjectCardProps) {
         <div className="w-1 shrink-0" style={{ backgroundColor: stripe }} />
 
         <div className="flex-1 p-3 min-w-0">
-          {/* Project number + code + overdue + inactive badge */}
+          {/* Project number + code + inactive badge */}
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <Folder className="h-3 w-3 text-gray-400 shrink-0" />
             <span className="text-xs font-mono text-gray-400">{project.projectNum}</span>
@@ -91,11 +75,6 @@ export function ProjectCard({ project, onView, onEdit }: ProjectCardProps) {
             {isInactive && (
               <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">
                 Inactive
-              </span>
-            )}
-            {overdue && (
-              <span className="ml-auto text-xs font-semibold text-brand-red shrink-0">
-                Overdue
               </span>
             )}
           </div>
@@ -129,11 +108,8 @@ export function ProjectCard({ project, onView, onEdit }: ProjectCardProps) {
             </div>
           </div>
 
-          {/* Due date + status badge */}
-          <div className="flex items-center justify-between mt-2 gap-2 flex-wrap">
-            <span className="text-xs text-gray-500">
-              Due {formatDate(project.dueDate)}
-            </span>
+          {/* Status badge */}
+          <div className="flex items-center mt-2">
             <span
               className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_BADGE[project.status]}`}
             >

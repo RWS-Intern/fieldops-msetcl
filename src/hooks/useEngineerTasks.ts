@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   collection,
   query,
@@ -6,35 +6,42 @@ import {
   onSnapshot,
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
-import { useAuthStore }              from '@/store/authStore';
-import { useAssignedSiteTaskStore }  from '@/store/assignedSiteTaskStore';
 import type { SiteTask, TaskStatus } from '@/types';
 
 /**
- * Real-time listener for siteTasks assigned to the current user.
- * Intended for field engineer sessions — mount once via AssignedSiteTasksListener
- * in Layout.tsx.
+ * Real-time listener for all (non-archived) site tasks assigned to a specific
+ * engineer. Returns the full SiteTask objects so callers can either compute
+ * stats or render the full list.
  *
- * Query: where('assignedTo', '==', uid) — uses the auto-indexed assignedTo field.
- * No orderBy to avoid needing a composite index.  Archived filtering and
- * sorting are done client-side (same pattern as useSiteTasks).
+ * Pass uid = '' to get an empty, immediately-resolved result (used for
+ * admin user cards where no tasks should be shown).
+ *
+ * Uses a single `where('assignedTo', '==', uid)` clause — Firestore's
+ * auto-index covers single-field equality queries with no composite index
+ * required. Client-side archived filter keeps the query simple.
  */
-export function useAssignedSiteTasks() {
-  const { currentUser }           = useAuthStore();
-  const { setAssignedSiteTasks }  = useAssignedSiteTaskStore();
+export function useEngineerTasks(uid: string) {
+  const [tasks,   setTasks]   = useState<SiteTask[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!uid) {
+      setTasks([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
 
     const q = query(
       collection(db, 'siteTasks'),
-      where('assignedTo', '==', currentUser.uid),
+      where('assignedTo', '==', uid),
     );
 
     const unsubscribe = onSnapshot(
       q,
       (snap) => {
-        const tasks: SiteTask[] = snap.docs
+        const result: SiteTask[] = snap.docs
           .map((d) => {
             const data = d.data();
             return {
@@ -70,19 +77,20 @@ export function useAssignedSiteTasks() {
               archivedAt:       data['archivedAt']?.toDate?.()  ?? null,
             } as SiteTask;
           })
-          // Client-side archived filter — avoids needing a multi-field composite index.
-          .filter((t) => !t.archived)
-          // Most-recently-updated first.
-          .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+          // Client-side archived filter keeps the Firestore query single-field
+          .filter((t) => !t.archived);
 
-        setAssignedSiteTasks(tasks);
+        setTasks(result);
+        setLoading(false);
       },
       (err) => {
-        console.error('[AssignedSiteTasks] listener error:', err.code, err.message);
+        console.error('[useEngineerTasks] listener error:', err);
+        setLoading(false);
       },
     );
 
     return () => unsubscribe();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.uid]);
+  }, [uid]);
+
+  return { tasks, loading };
 }
