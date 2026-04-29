@@ -130,7 +130,7 @@ export function UserCard({ user, isSelf, onEdit, onToggleActive, onView }: UserC
           <Button
             size="sm"
             variant="outline"
-            className="h-7 text-xs px-2 text-brand-blue border-brand-blue/30 hover:bg-blue-50"
+            className="h-7 min-h-[44px] sm:min-h-0 text-xs px-2.5 text-brand-blue border-brand-blue/30 hover:bg-blue-50"
             onClick={() => onView(user)}
           >
             View
@@ -139,7 +139,7 @@ export function UserCard({ user, isSelf, onEdit, onToggleActive, onView }: UserC
         <Button
           size="sm"
           variant="outline"
-          className="h-7 text-xs px-2"
+          className="h-7 min-h-[44px] sm:min-h-0 text-xs px-2.5"
           onClick={() => onEdit(user)}
         >
           Edit
@@ -149,7 +149,7 @@ export function UserCard({ user, isSelf, onEdit, onToggleActive, onView }: UserC
             size="sm"
             variant="outline"
             className={cn(
-              'h-7 text-xs px-2',
+              'h-7 min-h-[44px] sm:min-h-0 text-xs px-2.5',
               user.active
                 ? 'text-red-600 border-red-200 hover:bg-red-50'
                 : 'text-green-700 border-green-200 hover:bg-green-50',

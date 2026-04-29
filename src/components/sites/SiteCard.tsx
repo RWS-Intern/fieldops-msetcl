@@ -50,7 +50,7 @@ export function SiteCard({ site, onView }: SiteCardProps) {
 
   return (
     <Card
-      className="overflow-hidden border-0 shadow-sm cursor-pointer active:scale-[0.99] transition-transform"
+      className="w-full overflow-hidden border-0 shadow-sm cursor-pointer active:scale-[0.99] transition-transform"
       onClick={onView}
     >
       <div className="flex">

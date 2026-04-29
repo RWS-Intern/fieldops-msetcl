@@ -339,12 +339,12 @@ export function SitesPage() {
   // ── Render ────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col gap-4 max-w-2xl mx-auto pb-4">
+    <div className="flex flex-col gap-4 max-w-2xl mx-auto pb-4 overflow-x-hidden w-full">
 
       {/* Heading + action buttons */}
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <div className="flex items-center gap-2">
-          <h2 className="text-xl font-bold text-gray-900">
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
             {showArchived ? 'Archived Sites' : 'Sites'}
           </h2>
           <span className="rounded-full bg-brand-blue/10 text-brand-blue text-xs font-semibold px-2 py-0.5">
@@ -352,7 +352,7 @@ export function SitesPage() {
           </span>
         </div>
         {!showArchived && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -386,11 +386,11 @@ export function SitesPage() {
       {!showArchived && !isLoading && (
         <>
           {/* Row 1: Project dropdown + City dropdown + Search */}
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex flex-col sm:flex-row gap-2">
             <select
               value={selectedProject}
               onChange={(e) => { setSelectedProject(e.target.value); setSelectedCity(''); }}
-              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue max-w-[180px]"
+              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue w-full sm:flex-1 sm:min-w-0 sm:max-w-[180px]"
             >
               <option value="">All Projects</option>
               {uniqueProjects.map((p) => (
@@ -403,7 +403,7 @@ export function SitesPage() {
             <select
               value={selectedCity}
               onChange={(e) => setSelectedCity(e.target.value)}
-              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue max-w-[140px]"
+              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue w-full sm:flex-1 sm:min-w-0 sm:max-w-[140px]"
             >
               <option value="">All Cities</option>
               {uniqueCities.map((city) => (
@@ -411,7 +411,7 @@ export function SitesPage() {
               ))}
             </select>
 
-            <div className="relative flex-1 min-w-[160px]">
+            <div className="relative w-full sm:flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 pointer-events-none" />
               <Input
                 value={search}
@@ -423,7 +423,7 @@ export function SitesPage() {
           </div>
 
           {/* Row 2: Status filter pills */}
-          <div className="flex gap-1.5 flex-wrap">
+          <div className="flex gap-1 flex-wrap">
             {STATUS_FILTERS.map(({ key, label }) => {
               const isActive = activeFilter === key;
               return (
@@ -532,7 +532,7 @@ export function SitesPage() {
                       !expandedProjects.has(proj.projectId) && '-rotate-90'
                     )}
                   />
-                  <span className="text-sm font-bold text-gray-900 leading-snug">
+                  <span className="text-sm font-bold text-gray-900 leading-snug truncate min-w-0">
                     {proj.projectName}
                   </span>
                   {proj.projectCode && (
@@ -567,17 +567,17 @@ export function SitesPage() {
                               !cityExpanded && '-rotate-90'
                             )}
                           />
-                          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide truncate min-w-0 flex-1">
                             {city}
                           </span>
-                          <span className="text-xs text-gray-400">
+                          <span className="text-xs text-gray-400 shrink-0">
                             · {citySites.length} site{citySites.length !== 1 ? 's' : ''}
                           </span>
                         </button>
 
                         {/* Site cards */}
                         {cityExpanded && (
-                          <div className="flex flex-col gap-1.5 mt-1.5">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 mt-1.5">
                             {citySites.map((site) => (
                               <SiteCard
                                 key={site.id}

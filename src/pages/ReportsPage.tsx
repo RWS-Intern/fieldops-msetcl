@@ -41,7 +41,7 @@ function StatCard({
 }: { label: string; value: number; accent: string }) {
   return (
     <div
-      className="flex flex-col gap-1 rounded-xl border border-gray-100 bg-white p-4 shadow-sm shrink-0 min-w-[120px]"
+      className="flex flex-col gap-1 rounded-xl border border-gray-100 bg-white p-4 shadow-sm"
       style={{ borderTopColor: accent, borderTopWidth: 3 }}
     >
       <span className="text-2xl font-bold text-gray-900">{value}</span>
@@ -276,7 +276,7 @@ export function ReportsPage() {
       {/* Page heading */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-0.5">Reports</h2>
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-0.5">Reports</h2>
           <p className="text-sm text-gray-400">Live data — updates in real time</p>
         </div>
       </div>
@@ -382,7 +382,7 @@ export function ReportsPage() {
       </div>
 
       {/* Summary stat cards */}
-      <div className="flex gap-3 overflow-x-auto pb-1">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <StatCard label="Total Tasks"  value={summary.total}          accent="#9CA3AF" />
         <StatCard label="Completed"    value={summary.completed}      accent="#2A9D8F" />
         <StatCard label="In Progress"  value={summary.inProgress}     accent="#F4A261" />
@@ -391,7 +391,7 @@ export function ReportsPage() {
       </div>
 
       {/* Charts — 3×2 grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <ChartCard title="Tasks by Status">
           <StatusChart data={byStatus} />
         </ChartCard>
@@ -450,26 +450,24 @@ export function ReportsPage() {
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/80">
-                {[
-                  'Date / Time', 'Task Key', 'Task Label',
-                  'Site', 'City', 'Project',
-                  'Engineer', 'Status', 'Blocked Reason', 'Photos',
-                ].map((h) => (
-                  <th
-                    key={h}
-                    className="px-4 py-2.5 text-left font-medium text-gray-500 whitespace-nowrap"
-                  >
-                    {h}
-                  </th>
-                ))}
+                <th className="px-4 py-2.5 text-left font-medium text-gray-500 whitespace-nowrap">Date / Time</th>
+                <th className="px-4 py-2.5 text-left font-medium text-gray-500 whitespace-nowrap">Task Key</th>
+                <th className="px-4 py-2.5 text-left font-medium text-gray-500 whitespace-nowrap">Task Label</th>
+                <th className="px-4 py-2.5 text-left font-medium text-gray-500 whitespace-nowrap">Site</th>
+                <th className="px-4 py-2.5 text-left font-medium text-gray-500 whitespace-nowrap hidden sm:table-cell">City</th>
+                <th className="px-4 py-2.5 text-left font-medium text-gray-500 whitespace-nowrap hidden sm:table-cell">Project</th>
+                <th className="px-4 py-2.5 text-left font-medium text-gray-500 whitespace-nowrap">Engineer</th>
+                <th className="px-4 py-2.5 text-left font-medium text-gray-500 whitespace-nowrap">Status</th>
+                <th className="px-4 py-2.5 text-left font-medium text-gray-500 whitespace-nowrap hidden sm:table-cell">Blocked Reason</th>
+                <th className="px-4 py-2.5 text-left font-medium text-gray-500 whitespace-nowrap">Photos</th>
               </tr>
             </thead>
             <tbody>
               {tasksLoading && submittedTasks.length === 0 ? (
                 [...Array(5)].map((_, i) => (
                   <tr key={i} className={cn(i % 2 === 1 && 'bg-gray-50/50')}>
-                    {[...Array(10)].map((__, j) => (
-                      <td key={j} className="px-4 py-2.5">
+                    {[false, false, false, false, true, true, false, false, true, false].map((hidden, j) => (
+                      <td key={j} className={cn('px-4 py-2.5', hidden && 'hidden sm:table-cell')}>
                         <Skeleton className="h-3.5 w-full" />
                       </td>
                     ))}
@@ -504,10 +502,10 @@ export function ReportsPage() {
                     <td className="px-4 py-2.5 whitespace-nowrap text-gray-600">
                       {t.siteCode || '—'}
                     </td>
-                    <td className="px-4 py-2.5 whitespace-nowrap text-gray-600">
+                    <td className="px-4 py-2.5 whitespace-nowrap text-gray-600 hidden sm:table-cell">
                       {t.city || '—'}
                     </td>
-                    <td className="px-4 py-2.5 max-w-[140px] truncate text-gray-600">
+                    <td className="px-4 py-2.5 max-w-[140px] truncate text-gray-600 hidden sm:table-cell">
                       {t.projectName || '—'}
                     </td>
                     <td className="px-4 py-2.5 whitespace-nowrap text-gray-700">
@@ -516,7 +514,7 @@ export function ReportsPage() {
                     <td className="px-4 py-2.5">
                       {t.status ? <StatusBadge status={t.status} /> : '—'}
                     </td>
-                    <td className="px-4 py-2.5 max-w-[160px] truncate text-gray-500">
+                    <td className="px-4 py-2.5 max-w-[160px] truncate text-gray-500 hidden sm:table-cell">
                       {t.blockedReason || '—'}
                     </td>
                     <td className="px-4 py-2.5 whitespace-nowrap">
