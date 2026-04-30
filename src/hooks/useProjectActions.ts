@@ -31,8 +31,6 @@ export async function updateProjectStatus(projectId: string): Promise<void> {
     return;
   }
 
-  console.log('[updateProjectStatus] starting for', projectId);
-
   try {
     const projectRef  = doc(db, 'projects', projectId);
     const projectSnap = await getDoc(projectRef);
@@ -47,8 +45,6 @@ export async function updateProjectStatus(projectId: string): Promise<void> {
     );
     const tasksSnap = await getDocs(tasksQuery);
 
-    console.log('[updateProjectStatus] found', tasksSnap.size, 'tasks');
-
     if (tasksSnap.empty) {
       await updateDoc(projectRef, {
         status:             'pending' as ProjectStatus,
@@ -56,12 +52,10 @@ export async function updateProjectStatus(projectId: string): Promise<void> {
         taskCount:          0,
         updatedAt:          serverTimestamp(),
       });
-      console.log('[updateProjectStatus] no tasks, set to pending');
       return;
     }
 
     const statuses = tasksSnap.docs.map((d) => d.data()['status'] as string);
-    console.log('[updateProjectStatus] task statuses:', statuses);
 
     let newStatus: ProjectStatus;
     if (statuses.every((s) => s === 'completed')) {
@@ -83,10 +77,6 @@ export async function updateProjectStatus(projectId: string): Promise<void> {
       updatedAt:          serverTimestamp(),
     });
 
-    console.log(
-      '[updateProjectStatus] updated: status =', newStatus,
-      'completed =', completedCount, '/', tasksSnap.size
-    );
   } catch (err) {
     console.error('[updateProjectStatus] FAILED:', err);
     throw err;
@@ -212,7 +202,6 @@ export function useProjectActions() {
       console.warn('[createProject] auditLog write failed:', auditErr);
     }
 
-    console.log('[createProject] Created', result.projectNum, 'id:', result.id);
     return result;
   }
 

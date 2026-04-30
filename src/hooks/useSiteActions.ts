@@ -143,17 +143,10 @@ export function useSiteActions() {
       const projectSnap = await getDoc(doc(db, 'projects', data.projectId));
       const projectData = projectSnap.data();
       templates = (projectData?.['taskTemplates'] as TaskTemplate[] | undefined) ?? [];
-      console.log(
-        '[createSite] taskTemplates from Firestore:',
-        templates.length,
-        'for project', data.projectId,
-        templates
-      );
     } catch (projErr) {
       console.error('[createSite] getDoc project failed, falling back to store:', projErr);
       const storeProject = projects.find((p) => p.id === data.projectId);
       templates = storeProject?.taskTemplates ?? [];
-      console.log('[createSite] store fallback templates:', templates.length, templates);
     }
 
     if (templates.length === 0) {
@@ -201,7 +194,6 @@ export function useSiteActions() {
         }
 
         await batch.commit();
-        console.log('[createSite] Batch committed —', templates.length, 'site tasks for', siteCode);
 
         // Update site's taskCount now that tasks exist
         await updateDoc(doc(db, 'sites', siteId), {
@@ -230,7 +222,6 @@ export function useSiteActions() {
       }
     }
 
-    console.log('[createSite] Created', siteCode, 'id:', siteId);
     return { id: siteId, siteCode };
   }
 

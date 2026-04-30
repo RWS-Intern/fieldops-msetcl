@@ -163,10 +163,6 @@ export function useTaskActions() {
       }
     }
 
-    console.log(
-      '[createTask] Created', result.taskNum, 'id:', result.id,
-      data.projectId ? `linked to project ${data.projectId}` : '(standalone)'
-    );
     return result;
   }
 
@@ -230,10 +226,6 @@ export function useTaskActions() {
     // no extra getDoc needed.
     if (data.projectId) {
       try {
-        console.log(
-          '[submitTaskUpdate] task', taskNum,
-          'belongs to project', data.projectId, '— updating project status'
-        );
         await updateProjectStatus(data.projectId);
       } catch (syncErr) {
         // Non-critical: task update already succeeded; log but do not rethrow
