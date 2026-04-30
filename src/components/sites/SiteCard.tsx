@@ -50,49 +50,50 @@ export function SiteCard({ site, onView }: SiteCardProps) {
 
   return (
     <Card
-      className="w-full overflow-hidden border-0 shadow-sm cursor-pointer active:scale-[0.99] transition-transform"
+      className="w-full cursor-pointer overflow-hidden border-0 shadow-sm transition-transform active:scale-[0.99]"
       onClick={onView}
     >
       <div className="flex">
         {/* Left colour stripe */}
         <div className="w-1 shrink-0" style={{ backgroundColor: stripe }} />
 
-        <div className="flex-1 p-3 min-w-0">
+        <div className="min-w-0 flex-1 p-3.5 sm:p-4">
           {/* Site code + project code badge */}
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <MapPin className="h-3 w-3 text-gray-400 shrink-0" />
-            <span className="text-xs font-mono text-gray-400">{site.siteCode}</span>
-            {site.projectCode && (
-              <span className="text-xs font-mono font-semibold text-brand-blue bg-blue-50 rounded px-1.5 py-0.5">
-                {site.projectCode}
-              </span>
-            )}
-            {/* status badge pushed to right */}
+          <div className="mb-2 flex items-start justify-between gap-3">
+            <div className="min-w-0 flex flex-wrap items-center gap-1.5">
+              <MapPin className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+              <span className="text-xs font-mono text-gray-400">{site.siteCode}</span>
+              {site.projectCode && (
+                <span className="rounded bg-blue-50 px-1.5 py-0.5 text-xs font-mono font-semibold text-brand-blue">
+                  {site.projectCode}
+                </span>
+              )}
+            </div>
             <span
-              className={`ml-auto text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${STATUS_BADGE[site.status]}`}
+              className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-medium ${STATUS_BADGE[site.status]}`}
             >
               {STATUS_LABELS[site.status]}
             </span>
           </div>
 
           {/* Site name */}
-          <h3 className="text-sm font-semibold text-gray-900 leading-snug line-clamp-1">
+          <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug text-gray-900 sm:line-clamp-1">
             {site.siteName}
           </h3>
 
           {/* Project name */}
-          <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">
+          <p className="mt-1 line-clamp-1 text-sm text-gray-500">
             {site.projectName}
           </p>
 
           {/* Location: city, state */}
-          <p className="text-xs text-gray-400 mt-0.5">
+          <p className="mt-1 text-sm text-gray-400">
             {site.city}{site.state ? `, ${site.state}` : ''}
           </p>
 
           {/* Progress bar */}
-          <div className="mt-2">
-            <div className="flex items-center justify-between mb-1">
+          <div className="mt-3">
+            <div className="mb-1.5 flex items-center justify-between gap-3">
               <span className="text-xs text-gray-500">
                 {site.completedTaskCount} of {site.taskCount} task
                 {site.taskCount !== 1 ? 's' : ''} completed
@@ -108,7 +109,7 @@ export function SiteCard({ site, onView }: SiteCardProps) {
           </div>
 
           {/* Created date */}
-          <p className="text-xs text-gray-400 mt-1.5">
+          <p className="mt-2 text-xs text-gray-400">
             Added {formatDate(site.createdAt)}
           </p>
         </div>
