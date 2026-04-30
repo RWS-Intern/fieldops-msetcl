@@ -57,9 +57,15 @@ export function useSiteActions() {
 
   /**
    * Create a new site.
-   * Atomically increments siteNumCounter and generates a unique siteCode.
-   * Also checks that no active site with the same siteName already exists
-   * in this project (case-insensitive).
+   * Site codes are entered manually by the admin (not auto-generated from a counter).
+   *
+   * Note: siteNumCounter in appConfig/global is reserved for future auto-code generation
+   * and should be updated manually to reflect the current site count. It is NOT
+   * incremented here because addDoc generates Firestore IDs and site codes are
+   * admin-supplied. Similarly, siteTaskNumCounter is not incremented here — task
+   * codes are derived from taskKey strings, not a sequential counter.
+   *
+   * Also checks that no active site with the same siteCode already exists (globally).
    */
   async function createSite(
     data: CreateSiteInput

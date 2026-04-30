@@ -64,51 +64,56 @@ function SiteTaskRow({
 }) {
   return (
     <div
-      className="flex rounded-lg border border-gray-100 overflow-hidden cursor-pointer hover:border-brand-blue transition-colors"
+      className="border rounded-lg p-4 hover:border-blue-300 hover:shadow-sm transition-all cursor-pointer"
       onClick={onClick}
     >
-      {/* Colour stripe */}
-      <div className="w-1 shrink-0" style={{ backgroundColor: task.taskColour }} />
-      <div className="flex-1 p-2.5 min-w-0">
-        {/* Label + status badge */}
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <span className="text-sm font-semibold text-gray-900 leading-snug">
-            {task.taskLabel}
-          </span>
-          <span
-            className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${TASK_STATUS_BADGE[task.status]}`}
-          >
+      <div className="flex items-start gap-3">
+        {/* Left colour stripe */}
+        <div
+          className="w-1 rounded-full self-stretch flex-shrink-0"
+          style={{ backgroundColor: task.taskColour }}
+        />
+        <div className="flex-1 min-w-0">
+          {/* Task label + taskKey */}
+          <p className="font-semibold text-gray-900 text-sm leading-snug">{task.taskLabel}</p>
+          <p className="text-xs text-gray-400 font-mono mb-2">{task.taskKey}</p>
+          {/* Assignee row */}
+          {task.assignedTo ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-700 shrink-0">
+                {task.assignedToName?.charAt(0).toUpperCase()}
+              </div>
+              <span className="text-sm text-gray-700">{task.assignedToName}</span>
+              {task.assignedToCode && (
+                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-mono">
+                  {task.assignedToCode}
+                </span>
+              )}
+            </div>
+          ) : (
+            <span className="text-sm text-gray-400 italic">Unassigned</span>
+          )}
+          {/* Due date */}
+          {task.dueDate && (
+            <p className="text-xs text-gray-500 mt-1">
+              Due {task.dueDate.toLocaleDateString('en-GB', {
+                day: '2-digit', month: 'short', year: 'numeric',
+              })}
+            </p>
+          )}
+        </div>
+        {/* Right side: status badge + action button */}
+        <div className="flex flex-col items-end gap-2 flex-shrink-0">
+          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${TASK_STATUS_BADGE[task.status]}`}>
             {TASK_STATUS_LABELS[task.status]}
           </span>
-        </div>
-        {/* taskKey — shown so admins know the exact string for bulk assignment CSV */}
-        <span className="text-xs text-gray-400 font-mono mt-0.5 block">
-          {task.taskKey}
-        </span>
-        {/* Assignee + Assign/View button */}
-        <div className="flex items-center justify-between mt-1.5 gap-2">
-          <span className={`text-xs ${task.assignedTo ? 'text-gray-600' : 'text-gray-400'}`}>
-            {task.assignedTo
-              ? `${task.assignedToName ?? ''}${task.assignedToCode ? ` (${task.assignedToCode})` : ''}`
-              : 'Unassigned'}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 text-xs px-2 shrink-0"
+          <button
+            onClick={(e) => { e.stopPropagation(); onClick(); }}
+            className="text-xs border border-gray-300 rounded px-3 py-1 hover:border-blue-400 hover:text-blue-600 transition-colors"
           >
             {task.assignedTo ? 'View' : 'Assign'}
-          </Button>
+          </button>
         </div>
-        {/* Due date */}
-        {task.dueDate && (
-          <p className="text-xs text-gray-400 mt-1">
-            Due{' '}
-            {task.dueDate.toLocaleDateString('en-GB', {
-              day: '2-digit', month: 'short', year: 'numeric',
-            })}
-          </p>
-        )}
       </div>
     </div>
   );
@@ -186,7 +191,7 @@ export function SiteDetailDrawer({
               </span>
               <span className="text-xs font-medium text-gray-600">{progressPct}%</span>
             </div>
-            <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
+            <div className="h-3 w-full rounded-full bg-gray-100 overflow-hidden">
               <div
                 className="h-full rounded-full bg-green-500 transition-all duration-300"
                 style={{ width: `${progressPct}%` }}
@@ -259,7 +264,7 @@ export function SiteDetailDrawer({
                 No tasks created yet. Tasks will be created automatically in the next phase.
               </p>
             ) : (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-3">
                 {siteTasks.map((task) => (
                   <SiteTaskRow
                     key={task.id}

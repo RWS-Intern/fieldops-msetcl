@@ -31,9 +31,9 @@ import { db }                  from '@/firebase/config';
 import { useFieldEngineers }   from '@/hooks/useFieldEngineers';
 import { useAuthStore }        from '@/store/authStore';
 import { useToast }            from '@/components/ui/toast';
-import { formatDateTime }      from '@/lib/taskUtils';
+import { formatDate, formatDateTime } from '@/lib/taskUtils';
 import type { SiteTask, TaskStatus } from '@/types';
-import { MapPin, X, ChevronDown, ChevronUp, Archive } from 'lucide-react';
+import { MapPin, X, ChevronDown, ChevronUp, Archive, CheckCircle } from 'lucide-react';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -272,16 +272,16 @@ export function SiteTaskDetailDrawer({
   if (!task) return null;
   if (currentUser?.role === 'field') return null;
 
-  // Flatten all photos: completion photos first, then subtask photos
-  const allPhotos: string[] = [
-    ...task.completionPhotos,
-    ...Object.values(task.subtaskPhotos).flat(),
-  ];
+  const subtaskPhotosList = Object.values(task.subtaskPhotos).flat();
 
   return (
     <>
       <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
-        <SheetContent side="bottom" aria-describedby={undefined}>
+        <SheetContent
+          side="bottom"
+          aria-describedby={undefined}
+          onEscapeKeyDown={(e) => e.stopPropagation()}
+        >
           {/* ── Header ───────────────────────────────────────────────── */}
           <SheetHeader>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -304,6 +304,21 @@ export function SiteTaskDetailDrawer({
           </SheetHeader>
 
           <div className="p-5 pt-4 flex flex-col gap-5 overflow-y-auto max-h-[70vh]">
+
+            {/* ── Completed banner ─────────────────────────────────────── */}
+            {task.status === 'completed' && (
+              <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-lg p-4">
+                <CheckCircle className="text-green-600 w-5 h-5 flex-shrink-0" />
+                <div>
+                  <p className="font-semibold text-green-800">Task Completed</p>
+                  <p className="text-sm text-green-700">
+                    {task.submittedAt
+                      ? `Submitted ${formatDate(task.submittedAt)} by ${task.assignedToName ?? '—'}`
+                      : `Completed by ${task.assignedToName ?? '—'}`}
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* ── Assignment ───────────────────────────────────────────── */}
             {/* Hidden in readOnly mode (Recent Activity context) */}
@@ -405,6 +420,8 @@ export function SiteTaskDetailDrawer({
                 <div className="flex flex-col">
                   {task.subtasks.map((sub) => {
                     const answer = task.subtaskAnswers[sub.subtaskId];
+                    const val    = answer?.value ?? '';
+                    const low    = val.toLowerCase();
                     return (
                       <div
                         key={sub.subtaskId}
@@ -416,8 +433,18 @@ export function SiteTaskDetailDrawer({
                             <span className="text-red-400 ml-0.5">*</span>
                           )}
                         </span>
-                        <span className="text-xs font-medium text-gray-800 text-right shrink-0 max-w-[45%]">
-                          {answer?.value || <span className="text-gray-300">—</span>}
+                        <span className="shrink-0">
+                          {low === 'yes' ? (
+                            <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-700">Yes</span>
+                          ) : low === 'no' ? (
+                            <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-700">No</span>
+                          ) : low === 'n/a' ? (
+                            <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-500">N/A</span>
+                          ) : val ? (
+                            <span className="text-xs text-gray-600">{val}</span>
+                          ) : (
+                            <span className="text-gray-300 text-xs">—</span>
+                          )}
                         </span>
                       </div>
                     );
@@ -427,27 +454,49 @@ export function SiteTaskDetailDrawer({
             )}
 
             {/* ── Photos ───────────────────────────────────────────────── */}
-            {allPhotos.length > 0 && (
-              <section>
-                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+            {(task.completionPhotos.length > 0 || subtaskPhotosList.length > 0) && (
+              <section className="flex flex-col gap-4">
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
                   Photos
                 </h4>
-                <div className="grid grid-cols-3 gap-2">
-                  {allPhotos.map((url, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => setLightboxUrl(url)}
-                      className="aspect-square rounded-lg overflow-hidden border border-gray-200 hover:border-brand-blue transition-colors"
-                    >
-                      <img
-                        src={url}
-                        alt={`Photo ${i + 1}`}
-                        className="w-full h-full object-cover"
-                      />
-                    </button>
-                  ))}
-                </div>
+
+                {/* Completion photos */}
+                {task.completionPhotos.length > 0 && (
+                  <div>
+                    <p className="text-xs text-gray-400 mb-2">Completion photos</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {task.completionPhotos.map((url, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => setLightboxUrl(url)}
+                          className="aspect-square rounded-lg overflow-hidden border border-gray-200 hover:border-brand-blue transition-colors"
+                        >
+                          <img src={url} alt={`Completion photo ${i + 1}`} className="w-full h-full object-cover" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Checklist photos */}
+                {subtaskPhotosList.length > 0 && (
+                  <div>
+                    <p className="text-xs text-gray-400 mb-2">Checklist photos</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {subtaskPhotosList.map((url, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => setLightboxUrl(url)}
+                          className="aspect-square rounded-lg overflow-hidden border border-gray-200 hover:border-brand-blue transition-colors"
+                        >
+                          <img src={url} alt={`Checklist photo ${i + 1}`} className="w-full h-full object-cover" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </section>
             )}
 
@@ -461,10 +510,9 @@ export function SiteTaskDetailDrawer({
                   href={`https://www.google.com/maps?q=${task.location.lat},${task.location.lng}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{ color: '#00B4D8' }}
-                  className="text-sm hover:underline flex items-center gap-1"
+                  className="text-brand-teal hover:underline flex items-center gap-1 text-sm"
                 >
-                  <MapPin className="h-3.5 w-3.5 shrink-0" />
+                  <MapPin className="w-4 h-4 shrink-0" />
                   {task.location.lat.toFixed(5)}, {task.location.lng.toFixed(5)}
                 </a>
               ) : (
@@ -574,14 +622,14 @@ export function SiteTaskDetailDrawer({
       {/* ── Lightbox ─────────────────────────────────────────────────────── */}
       {lightboxUrl && (
         <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80"
-          onClick={() => setLightboxUrl(null)}
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90"
+          onClick={(e) => { if (e.target === e.currentTarget) setLightboxUrl(null); }}
         >
           <button
             type="button"
             aria-label="Close photo"
             className="absolute top-4 right-4 text-white bg-black/40 rounded-full p-1.5 hover:bg-black/60 transition-colors"
-            onClick={() => setLightboxUrl(null)}
+            onClick={(e) => { e.stopPropagation(); e.preventDefault(); setLightboxUrl(null); }}
           >
             <X className="h-5 w-5" />
           </button>

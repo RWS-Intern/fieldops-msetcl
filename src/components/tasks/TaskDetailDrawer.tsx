@@ -374,8 +374,8 @@ export function TaskDetailDrawer({ task, open, onClose }: TaskDetailDrawerProps)
     {/* ── Lightbox ── */}
     {lightboxUrl && (
       <div
-        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80"
-        onClick={() => setLightboxUrl(null)}
+        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90"
+        onClick={(e) => { if (e.target === e.currentTarget) setLightboxUrl(null); }}
       >
         <button
           type="button"
