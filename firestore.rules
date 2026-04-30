@@ -79,8 +79,24 @@ service cloud.firestore {
     match /sites/{siteId} {
       // Any authenticated user can read sites (field engineers need site details).
       allow read: if isAuthenticated();
-      // Only admins may create, update, or delete site documents.
-      allow write: if isAdmin();
+      // Only admins may create or delete site documents.
+      allow create: if isAdmin();
+      allow delete: if isAdmin();
+      // Admins may update any field.
+      // Field engineers may ONLY update the task-status counter fields and
+      // site.status — written atomically by submitSiteTaskUpdate's transaction
+      // when a task is submitted.  All other site fields remain admin-only.
+      allow update: if isAdmin() ||
+        (isAuthenticated() &&
+         request.resource.data.diff(resource.data)
+           .affectedKeys()
+           .hasOnly([
+             'completedTaskCount',
+             'inProgressTaskCount',
+             'blockedTaskCount',
+             'status',
+             'updatedAt',
+           ]));
     }
 
     match /siteTasks/{taskId} {

@@ -79,9 +79,12 @@ interface HistoryEntry {
 // ─── Props ────────────────────────────────────────────────────────────────────
 
 interface SiteTaskDetailDrawerProps {
-  task:    SiteTask | null;
-  open:    boolean;
-  onClose: () => void;
+  task:      SiteTask | null;
+  open:      boolean;
+  onClose:   () => void;
+  /** When true: hides the assignment form and archive button.
+   *  Used when opening from Recent Activity (read-only context). */
+  readOnly?: boolean;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -90,6 +93,7 @@ export function SiteTaskDetailDrawer({
   task,
   open,
   onClose,
+  readOnly = false,
 }: SiteTaskDetailDrawerProps) {
   const { engineers, loading: engLoading } = useFieldEngineers();
   const { currentUser } = useAuthStore();
@@ -302,6 +306,8 @@ export function SiteTaskDetailDrawer({
           <div className="p-5 pt-4 flex flex-col gap-5 overflow-y-auto max-h-[70vh]">
 
             {/* ── Assignment ───────────────────────────────────────────── */}
+            {/* Hidden in readOnly mode (Recent Activity context) */}
+            {!readOnly && (
             <section>
               <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
                 Assignment
@@ -388,6 +394,7 @@ export function SiteTaskDetailDrawer({
                 </div>
               )}
             </section>
+            )}
 
             {/* ── Checklist ────────────────────────────────────────────── */}
             {task.subtasks.length > 0 && (
@@ -522,7 +529,8 @@ export function SiteTaskDetailDrawer({
               )}
             </section>
 
-            {/* ── Archive ──────────────────────────────────────────────── */}
+            {/* ── Archive — hidden in readOnly mode ────────────────────── */}
+            {!readOnly && (
             <div className="flex justify-end pt-1 pb-2">
               {archiveConfirm ? (
                 <div className="flex items-center gap-2">
@@ -557,6 +565,7 @@ export function SiteTaskDetailDrawer({
                 </Button>
               )}
             </div>
+            )}
 
           </div>
         </SheetContent>

@@ -9,6 +9,7 @@ import { useRealtimeProjectStats }   from '@/hooks/useRealtimeProjectStats';
 import { StatCard }                  from '@/components/dashboard/StatCard';
 import { SyncStatusBar }             from '@/components/dashboard/SyncStatusBar';
 import { UpdateSiteTaskDrawer }      from '@/components/siteTasks/UpdateSiteTaskDrawer';
+import { SiteTaskDetailDrawer }     from '@/components/siteTasks/SiteTaskDetailDrawer';
 import { AdminMap }                  from '@/components/map/AdminMap';
 import { Skeleton }                  from '@/components/ui/skeleton';
 import { cn }                        from '@/lib/utils';
@@ -310,13 +311,23 @@ export function DashboardPage() {
         />
       )}
 
-      {/* Site task drawer */}
+      {/* Site task drawer — admin sees read-only details (no assignment form),
+           field engineers see the update/submission form */}
       {selectedSiteTask && (
-        <UpdateSiteTaskDrawer
-          task={selectedSiteTask}
-          open={true}
-          onClose={() => setSelectedSiteTask(null)}
-        />
+        isAdmin ? (
+          <SiteTaskDetailDrawer
+            task={selectedSiteTask}
+            open={true}
+            onClose={() => setSelectedSiteTask(null)}
+            readOnly={true}
+          />
+        ) : (
+          <UpdateSiteTaskDrawer
+            task={selectedSiteTask}
+            open={true}
+            onClose={() => setSelectedSiteTask(null)}
+          />
+        )
       )}
     </div>
   );

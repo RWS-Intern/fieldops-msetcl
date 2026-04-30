@@ -91,9 +91,9 @@ function CompletedTaskView({ task }: { task: SiteTask }) {
           <p className="text-xs text-green-600 mt-0.5">
             Submitted {formatDate(task.submittedAt)}
           </p>
-          {task.submittedBy && (
+          {task.assignedToName && (
             <p className="text-xs text-green-500 mt-0.5">
-              by {task.submittedBy}
+              by {task.assignedToName}
             </p>
           )}
         </div>

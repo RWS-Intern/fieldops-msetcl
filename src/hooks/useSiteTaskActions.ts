@@ -3,8 +3,8 @@ import {
   collection,
   updateDoc,
   addDoc,
+  runTransaction,
   serverTimestamp,
-  increment,
 } from 'firebase/firestore';
 import { db }            from '@/firebase/config';
 import { useAuthStore }  from '@/store/authStore';
@@ -86,9 +86,10 @@ export function useSiteTaskActions() {
       siteCode:         data.siteCode,
     });
 
-    // ── Update task-status counters on the parent site ────────────────────────
-    // Build a single updateDoc call for all three counters so the site document
-    // is updated atomically in one round-trip.
+    // ── Update task-status counters + derive site.status ─────────────────────
+    // Using a transaction so we can read the current counter values, compute the
+    // new counts precisely, and then decide whether site.status flips between
+    // 'active' and 'completed' — all in one atomic round-trip.
     const wasCompleted  = data.previousStatus === 'completed';
     const wasInProgress = data.previousStatus === 'in_progress';
     const wasBlocked    = data.previousStatus === 'blocked';
@@ -97,33 +98,64 @@ export function useSiteTaskActions() {
     const isNowInProgress = data.status === 'in_progress';
     const isNowBlocked    = data.status === 'blocked';
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const siteUpdates: Record<string, any> = {};
+    // Only run the transaction when at least one counter will change.
+    const countersChanged =
+      wasCompleted  !== isNowCompleted  ||
+      wasInProgress !== isNowInProgress ||
+      wasBlocked    !== isNowBlocked;
 
-    // completedTaskCount
-    if (isNowCompleted && !wasCompleted) {
-      siteUpdates['completedTaskCount'] = increment(1);
-    } else if (wasCompleted && !isNowCompleted) {
-      siteUpdates['completedTaskCount'] = increment(-1);
-    }
-
-    // inProgressTaskCount
-    if (isNowInProgress && !wasInProgress) {
-      siteUpdates['inProgressTaskCount'] = increment(1);
-    } else if (wasInProgress && !isNowInProgress) {
-      siteUpdates['inProgressTaskCount'] = increment(-1);
-    }
-
-    // blockedTaskCount
-    if (isNowBlocked && !wasBlocked) {
-      siteUpdates['blockedTaskCount'] = increment(1);
-    } else if (wasBlocked && !isNowBlocked) {
-      siteUpdates['blockedTaskCount'] = increment(-1);
-    }
-
-    if (Object.keys(siteUpdates).length > 0) {
+    if (countersChanged) {
       try {
-        await updateDoc(doc(db, 'sites', data.siteId), siteUpdates);
+        await runTransaction(db, async (tx) => {
+          const siteRef  = doc(db, 'sites', data.siteId);
+          const siteSnap = await tx.get(siteRef);
+          if (!siteSnap.exists()) return;
+
+          const d = siteSnap.data();
+          const taskCount = (d['taskCount'] as number) ?? 0;
+
+          // Apply deltas — clamp to 0 to guard against stale previousStatus.
+          let completedCount  = (d['completedTaskCount']  as number) ?? 0;
+          let inProgressCount = (d['inProgressTaskCount'] as number) ?? 0;
+          let blockedCount    = (d['blockedTaskCount']    as number) ?? 0;
+
+          if (isNowCompleted && !wasCompleted)
+            completedCount  = Math.max(0, completedCount  + 1);
+          else if (wasCompleted && !isNowCompleted)
+            completedCount  = Math.max(0, completedCount  - 1);
+
+          if (isNowInProgress && !wasInProgress)
+            inProgressCount = Math.max(0, inProgressCount + 1);
+          else if (wasInProgress && !isNowInProgress)
+            inProgressCount = Math.max(0, inProgressCount - 1);
+
+          if (isNowBlocked && !wasBlocked)
+            blockedCount    = Math.max(0, blockedCount    + 1);
+          else if (wasBlocked && !isNowBlocked)
+            blockedCount    = Math.max(0, blockedCount    - 1);
+
+          // Derive site.status — never override a manual 'on_hold'.
+          const currentStatus = (d['status'] as string) ?? 'active';
+          let newStatus = currentStatus;
+          if (currentStatus !== 'on_hold') {
+            newStatus =
+              taskCount > 0 && completedCount >= taskCount
+                ? 'completed'
+                : 'active';
+          }
+
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const txUpdates: Record<string, any> = {
+            completedTaskCount:  completedCount,
+            inProgressTaskCount: inProgressCount,
+            blockedTaskCount:    blockedCount,
+          };
+          if (newStatus !== currentStatus) {
+            txUpdates['status'] = newStatus;
+          }
+
+          tx.update(siteRef, txUpdates);
+        });
       } catch (siteErr) {
         console.error('[submitSiteTaskUpdate] site counter update failed:', siteErr);
       }
