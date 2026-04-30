@@ -75,6 +75,8 @@ export function useBulkSiteUpload() {
               siteName:    row['siteName']    ?? '',
               city:        row['city']        ?? '',
               state:       row['state']       ?? '',
+              circle:      row['circle']      ?? '',
+              division:    row['division']    ?? '',
               address:     row['address']     ?? '',
               latitude:    row['latitude']    ?? '',
               longitude:   row['longitude']   ?? '',
@@ -238,20 +240,24 @@ export function useBulkSiteUpload() {
           siteName,
           city,
           state:              row.state.trim(),
-          address:            row.address?.trim() ?? '',
+          circle:             row.circle?.trim()   ?? '',
+          division:           row.division?.trim() ?? '',
+          address:            row.address?.trim()  ?? '',
           projectId:          project.id,
           projectName:        project.title,     // project.title — not projectName
           projectCode:        project.projectCode ?? projCode,
           location:           hasGps
             ? new GeoPoint(parseFloat(row.latitude!), parseFloat(row.longitude!))
             : null,
-          status:             'active',
-          taskCount:          templates.length,
-          completedTaskCount: 0,
-          createdAt:          serverTimestamp(),
-          createdBy:          currentUser?.uid ?? '',
-          archived:           false,
-          archivedAt:         null,
+          status:              'active',
+          taskCount:           templates.length,
+          completedTaskCount:  0,
+          inProgressTaskCount: 0,
+          blockedTaskCount:    0,
+          createdAt:           serverTimestamp(),
+          createdBy:           currentUser?.uid ?? '',
+          archived:            false,
+          archivedAt:          null,
         });
 
         // ── SiteTask documents — one per task template ─────────────────────

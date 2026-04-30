@@ -39,6 +39,8 @@ export interface CreateSiteInput {
   siteName:    string;
   city:        string;
   state:       string;
+  circle?:     string;
+  division?:   string;
   address?:    string;
   projectId:   string;
   projectName: string;
@@ -88,20 +90,24 @@ export function useSiteActions() {
       siteName,
       city,
       state:              data.state.trim(),
-      address:            (data.address ?? '').trim(),
+      circle:             (data.circle   ?? '').trim(),
+      division:           (data.division ?? '').trim(),
+      address:            (data.address  ?? '').trim(),
       projectId:          data.projectId,
       projectName:        data.projectName,
       projectCode:        data.projectCode,
       location:           data.location
         ? new GeoPoint(data.location.lat, data.location.lng)
         : null,
-      status:             data.status ?? 'active',
-      taskCount:          0,
-      completedTaskCount: 0,
-      createdBy:          currentUser.uid,
-      createdAt:          serverTimestamp(),
-      archived:           false,
-      archivedAt:         null,
+      status:               data.status ?? 'active',
+      taskCount:            0,
+      completedTaskCount:   0,
+      inProgressTaskCount:  0,
+      blockedTaskCount:     0,
+      createdBy:            currentUser.uid,
+      createdAt:            serverTimestamp(),
+      archived:             false,
+      archivedAt:           null,
     });
 
     const siteId = newSiteRef.id;
@@ -193,8 +199,10 @@ export function useSiteActions() {
 
         // Update site's taskCount now that tasks exist
         await updateDoc(doc(db, 'sites', siteId), {
-          taskCount:          templates.length,
-          completedTaskCount: 0,
+          taskCount:           templates.length,
+          completedTaskCount:  0,
+          inProgressTaskCount: 0,
+          blockedTaskCount:    0,
         });
 
         // Audit log for auto-create — non-critical

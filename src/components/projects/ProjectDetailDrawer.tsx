@@ -116,10 +116,12 @@ export function ProjectDetailDrawer({
               location:           data['location']
                 ? { lat: data['location'].latitude ?? data['location'].lat, lng: data['location'].longitude ?? data['location'].lng }
                 : null,
-              status:             (data['status'] ?? 'active') as SiteStatus,
-              taskCount:          data['taskCount']          ?? 0,
-              completedTaskCount: data['completedTaskCount'] ?? 0,
-              createdBy:          data['createdBy']          ?? '',
+              status:              (data['status'] ?? 'active') as SiteStatus,
+              taskCount:           data['taskCount']           ?? 0,
+              completedTaskCount:  data['completedTaskCount']  ?? 0,
+              inProgressTaskCount: data['inProgressTaskCount'] ?? 0,
+              blockedTaskCount:    data['blockedTaskCount']    ?? 0,
+              createdBy:           data['createdBy']           ?? '',
               createdAt:          data['createdAt']?.toDate?.()  ?? new Date(),
               archived:           data['archived']           ?? false,
               archivedAt:         data['archivedAt']?.toDate?.() ?? null,

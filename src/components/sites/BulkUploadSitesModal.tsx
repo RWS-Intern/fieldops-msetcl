@@ -26,18 +26,22 @@ type Step = 'upload' | 'results' | 'progress' | 'success';
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: 'valid' | 'error' | 'duplicate' }) {
-  if (status === 'valid') {
-    return (
-      <span className="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">
-        Valid
-      </span>
-    );
-  }
+/** Compact coloured dot with tooltip — saves column width vs a full text badge. */
+function StatusDot({ status }: { status: 'valid' | 'error' | 'duplicate' }) {
+  const colour =
+    status === 'valid'     ? 'bg-green-500' :
+    status === 'error'     ? 'bg-red-500'   :
+    /* duplicate */          'bg-amber-500';
+  const label =
+    status === 'valid'     ? 'Valid'     :
+    status === 'error'     ? 'Error'     :
+    /* duplicate */          'Duplicate';
   return (
-    <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">
-      Error
-    </span>
+    <span
+      title={label}
+      aria-label={label}
+      className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${colour}`}
+    />
   );
 }
 
@@ -149,7 +153,7 @@ export function BulkUploadSitesModal({
       onOpenChange={(v) => { if (!v) handleClose(); }}
     >
       <DialogContent
-        className="max-w-2xl"
+        className="max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto"
         aria-describedby={undefined}
         // Block the default close-on-overlay-click during progress
         onInteractOutside={(e) => { if (step === 'progress') e.preventDefault(); }}
@@ -175,8 +179,8 @@ export function BulkUploadSitesModal({
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-gray-800">sites_template.csv</p>
                 <p className="text-xs text-gray-500">
-                  Required columns: projectCode, siteCode, siteName, city, state, address (opt),
-                  latitude (opt), longitude (opt)
+                  Required: projectCode, siteCode, siteName, city, state.
+                  Optional: circle, division, address, latitude, longitude.
                 </p>
               </div>
               <Button
@@ -248,8 +252,9 @@ export function BulkUploadSitesModal({
         {/* ── STEP 2: Validation results ────────────────────────────────── */}
         {step === 'results' && summary && (
           <div className="flex flex-col gap-4 pt-1">
-            {/* Summary bar */}
-            <div className="flex items-center gap-3 flex-wrap">
+
+            {/* Summary bar — wraps on small screens */}
+            <div className="flex flex-wrap items-center gap-3 p-3 bg-gray-50 rounded-lg text-sm">
               <span className="flex items-center gap-1.5 rounded-full bg-green-50 px-3 py-1 text-sm font-medium text-green-700">
                 <CheckCircle className="h-3.5 w-3.5" />
                 {summary.validRows} row{summary.validRows !== 1 ? 's' : ''} valid
@@ -257,51 +262,75 @@ export function BulkUploadSitesModal({
               {summary.errorRows > 0 && (
                 <span className="flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1 text-sm font-medium text-red-700">
                   <AlertCircle className="h-3.5 w-3.5" />
-                  {summary.errorRows} row{summary.errorRows !== 1 ? 's' : ''} have errors
+                  {summary.errorRows} row{summary.errorRows !== 1 ? 's' : ''} with errors
                 </span>
+              )}
+              {summary.errorRows > 0 && (
+                <p className="w-full text-xs text-gray-500 mt-0.5">
+                  Fix errors and re-upload, or proceed with valid rows only.
+                </p>
               )}
             </div>
 
-            {summary.errorRows > 0 && (
-              <p className="text-xs text-gray-500">
-                Fix the errors in your file and re-upload, or proceed with valid rows only.
-              </p>
-            )}
-
-            {/* Results table */}
-            <div className="overflow-auto rounded-lg border border-gray-100" style={{ maxHeight: '400px' }}>
-              <table className="w-full text-xs">
-                <thead className="bg-gray-50 sticky top-0 z-10">
+            {/* Results table — scrolls both axes; table never wraps */}
+            <div className="overflow-x-auto max-h-96 overflow-y-auto border border-gray-200 rounded-lg">
+              <table className="min-w-full divide-y divide-gray-200 text-sm">
+                <thead>
                   <tr>
-                    <th className="px-3 py-2 text-left font-semibold text-gray-600 w-12">Row</th>
-                    <th className="px-3 py-2 text-left font-semibold text-gray-600">Site Code</th>
-                    <th className="px-3 py-2 text-left font-semibold text-gray-600">Project</th>
-                    <th className="px-3 py-2 text-left font-semibold text-gray-600 w-16">City</th>
-                    <th className="px-3 py-2 text-left font-semibold text-gray-600 w-20">Status</th>
-                    <th className="px-3 py-2 text-left font-semibold text-gray-600">Errors</th>
+                    {/* Column order: # | ● | Site Code | Site Name | Project | City | Circle | Division | Errors */}
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-gray-50 sticky top-0 w-8">#</th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-gray-50 sticky top-0 w-8">
+                      <span className="sr-only">Status</span>●
+                    </th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-gray-50 sticky top-0">Site Code</th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-gray-50 sticky top-0">Site Name</th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-gray-50 sticky top-0">Project</th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-gray-50 sticky top-0">City</th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-gray-50 sticky top-0">Circle</th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-gray-50 sticky top-0">Division</th>
+                    <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-gray-50 sticky top-0 min-w-[180px]">Errors</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {summary.results.map((r) => (
-                    <tr
-                      key={r.rowNumber}
-                      className={cn(
-                        'border-t border-gray-50',
-                        r.status === 'error' ? 'bg-red-50/40' : 'bg-white',
-                      )}
-                    >
-                      <td className="px-3 py-2 font-mono text-gray-400">{r.rowNumber}</td>
-                      <td className="px-3 py-2 font-mono text-gray-700">{r.data.siteCode || '—'}</td>
-                      <td className="px-3 py-2 text-gray-700">{r.data.projectCode || '—'}</td>
-                      <td className="px-3 py-2 text-gray-500">{r.data.city || '—'}</td>
-                      <td className="px-3 py-2">
-                        <StatusBadge status={r.status} />
-                      </td>
-                      <td className="px-3 py-2 text-red-600 max-w-xs">
-                        {r.errors.length > 0 ? r.errors.join('; ') : null}
-                      </td>
-                    </tr>
-                  ))}
+                <tbody className="bg-white divide-y divide-gray-100">
+                  {summary.results.map((r) => {
+                    const errorText = r.errors.join('; ');
+                    return (
+                      <tr
+                        key={r.rowNumber}
+                        className={r.status === 'error' ? 'bg-red-50/30' : undefined}
+                      >
+                        <td className="px-2 py-2 text-xs font-mono text-gray-400 whitespace-nowrap">{r.rowNumber}</td>
+                        <td className="px-2 py-2 whitespace-nowrap">
+                          <StatusDot status={r.status} />
+                        </td>
+                        <td className="px-2 py-2 text-xs font-mono text-gray-800 whitespace-nowrap max-w-[120px] truncate" title={r.data.siteCode || undefined}>
+                          {r.data.siteCode  || '—'}
+                        </td>
+                        <td className="px-2 py-2 text-xs text-gray-700 whitespace-nowrap max-w-[140px] truncate" title={r.data.siteName || undefined}>
+                          {r.data.siteName  || '—'}
+                        </td>
+                        <td className="px-2 py-2 text-xs text-gray-700 whitespace-nowrap max-w-[100px] truncate" title={r.data.projectCode || undefined}>
+                          {r.data.projectCode || '—'}
+                        </td>
+                        <td className="px-2 py-2 text-xs text-gray-600 whitespace-nowrap max-w-[100px] truncate" title={r.data.city || undefined}>
+                          {r.data.city        || '—'}
+                        </td>
+                        <td className="px-2 py-2 text-xs text-gray-500 whitespace-nowrap max-w-[100px] truncate" title={r.data.circle || undefined}>
+                          {r.data.circle      || '—'}
+                        </td>
+                        <td className="px-2 py-2 text-xs text-gray-500 whitespace-nowrap max-w-[100px] truncate" title={r.data.division || undefined}>
+                          {r.data.division    || '—'}
+                        </td>
+                        <td className="px-2 py-2 text-xs text-red-600 max-w-[200px]">
+                          {errorText ? (
+                            <span className="block truncate" title={errorText}>
+                              {errorText}
+                            </span>
+                          ) : null}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

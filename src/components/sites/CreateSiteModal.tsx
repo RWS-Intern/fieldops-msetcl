@@ -73,6 +73,8 @@ export function CreateSiteModal({
   const [siteName,   setSiteName]   = useState('');
   const [city,       setCity]       = useState('');
   const [state,      setState]      = useState('');
+  const [circle,     setCircle]     = useState('');
+  const [division,   setDivision]   = useState('');
   const [address,    setAddress]    = useState('');
   const [lat,        setLat]        = useState('');
   const [lng,        setLng]        = useState('');
@@ -87,6 +89,8 @@ export function CreateSiteModal({
     setSiteName('');
     setCity('');
     setState('');
+    setCircle('');
+    setDivision('');
     setAddress('');
     setLat('');
     setLng('');
@@ -117,6 +121,8 @@ export function CreateSiteModal({
         siteName:    siteName.trim(),
         city:        city.trim(),
         state:       state.trim(),
+        circle:      circle.trim(),
+        division:    division.trim(),
         address:     address.trim(),
         projectId,
         projectName: proj.title,
@@ -237,6 +243,32 @@ export function CreateSiteModal({
               {errors['state'] && (
                 <p className="text-xs text-red-500">{errors['state']}</p>
               )}
+            </div>
+          </div>
+
+          {/* Circle + Division — optional, side by side */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="site-circle">
+                Circle <span className="text-gray-400 font-normal text-xs">(optional)</span>
+              </Label>
+              <Input
+                id="site-circle"
+                value={circle}
+                onChange={(e) => setCircle(e.target.value)}
+                placeholder="e.g. Pune Urban Circle"
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="site-division">
+                Division <span className="text-gray-400 font-normal text-xs">(optional)</span>
+              </Label>
+              <Input
+                id="site-division"
+                value={division}
+                onChange={(e) => setDivision(e.target.value)}
+                placeholder="e.g. Pune Division"
+              />
             </div>
           </div>
 

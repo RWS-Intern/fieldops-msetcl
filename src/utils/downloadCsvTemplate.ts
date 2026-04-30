@@ -3,9 +3,9 @@
  * Includes a header row and two sample rows so admins can see the expected format.
  */
 export function downloadSitesTemplate(): void {
-  const headers = 'projectCode,siteCode,siteName,city,state,address,latitude,longitude';
-  const sample1 = 'IOT,SUB-PUNE-047,Pune Substation 47,Pune,Maharashtra,,18.5204,73.8567';
-  const sample2 = 'IOT,SUB-PUNE-048,Pune Substation 48,Pune,Maharashtra,,,';
+  const headers = 'projectCode,siteCode,siteName,city,state,circle,division,address,latitude,longitude';
+  const sample1 = 'IOT,SUB-PUNE-047,Pune Substation 47,Pune,Maharashtra,,,,18.5204,73.8567';
+  const sample2 = 'IOT,SUB-PUNE-048,Pune Substation 48,Pune,Maharashtra,,,,,';
 
   const csv  = [headers, sample1, sample2].join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });

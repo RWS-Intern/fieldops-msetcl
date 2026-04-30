@@ -306,12 +306,14 @@ export function SitesPage() {
             location:           data['location']
               ? { lat: data['location'].latitude, lng: data['location'].longitude }
               : null,
-            status:             data['status']             ?? 'active',
-            taskCount:          data['taskCount']          ?? 0,
-            completedTaskCount: data['completedTaskCount'] ?? 0,
-            createdBy:          data['createdBy']          ?? '',
-            createdAt:          data['createdAt']?.toDate?.()  ?? new Date(),
-            archived:           true,
+            status:              data['status']              ?? 'active',
+            taskCount:           data['taskCount']           ?? 0,
+            completedTaskCount:  data['completedTaskCount']  ?? 0,
+            inProgressTaskCount: data['inProgressTaskCount'] ?? 0,
+            blockedTaskCount:    data['blockedTaskCount']    ?? 0,
+            createdBy:           data['createdBy']           ?? '',
+            createdAt:           data['createdAt']?.toDate?.()  ?? new Date(),
+            archived:            true,
             archivedAt:         data['archivedAt']?.toDate?.() ?? null,
           } as Site;
         })
@@ -386,11 +388,11 @@ export function SitesPage() {
       {!showArchived && !isLoading && (
         <>
           {/* Row 1: Project dropdown + City dropdown + Search */}
-          <div className="flex flex-col sm:flex-row gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
             <select
               value={selectedProject}
               onChange={(e) => { setSelectedProject(e.target.value); setSelectedCity(''); }}
-              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue w-full sm:flex-1 sm:min-w-0 sm:max-w-[180px]"
+              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue w-full sm:w-auto sm:max-w-[180px]"
             >
               <option value="">All Projects</option>
               {uniqueProjects.map((p) => (
@@ -403,7 +405,7 @@ export function SitesPage() {
             <select
               value={selectedCity}
               onChange={(e) => setSelectedCity(e.target.value)}
-              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue w-full sm:flex-1 sm:min-w-0 sm:max-w-[140px]"
+              className="rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue w-full sm:w-auto sm:max-w-[140px]"
             >
               <option value="">All Cities</option>
               {uniqueCities.map((city) => (
@@ -577,7 +579,7 @@ export function SitesPage() {
 
                         {/* Site cards */}
                         {cityExpanded && (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 mt-1.5">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-1.5">
                             {citySites.map((site) => (
                               <SiteCard
                                 key={site.id}

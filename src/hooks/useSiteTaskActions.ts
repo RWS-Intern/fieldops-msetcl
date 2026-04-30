@@ -86,28 +86,46 @@ export function useSiteTaskActions() {
       siteCode:         data.siteCode,
     });
 
-    // ── Update completedTaskCount on the parent site ───────────────────────────
-    // Only fire when transitioning into or out of 'completed' to avoid drift.
-    const wasCompleted = data.previousStatus === 'completed';
-    const isCompleted  = data.status          === 'completed';
+    // ── Update task-status counters on the parent site ────────────────────────
+    // Build a single updateDoc call for all three counters so the site document
+    // is updated atomically in one round-trip.
+    const wasCompleted  = data.previousStatus === 'completed';
+    const wasInProgress = data.previousStatus === 'in_progress';
+    const wasBlocked    = data.previousStatus === 'blocked';
 
-    if (!wasCompleted && isCompleted) {
-      // Transitioning to completed: increment
+    const isNowCompleted  = data.status === 'completed';
+    const isNowInProgress = data.status === 'in_progress';
+    const isNowBlocked    = data.status === 'blocked';
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const siteUpdates: Record<string, any> = {};
+
+    // completedTaskCount
+    if (isNowCompleted && !wasCompleted) {
+      siteUpdates['completedTaskCount'] = increment(1);
+    } else if (wasCompleted && !isNowCompleted) {
+      siteUpdates['completedTaskCount'] = increment(-1);
+    }
+
+    // inProgressTaskCount
+    if (isNowInProgress && !wasInProgress) {
+      siteUpdates['inProgressTaskCount'] = increment(1);
+    } else if (wasInProgress && !isNowInProgress) {
+      siteUpdates['inProgressTaskCount'] = increment(-1);
+    }
+
+    // blockedTaskCount
+    if (isNowBlocked && !wasBlocked) {
+      siteUpdates['blockedTaskCount'] = increment(1);
+    } else if (wasBlocked && !isNowBlocked) {
+      siteUpdates['blockedTaskCount'] = increment(-1);
+    }
+
+    if (Object.keys(siteUpdates).length > 0) {
       try {
-        await updateDoc(doc(db, 'sites', data.siteId), {
-          completedTaskCount: increment(1),
-        });
+        await updateDoc(doc(db, 'sites', data.siteId), siteUpdates);
       } catch (siteErr) {
-        console.error('[submitSiteTaskUpdate] completedTaskCount increment failed:', siteErr);
-      }
-    } else if (wasCompleted && !isCompleted) {
-      // Un-completing a task (e.g. marking blocked after previously completed): decrement
-      try {
-        await updateDoc(doc(db, 'sites', data.siteId), {
-          completedTaskCount: increment(-1),
-        });
-      } catch (siteErr) {
-        console.error('[submitSiteTaskUpdate] completedTaskCount decrement failed:', siteErr);
+        console.error('[submitSiteTaskUpdate] site counter update failed:', siteErr);
       }
     }
 

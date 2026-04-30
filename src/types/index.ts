@@ -245,18 +245,26 @@ export type SiteStatus = 'active' | 'completed' | 'on_hold';
 /** A physical installation site belonging to a Project. */
 export interface Site {
   id: string;
-  siteCode: string;         // e.g. "SUB-PUNE-047" — from siteNumCounter
-  siteName: string;         // e.g. "Pune Substation 47"
+  siteCode: string;               // e.g. "SUB-PUNE-047" — from siteNumCounter
+  siteName: string;               // e.g. "Pune Substation 47"
   city: string;
   state: string;
-  address: string;          // "" if not provided
+  address: string;                // "" if not provided
+  /** Optional administrative circle, e.g. "Pune Urban Circle" */
+  circle?: string;
+  /** Optional administrative division, e.g. "Pune Division" */
+  division?: string;
   projectId: string;
-  projectName: string;      // denormalised from parent project
-  projectCode: string;      // denormalised from parent project
+  projectName: string;            // denormalised from parent project
+  projectCode: string;            // denormalised from parent project
   location: { lat: number; lng: number } | null;
   status: SiteStatus;
   taskCount: number;
   completedTaskCount: number;
+  /** Number of tasks currently in_progress. Updated atomically on task status change. */
+  inProgressTaskCount: number;
+  /** Number of tasks currently blocked. Updated atomically on task status change. */
+  blockedTaskCount: number;
   createdBy: string;
   createdAt: Date;
   archived: boolean;
@@ -339,6 +347,8 @@ export interface BulkUploadRow {
   siteName:    string;
   city:        string;
   state:       string;
+  circle?:     string;
+  division?:   string;
   address?:    string;
   latitude?:   string;
   longitude?:  string;

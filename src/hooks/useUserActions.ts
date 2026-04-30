@@ -66,17 +66,21 @@ export function useUserActions() {
       await secondarySignOut(secondaryAuth);
 
       // Step 3 — Atomically claim the next engineerNumCounter and derive the
-      // engineer code.  runTransaction ensures two concurrent createUser calls
-      // never produce the same ENG-xxx code.
+      // engineer code. Only field engineers receive an ENG-xxx code; admins get null.
+      // runTransaction ensures two concurrent createUser calls never produce the
+      // same ENG-xxx code.
       const configRef  = doc(db, 'appConfig', 'global');
-      let engineerCode = '';
+      let engineerCode: string | null = null;
 
-      await runTransaction(db, async (tx) => {
-        const configSnap = await tx.get(configRef);
-        const next = ((configSnap.data()?.engineerNumCounter as number | undefined) ?? 0) + 1;
-        engineerCode = `ENG-${String(next).padStart(3, '0')}`;
-        tx.update(configRef, { engineerNumCounter: next });
-      });
+      if (role === 'field') {
+        await runTransaction(db, async (tx) => {
+          const configSnap = await tx.get(configRef);
+          const next = ((configSnap.data()?.engineerNumCounter as number | undefined) ?? 0) + 1;
+          engineerCode = `ENG-${String(next).padStart(3, '0')}`;
+          tx.update(configRef, { engineerNumCounter: next });
+        });
+      }
+      // Admin users: engineerCode stays null and the counter is NOT incremented.
 
       // Step 4 — Write the Firestore user document.
       // The admin is still signed in on the main auth instance, so
@@ -86,7 +90,7 @@ export function useUserActions() {
         email:             email.toLowerCase().trim(),
         role,
         active:            true,
-        engineerCode,
+        engineerCode:      role === 'field' ? engineerCode : null,
         createdAt:         serverTimestamp(),
         createdBy:         currentUser?.uid ?? '',
         fcmToken:          null,

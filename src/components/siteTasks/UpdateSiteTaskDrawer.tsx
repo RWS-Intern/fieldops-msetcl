@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { MapPin } from 'lucide-react';
+import { MapPin, CheckCircle } from 'lucide-react';
 import { useSiteTaskActions }          from '@/hooks/useSiteTaskActions';
 import { useSiteTaskOfflineQueue }     from '@/hooks/useSiteTaskOfflineQueue';
 import { useToast }                    from '@/components/ui/toast';
@@ -65,6 +65,110 @@ async function convertSubtaskPhotosToBase64(
 
 async function convertPhotosArrayToBase64(photos: string[]): Promise<string[]> {
   return Promise.all(photos.map(urlToBase64IfBlob));
+}
+
+// ─── Completed task view ──────────────────────────────────────────────────────
+
+function formatDate(date: Date | null | undefined): string {
+  if (!date) return '—';
+  return date.toLocaleDateString('en-GB', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function CompletedTaskView({ task }: { task: SiteTask }) {
+  const subtasks = [...(task.subtasks ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
+  const subtaskPhotoUrls = Object.values(task.subtaskPhotos ?? {}).flat();
+
+  return (
+    <div className="flex flex-col gap-5 px-5 pb-6">
+      {/* ── Completed banner ── */}
+      <div className="flex items-start gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+        <CheckCircle className="h-5 w-5 text-green-600 shrink-0 mt-0.5" />
+        <div>
+          <p className="text-sm font-semibold text-green-800">Task Completed</p>
+          <p className="text-xs text-green-600 mt-0.5">
+            Submitted {formatDate(task.submittedAt)}
+          </p>
+          {task.submittedBy && (
+            <p className="text-xs text-green-500 mt-0.5">
+              by {task.submittedBy}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* ── Checklist answers ── */}
+      {subtasks.length > 0 && (
+        <div>
+          <p className="text-sm font-semibold text-gray-700 mb-2">Checklist Answers</p>
+          <div className="flex flex-col divide-y divide-gray-100 rounded-lg border border-gray-100 overflow-hidden">
+            {subtasks.map((s) => {
+              const answer = task.subtaskAnswers?.[s.subtaskId];
+              return (
+                <div key={s.subtaskId} className="flex justify-between items-start gap-4 px-3 py-2.5 bg-white">
+                  <span className="text-sm text-gray-600 flex-1">{s.label}</span>
+                  <span className="text-sm font-medium text-gray-900 shrink-0">
+                    {answer?.value ?? '—'}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Subtask photos ── */}
+      {subtaskPhotoUrls.length > 0 && (
+        <div>
+          <p className="text-sm font-semibold text-gray-700 mb-2">Checklist Photos</p>
+          <div className="grid grid-cols-3 gap-2">
+            {subtaskPhotoUrls.map((url, i) => (
+              <img
+                key={i}
+                src={url}
+                alt={`Photo ${i + 1}`}
+                className="w-full aspect-square object-cover rounded-lg"
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Completion photos ── */}
+      {(task.completionPhotos?.length ?? 0) > 0 && (
+        <div>
+          <p className="text-sm font-semibold text-gray-700 mb-2">Proof of Work Photos</p>
+          <div className="grid grid-cols-3 gap-2">
+            {task.completionPhotos.map((url, i) => (
+              <img
+                key={i}
+                src={url}
+                alt={`Completion ${i + 1}`}
+                className="w-full aspect-square object-cover rounded-lg"
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── GPS location ── */}
+      {task.location && (
+        <div>
+          <p className="text-sm font-semibold text-gray-700 mb-1">Location</p>
+          <a
+            href={`https://maps.google.com/?q=${task.location.lat},${task.location.lng}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-brand-blue hover:underline"
+          >
+            Open in Maps ({task.location.lat.toFixed(4)}, {task.location.lng.toFixed(4)})
+          </a>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -344,6 +448,8 @@ export function UpdateSiteTaskDrawer({
     }
   }
 
+  const isCompleted = task.status === 'completed';
+
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <>
@@ -359,7 +465,15 @@ export function UpdateSiteTaskDrawer({
             </p>
           </SheetHeader>
 
-          {/* Scrollable body */}
+          {/* ── Completed: read-only view  /  Editable form ── */}
+          {isCompleted ? (
+            <div className="flex-1 overflow-y-auto mt-4">
+              <CompletedTaskView task={task} />
+            </div>
+          ) : (
+            <>
+
+          {/* Scrollable body — editable form */}
           <div className="flex-1 overflow-y-auto px-5 pb-4 flex flex-col gap-5 mt-4">
 
             {/* Offline notice */}
@@ -527,6 +641,9 @@ export function UpdateSiteTaskDrawer({
               )}
             </Button>
           </div>
+
+            </> /* end editable fragment */
+          )} {/* end isCompleted ternary */}
 
         </SheetContent>
       </Sheet>

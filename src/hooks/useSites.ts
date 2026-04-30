@@ -38,10 +38,12 @@ export function useSites() {
             location:           data['location']
               ? { lat: data['location'].latitude, lng: data['location'].longitude }
               : null,
-            status:             data['status']             ?? 'active',
-            taskCount:          data['taskCount']          ?? 0,
-            completedTaskCount: data['completedTaskCount'] ?? 0,
-            createdBy:          data['createdBy']          ?? '',
+            status:              data['status']              ?? 'active',
+            taskCount:           data['taskCount']           ?? 0,
+            completedTaskCount:  data['completedTaskCount']  ?? 0,
+            inProgressTaskCount: data['inProgressTaskCount'] ?? 0,
+            blockedTaskCount:    data['blockedTaskCount']    ?? 0,
+            createdBy:           data['createdBy']           ?? '',
             createdAt:          data['createdAt']?.toDate?.() ?? new Date(),
             archived:           data['archived']           ?? false,
             archivedAt:         data['archivedAt']?.toDate?.() ?? null,

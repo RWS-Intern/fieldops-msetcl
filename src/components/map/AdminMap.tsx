@@ -51,13 +51,14 @@ const LAYER_UNCLUSTERED   = 'unclustered-site';
 
 /**
  * Derive the aggregate task status for a site from its denormalised task
- * counters. Blocked detection requires querying individual siteTasks which
- * is too expensive for 1,557+ sites — deferred to a future phase.
+ * counters. Uses the atomic counters written by submitSiteTaskUpdate.
+ * ?? 0 guards against legacy documents that pre-date the new fields.
  */
 function getSiteAggregateStatus(site: Site): AggregateStatus {
-  if (site.taskCount === 0)                              return 'pending';
-  if (site.completedTaskCount === site.taskCount)        return 'completed';
-  if (site.completedTaskCount > 0)                       return 'in_progress';
+  if (site.taskCount === 0)                                          return 'pending';
+  if ((site.blockedTaskCount ?? 0) > 0)                             return 'blocked';
+  if (site.completedTaskCount === site.taskCount)                    return 'completed';
+  if ((site.inProgressTaskCount ?? 0) > 0 || site.completedTaskCount > 0) return 'in_progress';
   return 'pending';
 }
 
