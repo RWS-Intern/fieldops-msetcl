@@ -1,6 +1,7 @@
 import {
   doc,
   collection,
+  getDoc,
   updateDoc,
   addDoc,
   runTransaction,
@@ -154,6 +155,19 @@ export function useSiteTaskActions() {
             txUpdates['status'] = newStatus;
           }
 
+          // Pin the site on the map if this submission has GPS and the site
+          // has no location yet (common for bulk-uploaded sites).
+          if (data.location) {
+            const existingLoc = d['location'] as { lat?: number; lng?: number } | null;
+            const siteHasLocation = existingLoc?.lat != null && existingLoc?.lng != null;
+            if (!siteHasLocation) {
+              txUpdates['location'] = {
+                lat: data.location.lat,
+                lng: data.location.lng,
+              };
+            }
+          }
+
           tx.update(siteRef, txUpdates);
         });
       } catch (siteErr) {
@@ -178,4 +192,40 @@ export function useSiteTaskActions() {
   }
 
   return { submitSiteTaskUpdate };
+}
+
+// ─── Standalone exports ───────────────────────────────────────────────────────
+
+/**
+ * Pull the latest subtask snapshot from the project task template and write it
+ * back to an existing siteTask document.
+ *
+ * Allows an admin to propagate showWhen conditions (or any other template
+ * changes) into a site task that was created before the conditions existed.
+ * Safe to call at any time — only the `subtasks` array is overwritten.
+ */
+export async function refreshSiteTaskSubtasks(
+  siteTaskId: string,
+  projectId:  string,
+  taskKey:    string,
+): Promise<void> {
+  const projectSnap = await getDoc(doc(db, 'projects', projectId));
+  if (!projectSnap.exists()) {
+    throw new Error('Project not found');
+  }
+
+  const project  = projectSnap.data();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const template = (project['taskTemplates'] as any[] | undefined)?.find(
+    (t) => t.taskKey === taskKey,
+  );
+
+  if (!template) {
+    throw new Error(`Task template "${taskKey}" not found in project`);
+  }
+
+  await updateDoc(doc(db, 'siteTasks', siteTaskId), {
+    subtasks:  template.subtasks ?? [],
+    updatedAt: serverTimestamp(),
+  });
 }

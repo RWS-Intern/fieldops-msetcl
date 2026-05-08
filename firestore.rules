@@ -95,6 +95,7 @@ service cloud.firestore {
              'inProgressTaskCount',
              'blockedTaskCount',
              'status',
+             'location',
              'updatedAt',
            ]));
     }

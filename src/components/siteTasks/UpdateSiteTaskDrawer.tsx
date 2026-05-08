@@ -16,7 +16,7 @@ import { Textarea }      from '@/components/ui/textarea';
 import { ChecklistItem } from '@/components/tasks/checklist/ChecklistItem';
 import { PhotoZone }     from '@/components/photos/PhotoZone';
 import { cn }            from '@/lib/utils';
-import type { SiteTask, TaskStatus, CollectionType } from '@/types';
+import type { SiteTask, TaskStatus, CollectionType, SubtaskDefinition } from '@/types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -168,6 +168,32 @@ function CompletedTaskView({ task }: { task: SiteTask }) {
         </div>
       )}
     </div>
+  );
+}
+
+// ─── Subtask visibility ───────────────────────────────────────────────────────
+
+/**
+ * Returns true when the subtask should be shown to the field engineer.
+ * Subtasks without showWhen are always visible (unchanged behaviour).
+ * When showWhen is set, the subtask is visible only when the trigger subtask's
+ * current answer matches showWhen.value (case-insensitive, trimmed).
+ */
+function isSubtaskVisible(
+  subtask: SubtaskDefinition,
+  answers: Record<string, string>,
+): boolean {
+  if (!subtask.showWhen) return true;
+
+  const triggerAnswer = answers[subtask.showWhen.subtaskId];
+
+  if (triggerAnswer === undefined || triggerAnswer === null || triggerAnswer === '') {
+    return false;
+  }
+
+  return (
+    String(triggerAnswer).toLowerCase().trim() ===
+    subtask.showWhen.value.toLowerCase().trim()
   );
 }
 
@@ -342,12 +368,18 @@ export function UpdateSiteTaskDrawer({
     }
 
     if (status === 'completed') {
-      const missingRequired = subtasks.some(
-        (s) =>
-          s.isRequired &&
-          s.collectionType !== 'image_only' &&
-          !answers[s.subtaskId]?.trim(),
-      );
+      const missingRequired =
+        subtasks.filter((s) => {
+          if (!isSubtaskVisible(s, answers)) return false; // hidden subtasks are never required
+          if (!s.isRequired || s.collectionType === 'image_only') return false;
+          const answer = answers[s.subtaskId];
+          return (
+            answer === undefined ||
+            answer === null ||
+            answer === '' ||
+            answer === 'unanswered'
+          );
+        }).length > 0;
       if (missingRequired) {
         setShowErrors(true);
         showToast('Please complete all required checklist items', 'error');
@@ -359,7 +391,10 @@ export function UpdateSiteTaskDrawer({
       }
 
       const missingSubtaskPhoto = subtasks.find(
-        (s) => s.imageRequired && !(subtaskPhotos[s.subtaskId]?.length >= 1),
+        (s) =>
+          isSubtaskVisible(s, answers) &&
+          s.imageRequired &&
+          !(subtaskPhotos[s.subtaskId]?.length >= 1),
       );
       if (missingSubtaskPhoto) {
         showToast(`Please add a photo for: ${missingSubtaskPhoto.label}`, 'error');
@@ -373,9 +408,12 @@ export function UpdateSiteTaskDrawer({
 
     if (!valid) return;
 
-    // ── Build subtaskAnswers map (shared for online + offline paths) ─────────────
+    // ── Build subtaskAnswers map — hidden subtasks are excluded from the write ───
+    // The answers state is NOT cleared when a subtask hides (the engineer may
+    // toggle back), but we only persist answers for currently-visible subtasks.
     const subtaskAnswers: Record<string, { value: string; type: CollectionType }> = {};
     for (const s of subtasks) {
+      if (!isSubtaskVisible(s, answers)) continue;
       const val = answers[s.subtaskId];
       if (val !== undefined && val !== '') {
         subtaskAnswers[s.subtaskId] = { value: val, type: s.collectionType };
@@ -546,6 +584,10 @@ export function UpdateSiteTaskDrawer({
                 <p className="text-sm font-semibold text-gray-700 mb-2">Checklist</p>
                 <div className="flex flex-col gap-2">
                   {subtasks.map((s, i) => {
+                    // Hidden subtasks are not rendered at all.
+                    const visible = isSubtaskVisible(s, answers);
+                    if (!visible) return null;
+
                     const isError =
                       showErrors &&
                       s.isRequired &&
@@ -553,6 +595,7 @@ export function UpdateSiteTaskDrawer({
                       !answers[s.subtaskId]?.trim();
                     const firstErrorIdx = subtasks.findIndex(
                       (x) =>
+                        isSubtaskVisible(x, answers) &&
                         showErrors &&
                         x.isRequired &&
                         x.collectionType !== 'image_only' &&

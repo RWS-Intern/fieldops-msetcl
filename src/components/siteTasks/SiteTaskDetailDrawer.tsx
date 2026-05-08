@@ -33,7 +33,8 @@ import { useAuthStore }        from '@/store/authStore';
 import { useToast }            from '@/components/ui/toast';
 import { formatDate, formatDateTime } from '@/lib/taskUtils';
 import type { SiteTask, TaskStatus } from '@/types';
-import { MapPin, X, ChevronDown, ChevronUp, Archive, CheckCircle } from 'lucide-react';
+import { MapPin, X, ChevronDown, ChevronUp, Archive, CheckCircle, RefreshCw } from 'lucide-react';
+import { refreshSiteTaskSubtasks } from '@/hooks/useSiteTaskActions';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -107,6 +108,9 @@ export function SiteTaskDetailDrawer({
   // ── Archive state ─────────────────────────────────────────────────────────
   const [archiveConfirm, setArchiveConfirm] = useState(false);
   const [archiving,      setArchiving]      = useState(false);
+
+  // ── Refresh subtasks state ────────────────────────────────────────────────
+  const [refreshing, setRefreshing] = useState(false);
 
   // ── Lightbox ──────────────────────────────────────────────────────────────
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -263,6 +267,21 @@ export function SiteTaskDetailDrawer({
     } catch {
       showToast('Failed to archive task', 'error');
       setArchiving(false);
+    }
+  }
+
+  // ── Refresh subtasks from project template ────────────────────────────────
+  async function handleRefreshSubtasks(): Promise<void> {
+    if (!task) return;
+    setRefreshing(true);
+    try {
+      await refreshSiteTaskSubtasks(task.id, task.projectId, task.taskKey);
+      showToast('Subtasks refreshed from template', 'success');
+    } catch (err) {
+      console.error('[SiteTaskDetailDrawer] refreshSiteTaskSubtasks failed:', err);
+      showToast('Failed to refresh subtasks', 'error');
+    } finally {
+      setRefreshing(false);
     }
   }
 
@@ -613,6 +632,19 @@ export function SiteTaskDetailDrawer({
                 </Button>
               )}
             </div>
+            )}
+
+            {/* ── Refresh subtasks from template — hidden in readOnly mode ── */}
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={handleRefreshSubtasks}
+                disabled={refreshing}
+                className="w-full text-xs text-gray-400 hover:text-gray-600 py-2 flex items-center justify-center gap-1 border-t border-gray-100 mt-2"
+              >
+                <RefreshCw className="w-3 h-3" />
+                {refreshing ? 'Refreshing…' : 'Refresh subtasks from template'}
+              </button>
             )}
 
           </div>

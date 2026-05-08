@@ -129,6 +129,29 @@ function TemplateRow({
     if (match) subtaskErrors[`subtask_${match[1]}_${match[2]}`] = v;
   }
 
+  // ── Condition helpers ─────────────────────────────────────────────────────
+  // Patch a single subtask inside template.subtasks and propagate via onUpdate.
+  function updateSubtaskField(subtaskId: string, patch: Partial<SubtaskDefinition>) {
+    const updated = template.subtasks.map((s) =>
+      s.subtaskId === subtaskId ? { ...s, ...patch } : s,
+    );
+    onUpdate(index, { subtasks: updated });
+  }
+
+  function addCondition(subtaskId: string) {
+    updateSubtaskField(subtaskId, { showWhen: { subtaskId: '', value: '' } });
+  }
+
+  function removeCondition(subtaskId: string) {
+    updateSubtaskField(subtaskId, { showWhen: undefined });
+  }
+
+  function updateCondition(subtaskId: string, field: 'subtaskId' | 'value', val: string) {
+    const subtask = template.subtasks.find((s) => s.subtaskId === subtaskId);
+    if (!subtask?.showWhen) return;
+    updateSubtaskField(subtaskId, { showWhen: { ...subtask.showWhen, [field]: val } });
+  }
+
   return (
     <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
       {/* Colour stripe */}
@@ -294,6 +317,84 @@ function TemplateRow({
                   minItems={1}
                 />
               </div>
+
+              {/* Subtask conditions — only available when there are 2+ subtasks */}
+              {template.subtasks.length > 1 && (
+                <div>
+                  <p className="text-xs font-medium text-gray-600 mb-1">
+                    Subtask Conditions
+                    <span className="font-normal text-gray-400 ml-1">
+                      (show a subtask only when another has a specific answer)
+                    </span>
+                  </p>
+                  <div className="flex flex-col gap-3 mt-2">
+                    {template.subtasks.map((subtask, idx) => {
+                      // The first subtask cannot depend on anything.
+                      if (idx === 0) return null;
+                      return (
+                        <div key={subtask.subtaskId} className="text-xs">
+                          <p className="text-gray-500 mb-1 font-medium truncate">
+                            {subtask.label || <span className="italic text-gray-300">Unnamed subtask</span>}
+                          </p>
+                          {!subtask.showWhen ? (
+                            <button
+                              type="button"
+                              onClick={() => addCondition(subtask.subtaskId)}
+                              disabled={disabled}
+                              className="text-xs text-gray-400 hover:text-blue-600 mt-1 flex items-center gap-1"
+                            >
+                              <Plus className="w-3 h-3" />
+                              Add condition
+                            </button>
+                          ) : (
+                            <div className="mt-2 p-2 bg-gray-50 border border-gray-200 rounded-md text-xs">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-gray-500">Show only when:</span>
+                                <select
+                                  value={subtask.showWhen.subtaskId}
+                                  onChange={(e) =>
+                                    updateCondition(subtask.subtaskId, 'subtaskId', e.target.value)
+                                  }
+                                  disabled={disabled}
+                                  className="border border-gray-300 rounded px-1.5 py-0.5 text-xs bg-white"
+                                >
+                                  <option value="">Select question…</option>
+                                  {template.subtasks
+                                    .filter((s, sIdx) => s.subtaskId !== subtask.subtaskId && sIdx < idx)
+                                    .map((s) => (
+                                      <option key={s.subtaskId} value={s.subtaskId}>
+                                        {s.label}
+                                      </option>
+                                    ))}
+                                </select>
+                                <span className="text-gray-500">=</span>
+                                <input
+                                  type="text"
+                                  value={subtask.showWhen.value}
+                                  onChange={(e) =>
+                                    updateCondition(subtask.subtaskId, 'value', e.target.value)
+                                  }
+                                  disabled={disabled}
+                                  placeholder="e.g. yes"
+                                  className="border border-gray-300 rounded px-1.5 py-0.5 text-xs w-20 bg-white"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => removeCondition(subtask.subtaskId)}
+                                  disabled={disabled}
+                                  className="text-gray-400 hover:text-red-500 ml-1"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

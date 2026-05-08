@@ -64,6 +64,16 @@ export interface SubtaskDefinition {
   imageRequired: boolean;
   options: string[];    // non-empty only for collectionType === 'select'
   sortOrder: number;
+  /**
+   * When set, this subtask is only shown to the field engineer when the
+   * referenced subtask has been answered with the specified value
+   * (case-insensitive, trimmed comparison).
+   * Subtasks without showWhen are always visible — no behaviour change.
+   */
+  showWhen?: {
+    subtaskId: string;
+    value: string;
+  };
 }
 
 export interface TaskType {
