@@ -88,7 +88,11 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
             <Label htmlFor="edit-role" className="text-gray-500">Role</Label>
             <Input
               id="edit-role"
-              value={user?.role === 'admin' ? 'Admin' : 'Field Engineer'}
+              value={
+                user?.role === 'admin'    ? 'Admin' :
+                user?.role === 'approver' ? 'Approver' :
+                'Field Engineer'
+              }
               readOnly
               disabled
               className="bg-gray-50 text-gray-500 cursor-not-allowed"

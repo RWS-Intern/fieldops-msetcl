@@ -4,17 +4,21 @@ import type { SiteTask, TaskStatus } from '@/types';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_BADGE: Record<TaskStatus, string> = {
-  pending:     'bg-gray-100 text-gray-600',
-  in_progress: 'bg-amber-50 text-amber-700',
-  completed:   'bg-green-50 text-green-700',
-  blocked:     'bg-red-50 text-red-700',
+  pending:           'bg-gray-100 text-gray-600',
+  in_progress:       'bg-amber-50 text-amber-700',
+  pending_approval:  'bg-violet-50 text-violet-700',
+  changes_requested: 'bg-orange-50 text-orange-700',
+  completed:         'bg-green-50 text-green-700',
+  blocked:           'bg-red-50 text-red-700',
 };
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
-  pending:     'Pending',
-  in_progress: 'In Progress',
-  completed:   'Completed',
-  blocked:     'Blocked',
+  pending:           'Pending',
+  in_progress:       'In Progress',
+  pending_approval:  'Pending Approval',
+  changes_requested: 'Changes Requested',
+  completed:         'Completed',
+  blocked:           'Blocked',
 };
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -23,6 +27,8 @@ interface SiteTaskCardProps {
   task:     SiteTask;
   /** Opens the field-engineer Update drawer for this task. */
   onUpdate: () => void;
+  /** Overrides the footer button label (defaults to Update/View). */
+  actionLabel?: string;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -35,7 +41,7 @@ interface SiteTaskCardProps {
 //                   │ [In Progress]  Due 25 Apr   ← Line 4: status badge + due date
 //                   │                  [Update]   ← Footer: action button
 
-export function SiteTaskCard({ task, onUpdate }: SiteTaskCardProps) {
+export function SiteTaskCard({ task, onUpdate, actionLabel }: SiteTaskCardProps) {
   return (
     <div
       className="flex rounded-lg border border-gray-100 bg-white shadow-sm overflow-hidden cursor-pointer hover:border-brand-blue transition-colors"
@@ -87,7 +93,7 @@ export function SiteTaskCard({ task, onUpdate }: SiteTaskCardProps) {
             size="sm"
             className="h-7 text-xs px-3 shrink-0"
           >
-            {task.status === 'completed' ? 'View' : 'Update'}
+            {actionLabel ?? (task.status === 'completed' ? 'View' : 'Update')}
           </Button>
         </div>
 

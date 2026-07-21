@@ -36,6 +36,25 @@ export interface SubmitSiteTaskUpdateInput {
   previousStatus:   TaskStatus;
 }
 
+export interface ReviewSiteTaskInput {
+  decision:       'approve' | 'request_changes';
+  /** Required when decision === 'request_changes'. */
+  reviewNotes?:   string;
+  /** Needed to update the counters on the parent site document. */
+  siteId:         string;
+  siteCode:       string;
+  taskCode:       string;
+  taskLabel:      string;
+  /** Task status BEFORE this review — expected to be 'pending_approval'. */
+  previousStatus: TaskStatus;
+  /**
+   * The task's current approverUid — passed in so the guard can be checked
+   * without an extra read. `null` means the task has no approver assigned
+   * yet, in which case any admin may act as a fallback reviewer.
+   */
+  approverUid:    string | null;
+}
+
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useSiteTaskActions() {
@@ -91,19 +110,22 @@ export function useSiteTaskActions() {
     // Using a transaction so we can read the current counter values, compute the
     // new counts precisely, and then decide whether site.status flips between
     // 'active' and 'completed' — all in one atomic round-trip.
-    const wasCompleted  = data.previousStatus === 'completed';
-    const wasInProgress = data.previousStatus === 'in_progress';
-    const wasBlocked    = data.previousStatus === 'blocked';
+    const wasCompleted        = data.previousStatus === 'completed';
+    const wasInProgress       = data.previousStatus === 'in_progress';
+    const wasBlocked          = data.previousStatus === 'blocked';
+    const wasPendingApproval  = data.previousStatus === 'pending_approval';
 
-    const isNowCompleted  = data.status === 'completed';
-    const isNowInProgress = data.status === 'in_progress';
-    const isNowBlocked    = data.status === 'blocked';
+    const isNowCompleted       = data.status === 'completed';
+    const isNowInProgress      = data.status === 'in_progress';
+    const isNowBlocked         = data.status === 'blocked';
+    const isNowPendingApproval = data.status === 'pending_approval';
 
     // Only run the transaction when at least one counter will change.
     const countersChanged =
-      wasCompleted  !== isNowCompleted  ||
-      wasInProgress !== isNowInProgress ||
-      wasBlocked    !== isNowBlocked;
+      wasCompleted       !== isNowCompleted       ||
+      wasInProgress      !== isNowInProgress      ||
+      wasBlocked         !== isNowBlocked         ||
+      wasPendingApproval !== isNowPendingApproval;
 
     if (countersChanged) {
       try {
@@ -116,9 +138,10 @@ export function useSiteTaskActions() {
           const taskCount = (d['taskCount'] as number) ?? 0;
 
           // Apply deltas — clamp to 0 to guard against stale previousStatus.
-          let completedCount  = (d['completedTaskCount']  as number) ?? 0;
-          let inProgressCount = (d['inProgressTaskCount'] as number) ?? 0;
-          let blockedCount    = (d['blockedTaskCount']    as number) ?? 0;
+          let completedCount       = (d['completedTaskCount']       as number) ?? 0;
+          let inProgressCount      = (d['inProgressTaskCount']      as number) ?? 0;
+          let blockedCount         = (d['blockedTaskCount']         as number) ?? 0;
+          let pendingApprovalCount = (d['pendingApprovalTaskCount'] as number) ?? 0;
 
           if (isNowCompleted && !wasCompleted)
             completedCount  = Math.max(0, completedCount  + 1);
@@ -135,6 +158,11 @@ export function useSiteTaskActions() {
           else if (wasBlocked && !isNowBlocked)
             blockedCount    = Math.max(0, blockedCount    - 1);
 
+          if (isNowPendingApproval && !wasPendingApproval)
+            pendingApprovalCount = Math.max(0, pendingApprovalCount + 1);
+          else if (wasPendingApproval && !isNowPendingApproval)
+            pendingApprovalCount = Math.max(0, pendingApprovalCount - 1);
+
           // Derive site.status — never override a manual 'on_hold'.
           const currentStatus = (d['status'] as string) ?? 'active';
           let newStatus = currentStatus;
@@ -147,9 +175,10 @@ export function useSiteTaskActions() {
 
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const txUpdates: Record<string, any> = {
-            completedTaskCount:  completedCount,
-            inProgressTaskCount: inProgressCount,
-            blockedTaskCount:    blockedCount,
+            completedTaskCount:       completedCount,
+            inProgressTaskCount:      inProgressCount,
+            blockedTaskCount:         blockedCount,
+            pendingApprovalTaskCount: pendingApprovalCount,
           };
           if (newStatus !== currentStatus) {
             txUpdates['status'] = newStatus;
@@ -191,7 +220,122 @@ export function useSiteTaskActions() {
     }
   }
 
-  return { submitSiteTaskUpdate };
+  /**
+   * Approver review of a pending_approval SiteTask — approve or send back
+   * with review notes. Guarded to the assigned approver, with an admin
+   * fallback when the task has no approverUid (legacy / unassigned tasks).
+   * Does NOT touch subtaskAnswers, subtaskPhotos, or completionPhotos.
+   */
+  async function reviewSiteTask(
+    taskId: string,
+    data:   ReviewSiteTaskInput,
+  ): Promise<void> {
+    if (!currentUser) throw new Error('Not authenticated');
+
+    const isAssignedApprover = currentUser.uid === data.approverUid;
+    const isAdminFallback    = currentUser.role === 'admin' && data.approverUid == null;
+    if (!isAssignedApprover && !isAdminFallback) {
+      throw new Error('You are not authorized to review this task.');
+    }
+
+    const trimmedNotes = data.reviewNotes?.trim() ?? '';
+    if (data.decision === 'request_changes' && !trimmedNotes) {
+      throw new Error('Review notes are required when requesting changes.');
+    }
+
+    const newStatus: TaskStatus = data.decision === 'approve' ? 'completed' : 'changes_requested';
+    const reviewNotes = data.decision === 'request_changes' ? trimmedNotes : null;
+
+    const taskRef = doc(db, 'siteTasks', taskId);
+
+    // ── Update siteTask document — status + review metadata only ─────────────
+    await updateDoc(taskRef, {
+      status:         newStatus,
+      reviewNotes,
+      reviewedBy:     currentUser.uid,
+      reviewedByName: currentUser.name,
+      reviewedAt:     serverTimestamp(),
+      updatedAt:      serverTimestamp(),
+    });
+
+    // ── Immutable update snapshot ─────────────────────────────────────────────
+    await addDoc(collection(db, 'siteTasks', taskId, 'updates'), {
+      submittedBy:     currentUser.uid,
+      submittedByName: currentUser.name,
+      submittedAt:     serverTimestamp(),
+      status:          newStatus,
+      blockedReason:   null,
+      action:          data.decision,
+      reviewNotes,
+      reviewedBy:      currentUser.uid,
+      reviewedByName:  currentUser.name,
+      // Denormalised task metadata for history display
+      taskCode:        data.taskCode,
+      taskLabel:       data.taskLabel,
+      siteCode:        data.siteCode,
+    });
+
+    // ── Update task-status counters + derive site.status (approve only) ──────
+    const wasPendingApproval = data.previousStatus === 'pending_approval';
+    if (wasPendingApproval) {
+      try {
+        await runTransaction(db, async (tx) => {
+          const siteRef  = doc(db, 'sites', data.siteId);
+          const siteSnap = await tx.get(siteRef);
+          if (!siteSnap.exists()) return;
+
+          const d = siteSnap.data();
+          const taskCount = (d['taskCount'] as number) ?? 0;
+
+          let completedCount       = (d['completedTaskCount']       as number) ?? 0;
+          let pendingApprovalCount = (d['pendingApprovalTaskCount'] as number) ?? 0;
+
+          pendingApprovalCount = Math.max(0, pendingApprovalCount - 1);
+
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const txUpdates: Record<string, any> = {
+            pendingApprovalTaskCount: pendingApprovalCount,
+          };
+
+          if (data.decision === 'approve') {
+            completedCount = Math.max(0, completedCount + 1);
+            txUpdates['completedTaskCount'] = completedCount;
+
+            // Derive site.status — never override a manual 'on_hold'.
+            const currentStatus = (d['status'] as string) ?? 'active';
+            if (currentStatus !== 'on_hold') {
+              const newSiteStatus =
+                taskCount > 0 && completedCount >= taskCount ? 'completed' : 'active';
+              if (newSiteStatus !== currentStatus) {
+                txUpdates['status'] = newSiteStatus;
+              }
+            }
+          }
+
+          tx.update(siteRef, txUpdates);
+        });
+      } catch (siteErr) {
+        console.error('[reviewSiteTask] site counter update failed:', siteErr);
+      }
+    }
+
+    // ── Audit log (non-critical) ──────────────────────────────────────────────
+    try {
+      await addDoc(collection(db, 'auditLog'), {
+        timestamp:  serverTimestamp(),
+        uid:        currentUser.uid,
+        userName:   currentUser.name,
+        action:     'REVIEW_SITE_TASK',
+        detail:     `${data.decision === 'approve' ? 'Approved' : 'Requested changes on'} ${data.taskCode}`,
+        siteTaskId: taskId,
+        siteId:     data.siteId,
+      });
+    } catch (auditErr) {
+      console.warn('[reviewSiteTask] auditLog write failed:', auditErr);
+    }
+  }
+
+  return { submitSiteTaskUpdate, reviewSiteTask };
 }
 
 // ─── Standalone exports ───────────────────────────────────────────────────────

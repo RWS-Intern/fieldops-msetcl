@@ -94,6 +94,7 @@ service cloud.firestore {
              'completedTaskCount',
              'inProgressTaskCount',
              'blockedTaskCount',
+             'pendingApprovalTaskCount',
              'status',
              'location',
              'updatedAt',
@@ -121,7 +122,24 @@ service cloud.firestore {
       // field engineers can update only tasks explicitly assigned to them.
       allow create: if isAdmin();
       allow update: if isAdmin()
-                    || (isAuthenticated() && resource.data.assignedTo == request.auth.uid);
+                    || (isAuthenticated() && resource.data.assignedTo == request.auth.uid)
+                    // Approver branch — the assigned approver (or an admin, when the
+                    // task has no approver, as a legacy-safety fallback) may update
+                    // ONLY the review fields. They must never touch the engineer's
+                    // answers or photos.
+                    || (isAuthenticated()
+                        && (resource.data.get('approverUid', null) == request.auth.uid
+                            || (isAdmin() && resource.data.get('approverUid', null) == null))
+                        && request.resource.data.diff(resource.data)
+                             .affectedKeys()
+                             .hasOnly([
+                               'status',
+                               'reviewNotes',
+                               'reviewedBy',
+                               'reviewedByName',
+                               'reviewedAt',
+                               'updatedAt',
+                             ]));
       allow delete: if isAdmin();
     }
 

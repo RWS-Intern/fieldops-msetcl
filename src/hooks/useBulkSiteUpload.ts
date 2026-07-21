@@ -254,6 +254,7 @@ export function useBulkSiteUpload() {
           completedTaskCount:  0,
           inProgressTaskCount: 0,
           blockedTaskCount:    0,
+          pendingApprovalTaskCount: 0,
           createdAt:           serverTimestamp(),
           createdBy:           currentUser?.uid ?? '',
           archived:            false,
@@ -294,6 +295,13 @@ export function useBulkSiteUpload() {
             createdAt:          serverTimestamp(),
             updatedAt:          serverTimestamp(),
             archived:           false,
+            approverUid:        project.defaultApproverUid  ?? null,
+            approverName:       project.defaultApproverName ?? null,
+            approverCode:       null,
+            reviewNotes:        null,
+            reviewedBy:         null,
+            reviewedByName:     null,
+            reviewedAt:         null,
           });
         }
 

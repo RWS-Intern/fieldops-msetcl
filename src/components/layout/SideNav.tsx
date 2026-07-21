@@ -6,6 +6,7 @@ import {
   MapPin,
   Users,
   BarChart2,
+  CheckSquare,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { cn } from '@/lib/utils';
@@ -15,8 +16,14 @@ const fieldItems = [
   { to: '/tasks',     label: 'Tasks',   Icon: ClipboardList },
 ];
 
+const approverItems = [
+  { to: '/dashboard',  label: 'Home',       Icon: LayoutDashboard },
+  { to: '/approvals',  label: 'Approvals',  Icon: CheckSquare },
+];
+
 const adminItems = [
   { to: '/dashboard', label: 'Home',      Icon: LayoutDashboard },
+  { to: '/approvals', label: 'Approvals', Icon: CheckSquare },
   { to: '/projects',  label: 'Projects',  Icon: FolderKanban },
   { to: '/sites',     label: 'Sites',     Icon: MapPin },
   { to: '/team',      label: 'Engineers', Icon: Users },
@@ -25,7 +32,10 @@ const adminItems = [
 
 export function SideNav() {
   const { currentUser } = useAuthStore();
-  const items = currentUser?.role === 'admin' ? adminItems : fieldItems;
+  const items =
+    currentUser?.role === 'admin'    ? adminItems :
+    currentUser?.role === 'approver' ? approverItems :
+    fieldItems;
 
   return (
     <aside className="fixed left-0 top-14 hidden h-[calc(100vh-3.5rem)] w-52 flex-col border-r border-gray-200 bg-white md:flex">

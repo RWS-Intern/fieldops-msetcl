@@ -58,6 +58,8 @@ export function useProjects() {
             projectCode:    d['projectCode']    ?? '',
             active:         d['active']         !== false,   // default true
             taskTemplates:  d['taskTemplates']  ?? [],
+            defaultApproverUid:  d['defaultApproverUid']  ?? null,
+            defaultApproverName: d['defaultApproverName'] ?? null,
             // Archive
             archived:    d['archived']              ?? false,
             archivedAt:  d['archivedAt']?.toDate?.() ?? null,

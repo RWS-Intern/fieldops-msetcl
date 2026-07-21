@@ -29,6 +29,7 @@ import {
 } from 'firebase/firestore';
 import { db }                  from '@/firebase/config';
 import { useFieldEngineers }   from '@/hooks/useFieldEngineers';
+import { useApprovers }        from '@/hooks/useApprovers';
 import { useAuthStore }        from '@/store/authStore';
 import { useToast }            from '@/components/ui/toast';
 import { formatDate, formatDateTime } from '@/lib/taskUtils';
@@ -39,17 +40,21 @@ import { refreshSiteTaskSubtasks } from '@/hooks/useSiteTaskActions';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const TASK_STATUS_BADGE: Record<TaskStatus, string> = {
-  pending:     'bg-gray-100 text-gray-600',
-  in_progress: 'bg-amber-50 text-amber-700',
-  completed:   'bg-green-50 text-green-700',
-  blocked:     'bg-red-50 text-red-700',
+  pending:           'bg-gray-100 text-gray-600',
+  in_progress:       'bg-amber-50 text-amber-700',
+  pending_approval:  'bg-violet-50 text-violet-700',
+  changes_requested: 'bg-orange-50 text-orange-700',
+  completed:         'bg-green-50 text-green-700',
+  blocked:           'bg-red-50 text-red-700',
 };
 
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
-  pending:     'Pending',
-  in_progress: 'In Progress',
-  completed:   'Completed',
-  blocked:     'Blocked',
+  pending:           'Pending',
+  in_progress:       'In Progress',
+  pending_approval:  'Pending Approval',
+  changes_requested: 'Changes Requested',
+  completed:         'Completed',
+  blocked:           'Blocked',
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -97,6 +102,7 @@ export function SiteTaskDetailDrawer({
   readOnly = false,
 }: SiteTaskDetailDrawerProps) {
   const { engineers, loading: engLoading } = useFieldEngineers();
+  const { approvers, loading: apprLoading } = useApprovers();
   const { currentUser } = useAuthStore();
   const { showToast }   = useToast();
 
@@ -104,6 +110,10 @@ export function SiteTaskDetailDrawer({
   const [selectedEngineerId, setSelectedEngineerId] = useState('');
   const [dueDateStr,         setDueDateStr]         = useState('');
   const [saving,             setSaving]             = useState(false);
+
+  // ── Approver state ────────────────────────────────────────────────────────
+  const [selectedApproverId, setSelectedApproverId] = useState('none');
+  const [savingApprover,     setSavingApprover]     = useState(false);
 
   // ── Archive state ─────────────────────────────────────────────────────────
   const [archiveConfirm, setArchiveConfirm] = useState(false);
@@ -130,6 +140,8 @@ export function SiteTaskDetailDrawer({
     setSelectedEngineerId(task.assignedTo ?? '');
     setDueDateStr(toDateInputValue(task.dueDate));
     setSaving(false);
+    setSelectedApproverId(task.approverUid ?? 'none');
+    setSavingApprover(false);
     setArchiveConfirm(false);
     setArchiving(false);
     setLightboxUrl(null);
@@ -182,6 +194,9 @@ export function SiteTaskDetailDrawer({
   const isDirty =
     selectedEngineerId !== '' &&
     (selectedEngineerId !== originalEngineerId || dueDateStr !== originalDueDateStr);
+
+  const originalApproverId = task?.approverUid ?? 'none';
+  const isApproverDirty     = selectedApproverId !== originalApproverId;
 
   // ── Save assignment ───────────────────────────────────────────────────────
   async function handleSaveAssignment() {
@@ -253,6 +268,44 @@ export function SiteTaskDetailDrawer({
     }
   }
 
+  // ── Save approver ────────────────────────────────────────────────────────
+  async function handleSaveApprover() {
+    if (!task || !currentUser) return;
+
+    const isNone   = selectedApproverId === 'none';
+    const approver = isNone ? null : approvers.find((a) => a.uid === selectedApproverId);
+
+    setSavingApprover(true);
+    try {
+      await updateDoc(doc(db, 'siteTasks', task.id), {
+        approverUid:  approver?.uid          ?? null,
+        approverName: approver?.displayName  ?? null,
+        approverCode: approver?.engineerCode ?? null,
+        updatedAt:    serverTimestamp(),
+      });
+
+      try {
+        await addDoc(collection(db, 'auditLog'), {
+          timestamp:  serverTimestamp(),
+          uid:        currentUser.uid,
+          userName:   currentUser.name,
+          action:     'ASSIGN_APPROVER',
+          detail:     `Set approver for ${task.taskCode} to ${approver?.displayName ?? 'none'}`,
+          siteTaskId: task.id,
+          siteId:     task.siteId,
+        });
+      } catch (auditErr) {
+        console.warn('[SiteTaskDetailDrawer] approver auditLog failed:', auditErr);
+      }
+
+      showToast('Approver updated', 'success');
+    } catch {
+      showToast('Failed to update approver', 'error');
+    } finally {
+      setSavingApprover(false);
+    }
+  }
+
   // ── Archive ───────────────────────────────────────────────────────────────
   async function handleArchive() {
     if (!task) return;
@@ -319,6 +372,9 @@ export function SiteTaskDetailDrawer({
             <SheetTitle className="mt-1">{task.taskLabel}</SheetTitle>
             <p className="text-xs text-gray-500 mt-0.5">
               {task.siteName} · {task.projectName}
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Approver: {task.approverName ?? 'Unassigned (any admin may approve)'}
             </p>
           </SheetHeader>
 
@@ -427,6 +483,51 @@ export function SiteTaskDetailDrawer({
                   </Button>
                 </div>
               )}
+            </section>
+            )}
+
+            {/* ── Approver ─────────────────────────────────────────────── */}
+            {/* Hidden in readOnly mode (Recent Activity context) */}
+            {!readOnly && (
+            <section>
+              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                Approver
+              </h4>
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="stdd-approver">Approver</Label>
+                  {apprLoading ? (
+                    <Skeleton className="h-9 rounded-md" />
+                  ) : (
+                    <Select
+                      value={selectedApproverId}
+                      onValueChange={setSelectedApproverId}
+                    >
+                      <SelectTrigger id="stdd-approver">
+                        <SelectValue placeholder="Select approver…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Unassigned (any admin may approve)</SelectItem>
+                        {approvers.map((a) => (
+                          <SelectItem key={a.uid} value={a.uid}>
+                            {a.displayName}
+                            {a.engineerCode ? ` (${a.engineerCode})` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+
+                <Button
+                  onClick={handleSaveApprover}
+                  disabled={!isApproverDirty || savingApprover || apprLoading}
+                  className="bg-brand-blue hover:bg-brand-navy text-white self-end"
+                  size="sm"
+                >
+                  {savingApprover ? 'Saving…' : 'Save Approver'}
+                </Button>
+              </div>
             </section>
             )}
 

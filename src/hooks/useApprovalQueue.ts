@@ -6,27 +6,24 @@ import {
   onSnapshot,
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
+import { useAuthStore } from '@/store/authStore';
 import type { SiteTask, TaskStatus } from '@/types';
 
 /**
- * Real-time listener for all (non-archived) site tasks assigned to a specific
- * engineer. Returns the full SiteTask objects so callers can either compute
- * stats or render the full list.
+ * Real-time listener for the current user's approval queue.
  *
- * Pass uid = '' to get an empty, immediately-resolved result (used for
- * admin user cards where no tasks should be shown).
- *
- * Uses a single `where('assignedTo', '==', uid)` clause — Firestore's
- * auto-index covers single-field equality queries with no composite index
- * required. Client-side archived filter keeps the query simple.
+ * Query: where('approverUid', '==', uid) — single-field equality, no
+ * composite index required. Status + archived filtering and sorting are
+ * done client-side (same pattern as useAssignedSiteTasks).
  */
-export function useEngineerTasks(uid: string) {
-  const [tasks,   setTasks]   = useState<SiteTask[]>([]);
+export function useApprovalQueue() {
+  const { currentUser } = useAuthStore();
+  const [queue,   setQueue]   = useState<SiteTask[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!uid) {
-      setTasks([]);
+    if (!currentUser) {
+      setQueue([]);
       setLoading(false);
       return;
     }
@@ -35,13 +32,13 @@ export function useEngineerTasks(uid: string) {
 
     const q = query(
       collection(db, 'siteTasks'),
-      where('assignedTo', '==', uid),
+      where('approverUid', '==', currentUser.uid),
     );
 
     const unsubscribe = onSnapshot(
       q,
       (snap) => {
-        const result: SiteTask[] = snap.docs
+        const tasks: SiteTask[] = snap.docs
           .map((d) => {
             const data = d.data();
             return {
@@ -84,20 +81,23 @@ export function useEngineerTasks(uid: string) {
               reviewedAt:       data['reviewedAt']?.toDate?.()  ?? null,
             } as SiteTask;
           })
-          // Client-side archived filter keeps the Firestore query single-field
-          .filter((t) => !t.archived);
+          // Client-side status + archived filter — avoids needing a composite index.
+          .filter((t) => t.status === 'pending_approval' && !t.archived)
+          // Most-recently-updated first.
+          .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
 
-        setTasks(result);
+        setQueue(tasks);
         setLoading(false);
       },
       (err) => {
-        console.error('[useEngineerTasks] listener error:', err);
+        console.error('[useApprovalQueue] listener error:', err);
         setLoading(false);
       },
     );
 
     return () => unsubscribe();
-  }, [uid]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.uid]);
 
-  return { tasks, loading };
+  return { queue, loading };
 }

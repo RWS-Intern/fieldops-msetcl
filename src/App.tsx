@@ -13,6 +13,8 @@ import { SettingsPage } from '@/pages/SettingsPage';
 import { ProjectsPage } from '@/pages/ProjectsPage';
 import { SitesPage }    from '@/pages/SitesPage';
 import { SignupPage }   from '@/pages/SignupPage';
+import { ApprovalsPage } from '@/pages/ApprovalsPage';
+import type { UserRole } from '@/types';
 
 // Initialises the Firebase auth listener at the app root
 function AuthInit({ children }: { children: React.ReactNode }) {
@@ -22,10 +24,12 @@ function AuthInit({ children }: { children: React.ReactNode }) {
 
 interface ProtectedRouteProps {
   requireAdmin?: boolean;
+  /** When set, only these roles may access the route (requireAdmin still applies if both are set). */
+  allowRoles?: UserRole[];
   children: React.ReactNode;
 }
 
-function ProtectedRoute({ requireAdmin = false, children }: ProtectedRouteProps) {
+function ProtectedRoute({ requireAdmin = false, allowRoles, children }: ProtectedRouteProps) {
   const { currentUser, loading } = useAuthStore();
 
   if (loading) {
@@ -41,6 +45,10 @@ function ProtectedRoute({ requireAdmin = false, children }: ProtectedRouteProps)
   }
 
   if (requireAdmin && currentUser.role !== 'admin') {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  if (allowRoles && !allowRoles.includes(currentUser.role)) {
     return <Navigate to="/dashboard" replace />;
   }
 
@@ -79,6 +87,16 @@ export default function App() {
           >
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/tasks"     element={<TasksPage />} />
+
+            {/* Approver + admin */}
+            <Route
+              path="/approvals"
+              element={
+                <ProtectedRoute allowRoles={['approver', 'admin']}>
+                  <ApprovalsPage />
+                </ProtectedRoute>
+              }
+            />
 
             {/* Admin-only */}
             <Route

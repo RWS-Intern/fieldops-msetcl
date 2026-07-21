@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'field';
+export type UserRole = 'admin' | 'approver' | 'field';
 
 /** Firestore user document — used by the Team Management feature. */
 export interface User {
@@ -52,7 +52,7 @@ export interface AppConfig {
   siteTaskNumCounter?: number;
 }
 
-export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'blocked';
+export type TaskStatus = 'pending' | 'in_progress' | 'pending_approval' | 'changes_requested' | 'completed' | 'blocked';
 
 export type CollectionType = 'yesno' | 'text' | 'number' | 'select' | 'image_only';
 
@@ -189,6 +189,9 @@ export interface Project {
   active?: boolean;
   /** Task templates owned by this project. */
   taskTemplates?: TaskTemplate[];
+  /** Default approver inherited by every SiteTask spawned under this project. */
+  defaultApproverUid?: string | null;
+  defaultApproverName?: string | null;
   // Archive
   archived?: boolean;
   archivedAt?: Date | null;
@@ -246,6 +249,9 @@ export interface ProjectV3 {
   updatedAt: Date;
   archived?: boolean;
   archivedAt?: Date | null;
+  /** Default approver inherited by every SiteTask spawned under this project. */
+  defaultApproverUid?: string | null;
+  defaultApproverName?: string | null;
 }
 
 // ─── Site ──────────────────────────────────────────────────────────────────────
@@ -275,6 +281,8 @@ export interface Site {
   inProgressTaskCount: number;
   /** Number of tasks currently blocked. Updated atomically on task status change. */
   blockedTaskCount: number;
+  /** Number of tasks currently pending_approval. Updated atomically on task status change. */
+  pendingApprovalTaskCount: number;
   createdBy: string;
   createdAt: Date;
   archived: boolean;
@@ -324,6 +332,15 @@ export interface SiteTask {
   updatedAt: Date;
   archived: boolean;
   archivedAt?: Date | null;
+  /** Assigned approver — inherited from the project's defaultApproverUid, admin-overridable per task. */
+  approverUid: string | null;
+  approverName: string | null;
+  approverCode: string | null;
+  /** Notes written by the approver on "request changes". */
+  reviewNotes: string | null;
+  reviewedBy: string | null;
+  reviewedByName: string | null;
+  reviewedAt: Date | null;
 }
 
 // ─── BulkUpload ────────────────────────────────────────────────────────────────

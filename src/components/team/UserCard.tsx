@@ -16,7 +16,10 @@ interface UserCardProps {
 
 function Avatar({ user }: { user: User }) {
   const initial = user.name.trim().charAt(0).toUpperCase() || '?';
-  const bg = user.role === 'admin' ? 'bg-brand-navy' : 'bg-teal-600';
+  const bg =
+    user.role === 'admin'    ? 'bg-brand-navy' :
+    user.role === 'approver' ? 'bg-violet-600' :
+    'bg-teal-600';
 
   return (
     <div
@@ -40,10 +43,12 @@ function RoleBadge({ role }: { role: User['role'] }) {
         'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
         role === 'admin'
           ? 'bg-brand-navy/10 text-brand-navy'
+          : role === 'approver'
+          ? 'bg-violet-100 text-violet-700'
           : 'bg-teal-100 text-teal-700',
       )}
     >
-      {role === 'admin' ? 'Admin' : 'Field Engineer'}
+      {role === 'admin' ? 'Admin' : role === 'approver' ? 'Approver' : 'Field Engineer'}
     </span>
   );
 }

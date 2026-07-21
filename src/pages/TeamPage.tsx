@@ -46,11 +46,12 @@ function exportEngineersCsv(users: User[]): void {
 
 // ─── Filter tabs ──────────────────────────────────────────────────────────────
 
-type FilterTab = 'all' | 'admin' | 'field' | 'disabled';
+type FilterTab = 'all' | 'admin' | 'approver' | 'field' | 'disabled';
 
 const TABS: { key: FilterTab; label: string }[] = [
   { key: 'all',      label: 'All'             },
   { key: 'admin',    label: 'Admins'          },
+  { key: 'approver', label: 'Approvers'       },
   { key: 'field',    label: 'Field Engineers' },
   { key: 'disabled', label: 'Disabled'        },
 ];
@@ -76,8 +77,9 @@ export function TeamPage() {
     const q = search.toLowerCase().trim();
 
     return users.filter((u) => {
-      if (activeTab === 'admin'    && u.role !== 'admin') return false;
-      if (activeTab === 'field'    && u.role !== 'field') return false;
+      if (activeTab === 'admin'    && u.role !== 'admin')    return false;
+      if (activeTab === 'approver' && u.role !== 'approver') return false;
+      if (activeTab === 'field'    && u.role !== 'field')    return false;
       if (activeTab === 'disabled' && u.active)           return false;
       if (activeTab !== 'disabled' && !u.active)          return false;
 
@@ -95,6 +97,7 @@ export function TeamPage() {
   const counts = useMemo(() => ({
     all:      users.filter((u) => u.active).length,
     admin:    users.filter((u) => u.role === 'admin' && u.active).length,
+    approver: users.filter((u) => u.role === 'approver' && u.active).length,
     field:    users.filter((u) => u.role === 'field' && u.active).length,
     disabled: users.filter((u) => !u.active).length,
   }), [users]);

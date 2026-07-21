@@ -7,20 +7,24 @@ export function isOverdue(task: Task): boolean {
 
 export function getStatusLabel(status: TaskStatus): string {
   const map: Record<TaskStatus, string> = {
-    pending:     'Pending',
-    in_progress: 'In Progress',
-    completed:   'Completed',
-    blocked:     'Blocked',
+    pending:            'Pending',
+    in_progress:        'In Progress',
+    pending_approval:   'Pending Approval',
+    changes_requested:  'Changes Requested',
+    completed:          'Completed',
+    blocked:            'Blocked',
   };
   return map[status];
 }
 
 export function getStatusColour(status: TaskStatus): string {
   const map: Record<TaskStatus, string> = {
-    pending:     '#9CA3AF',
-    in_progress: '#F4A261',
-    completed:   '#2A9D8F',
-    blocked:     '#E63946',
+    pending:            '#9CA3AF',
+    in_progress:        '#F4A261',
+    pending_approval:   '#8B5CF6',
+    changes_requested:  '#F97316',
+    completed:          '#2A9D8F',
+    blocked:            '#E63946',
   };
   return map[status];
 }

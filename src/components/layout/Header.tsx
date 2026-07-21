@@ -78,9 +78,13 @@ export function Header() {
             </DropdownMenuLabel>
             <div className="px-2 pb-1">
               <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium text-white ${
-                currentUser?.role === 'admin' ? 'bg-brand-blue' : 'bg-brand-green'
+                currentUser?.role === 'admin' ? 'bg-brand-blue' :
+                currentUser?.role === 'approver' ? 'bg-violet-500' :
+                'bg-brand-green'
               }`}>
-                {currentUser?.role === 'admin' ? 'Admin' : 'Field'}
+                {currentUser?.role === 'admin' ? 'Admin' :
+                 currentUser?.role === 'approver' ? 'Approver' :
+                 'Field'}
               </span>
             </div>
             <DropdownMenuSeparator />

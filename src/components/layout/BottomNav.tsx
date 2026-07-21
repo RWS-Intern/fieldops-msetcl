@@ -6,6 +6,7 @@ import {
   MapPin,
   Users,
   BarChart2,
+  CheckSquare,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { cn } from '@/lib/utils';
@@ -15,8 +16,14 @@ const fieldItems = [
   { to: '/tasks',     label: 'Tasks', Icon: ClipboardList },
 ];
 
+const approverItems = [
+  { to: '/dashboard',  label: 'Home',       Icon: LayoutDashboard },
+  { to: '/approvals',  label: 'Approvals',  Icon: CheckSquare },
+];
+
 const adminItems = [
   { to: '/dashboard', label: 'Home',      Icon: LayoutDashboard },
+  { to: '/approvals', label: 'Approvals', Icon: CheckSquare },
   { to: '/projects',  label: 'Projects',  Icon: FolderKanban },
   { to: '/sites',     label: 'Sites',     Icon: MapPin },
   { to: '/team',      label: 'Engineers', Icon: Users },
@@ -25,7 +32,10 @@ const adminItems = [
 
 export function BottomNav() {
   const { currentUser } = useAuthStore();
-  const items = currentUser?.role === 'admin' ? adminItems : fieldItems;
+  const items =
+    currentUser?.role === 'admin'    ? adminItems :
+    currentUser?.role === 'approver' ? approverItems :
+    fieldItems;
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 flex h-16 items-stretch border-t border-gray-200 bg-white md:hidden">

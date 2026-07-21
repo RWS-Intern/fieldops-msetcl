@@ -115,6 +115,8 @@ export interface CreateProjectInput {
   // v3.0 additions
   projectCode?:     string;
   taskTemplates?:   TaskTemplate[];
+  defaultApproverUid?:  string | null;
+  defaultApproverName?: string | null;
 }
 
 export interface UpdateProjectInput {
@@ -123,6 +125,8 @@ export interface UpdateProjectInput {
   description?:   string;
   active?:        boolean;
   taskTemplates:  TaskTemplate[];
+  defaultApproverUid?:  string | null;
+  defaultApproverName?: string | null;
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -170,6 +174,8 @@ export function useProjectActions() {
         // v3.0 fields
         projectCode:        (data.projectCode ?? '').toUpperCase(),
         taskTemplates:      data.taskTemplates      ?? [],
+        defaultApproverUid:  data.defaultApproverUid  ?? null,
+        defaultApproverName: data.defaultApproverName ?? null,
         active:             true,
         // v2.1 fields kept for backward compat — default to now if not provided
         status:             'pending',
@@ -251,6 +257,8 @@ export function useProjectActions() {
       description:   data.description ?? '',
       active:        data.active ?? true,
       taskTemplates: data.taskTemplates,
+      defaultApproverUid:  data.defaultApproverUid  ?? null,
+      defaultApproverName: data.defaultApproverName ?? null,
       updatedAt:     serverTimestamp(),
     });
 

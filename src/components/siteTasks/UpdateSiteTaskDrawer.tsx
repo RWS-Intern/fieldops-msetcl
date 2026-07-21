@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { MapPin, CheckCircle } from 'lucide-react';
+import { MapPin, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
 import { useSiteTaskActions }          from '@/hooks/useSiteTaskActions';
 import { useSiteTaskOfflineQueue }     from '@/hooks/useSiteTaskOfflineQueue';
 import { useToast }                    from '@/components/ui/toast';
@@ -21,9 +21,9 @@ import type { SiteTask, TaskStatus, CollectionType, SubtaskDefinition } from '@/
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const UPDATE_STATUSES: { key: TaskStatus; label: string }[] = [
-  { key: 'in_progress', label: 'In Progress' },
-  { key: 'completed',   label: 'Completed'   },
-  { key: 'blocked',     label: 'Blocked'     },
+  { key: 'in_progress',      label: 'In Progress'        },
+  { key: 'pending_approval', label: 'Submit for Approval' },
+  { key: 'blocked',          label: 'Blocked'             },
 ];
 
 // ─── Photo base64 conversion helpers (for offline queue) ─────────────────────
@@ -77,27 +77,13 @@ function formatDate(date: Date | null | undefined): string {
   });
 }
 
-function CompletedTaskView({ task }: { task: SiteTask }) {
+export function ReadOnlyTaskBody({ task, banner }: { task: SiteTask; banner: React.ReactNode }) {
   const subtasks = [...(task.subtasks ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
   const subtaskPhotoUrls = Object.values(task.subtaskPhotos ?? {}).flat();
 
   return (
     <div className="flex flex-col gap-5 px-5 pb-6">
-      {/* ── Completed banner ── */}
-      <div className="flex items-start gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-        <CheckCircle className="h-5 w-5 text-green-600 shrink-0 mt-0.5" />
-        <div>
-          <p className="text-sm font-semibold text-green-800">Task Completed</p>
-          <p className="text-xs text-green-600 mt-0.5">
-            Submitted {formatDate(task.submittedAt)}
-          </p>
-          {task.assignedToName && (
-            <p className="text-xs text-green-500 mt-0.5">
-              by {task.assignedToName}
-            </p>
-          )}
-        </div>
-      </div>
+      {banner}
 
       {/* ── Checklist answers ── */}
       {subtasks.length > 0 && (
@@ -171,6 +157,54 @@ function CompletedTaskView({ task }: { task: SiteTask }) {
   );
 }
 
+function CompletedTaskView({ task }: { task: SiteTask }) {
+  return (
+    <ReadOnlyTaskBody
+      task={task}
+      banner={
+        <div className="flex items-start gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+          <CheckCircle className="h-5 w-5 text-green-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-green-800">Task Completed</p>
+            <p className="text-xs text-green-600 mt-0.5">
+              Submitted {formatDate(task.submittedAt)}
+            </p>
+            {task.assignedToName && (
+              <p className="text-xs text-green-500 mt-0.5">
+                by {task.assignedToName}
+              </p>
+            )}
+          </div>
+        </div>
+      }
+    />
+  );
+}
+
+function AwaitingApprovalView({ task }: { task: SiteTask }) {
+  return (
+    <ReadOnlyTaskBody
+      task={task}
+      banner={
+        <div className="flex items-start gap-3 p-3 bg-violet-50 border border-violet-200 rounded-lg">
+          <Clock className="h-5 w-5 text-violet-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-violet-800">Awaiting Approval</p>
+            <p className="text-xs text-violet-600 mt-0.5">
+              Submitted {formatDate(task.submittedAt)}
+            </p>
+            {task.approverName && (
+              <p className="text-xs text-violet-500 mt-0.5">
+                Approver: {task.approverName}
+              </p>
+            )}
+          </div>
+        </div>
+      }
+    />
+  );
+}
+
 // ─── Subtask visibility ───────────────────────────────────────────────────────
 
 /**
@@ -223,7 +257,7 @@ export function UpdateSiteTaskDrawer({
   const subtasks = [...(task.subtasks ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
 
   // Default status: keep current if actionable, else start at in_progress
-  const validStatuses: TaskStatus[] = ['in_progress', 'completed', 'blocked'];
+  const validStatuses: TaskStatus[] = ['in_progress', 'pending_approval', 'blocked'];
   const defaultStatus: TaskStatus   = validStatuses.includes(task.status)
     ? task.status
     : 'in_progress';
@@ -367,7 +401,7 @@ export function UpdateSiteTaskDrawer({
       setBlockedError(false);
     }
 
-    if (status === 'completed') {
+    if (status === 'pending_approval') {
       const missingRequired =
         subtasks.filter((s) => {
           if (!isSubtaskVisible(s, answers)) return false; // hidden subtasks are never required
@@ -486,7 +520,10 @@ export function UpdateSiteTaskDrawer({
     }
   }
 
-  const isCompleted = task.status === 'completed';
+  const isCompleted        = task.status === 'completed';
+  const isPendingApproval  = task.status === 'pending_approval';
+  const isChangesRequested = task.status === 'changes_requested';
+  const isReadOnly         = isCompleted || isPendingApproval;
 
   // ── Render ───────────────────────────────────────────────────────────────────
   return (
@@ -503,16 +540,33 @@ export function UpdateSiteTaskDrawer({
             </p>
           </SheetHeader>
 
-          {/* ── Completed: read-only view  /  Editable form ── */}
-          {isCompleted ? (
+          {/* ── Completed/Pending-approval: read-only view  /  Editable form ── */}
+          {isReadOnly ? (
             <div className="flex-1 overflow-y-auto mt-4">
-              <CompletedTaskView task={task} />
+              {isCompleted ? <CompletedTaskView task={task} /> : <AwaitingApprovalView task={task} />}
             </div>
           ) : (
             <>
 
           {/* Scrollable body — editable form */}
           <div className="flex-1 overflow-y-auto px-5 pb-4 flex flex-col gap-5 mt-4">
+
+            {/* Changes-requested banner — form stays editable */}
+            {isChangesRequested && (
+              <div className="flex items-start gap-3 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                <AlertTriangle className="h-5 w-5 text-orange-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-orange-800">
+                    Changes requested by {task.reviewedByName ?? 'the approver'}
+                  </p>
+                  {task.reviewNotes && (
+                    <p className="text-xs text-orange-700 mt-1 whitespace-pre-wrap">
+                      {task.reviewNotes}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Offline notice */}
             {!isOnline && (
@@ -646,13 +700,13 @@ export function UpdateSiteTaskDrawer({
                 <span className="text-red-500 ml-1">*</span>
               </p>
               <p className="text-xs text-gray-500 mb-3">
-                Required when marking task as Completed
+                Required when submitting for approval
               </p>
               <PhotoZone
                 label="Completion Photos"
                 photos={completionPhotos}
                 onPhotosChange={setCompletionPhotos}
-                required={status === 'completed'}
+                required={status === 'pending_approval'}
                 disabled={submitting}
                 taskNum={task.taskCode}
                 taskId={task.id}
@@ -686,7 +740,7 @@ export function UpdateSiteTaskDrawer({
           </div>
 
             </> /* end editable fragment */
-          )} {/* end isCompleted ternary */}
+          )} {/* end isReadOnly ternary */}
 
         </SheetContent>
       </Sheet>

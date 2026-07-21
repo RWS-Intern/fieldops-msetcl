@@ -107,6 +107,7 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="field">Field Engineer</SelectItem>
+                  <SelectItem value="approver">Approver</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
                 </SelectContent>
               </Select>

@@ -16,7 +16,15 @@ import { Button }   from '@/components/ui/button';
 import { Input }    from '@/components/ui/input';
 import { Label }    from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useProjectActions } from '@/hooks/useProjectActions';
+import { useApprovers }      from '@/hooks/useApprovers';
 import { useToast }          from '@/components/ui/toast';
 import { TaskTemplateEditor } from '@/components/projects/TaskTemplateEditor';
 import type { Project, TaskTemplate } from '@/types';
@@ -41,15 +49,17 @@ function validateProjectCode(code: string): string | null {
 
 export function EditProjectModal({ project, onClose }: EditProjectModalProps) {
   const { updateProject } = useProjectActions();
+  const { approvers }     = useApprovers();
   const { showToast }     = useToast();
 
-  const [name,        setName]        = useState('');
-  const [code,        setCode]        = useState('');
-  const [description, setDescription] = useState('');
-  const [active,      setActive]      = useState(true);
-  const [templates,   setTemplates]   = useState<TaskTemplate[]>([]);
-  const [saving,      setSaving]      = useState(false);
-  const [errors,      setErrors]      = useState<Record<string, string>>({});
+  const [name,             setName]             = useState('');
+  const [code,             setCode]             = useState('');
+  const [description,      setDescription]      = useState('');
+  const [active,           setActive]           = useState(true);
+  const [templates,        setTemplates]        = useState<TaskTemplate[]>([]);
+  const [defaultApproverId, setDefaultApproverId] = useState('none');
+  const [saving,           setSaving]           = useState(false);
+  const [errors,           setErrors]           = useState<Record<string, string>>({});
 
   const open = project !== null;
 
@@ -63,6 +73,7 @@ export function EditProjectModal({ project, onClose }: EditProjectModalProps) {
     setTemplates(
       [...(project.taskTemplates ?? [])].sort((a, b) => a.sortOrder - b.sortOrder)
     );
+    setDefaultApproverId(project.defaultApproverUid ?? 'none');
     setErrors({});
   }, [project]);
 
@@ -120,12 +131,18 @@ export function EditProjectModal({ project, onClose }: EditProjectModalProps) {
         })),
       }));
 
+      const approver = defaultApproverId === 'none'
+        ? null
+        : approvers.find((a) => a.uid === defaultApproverId);
+
       await updateProject(project.id, {
         title:         name.trim(),
         projectCode:   code.trim(),
         description:   description.trim() || undefined,
         active,
         taskTemplates: finalTemplates,
+        defaultApproverUid:  approver?.uid         ?? null,
+        defaultApproverName: approver?.displayName ?? null,
       });
 
       showToast('Project saved', 'success');
@@ -225,6 +242,28 @@ export function EditProjectModal({ project, onClose }: EditProjectModalProps) {
               </p>
             </div>
           </label>
+
+          {/* Default Approver */}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ep-approver">Default Approver</Label>
+            <Select value={defaultApproverId} onValueChange={setDefaultApproverId}>
+              <SelectTrigger id="ep-approver" disabled={saving}>
+                <SelectValue placeholder="Select approver…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Unassigned (any admin may approve)</SelectItem>
+                {approvers.map((a) => (
+                  <SelectItem key={a.uid} value={a.uid}>
+                    {a.displayName}
+                    {a.engineerCode ? ` (${a.engineerCode})` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-gray-400">
+              Inherited by every site task created under this project going forward. Existing tasks keep their current approver.
+            </p>
+          </div>
 
           {/* Task Templates */}
           <div className="flex flex-col gap-2">

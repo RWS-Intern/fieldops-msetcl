@@ -42,17 +42,21 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
 // ─── Task row ─────────────────────────────────────────────────────────────────
 
 const TASK_STATUS_BADGE: Record<TaskStatus, string> = {
-  pending:     'bg-gray-100 text-gray-600',
-  in_progress: 'bg-amber-50 text-amber-700',
-  completed:   'bg-green-50 text-green-700',
-  blocked:     'bg-red-50 text-red-700',
+  pending:           'bg-gray-100 text-gray-600',
+  in_progress:       'bg-amber-50 text-amber-700',
+  pending_approval:  'bg-violet-50 text-violet-700',
+  changes_requested: 'bg-orange-50 text-orange-700',
+  completed:         'bg-green-50 text-green-700',
+  blocked:           'bg-red-50 text-red-700',
 };
 
 const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
-  pending:     'Pending',
-  in_progress: 'In Progress',
-  completed:   'Completed',
-  blocked:     'Blocked',
+  pending:           'Pending',
+  in_progress:       'In Progress',
+  pending_approval:  'Pending Approval',
+  changes_requested: 'Changes Requested',
+  completed:         'Completed',
+  blocked:           'Blocked',
 };
 
 function SiteTaskRow({

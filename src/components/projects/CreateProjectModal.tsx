@@ -15,7 +15,15 @@ import { Button }   from '@/components/ui/button';
 import { Input }    from '@/components/ui/input';
 import { Label }    from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { useProjectActions } from '@/hooks/useProjectActions';
+import { useApprovers }      from '@/hooks/useApprovers';
 import { useToast }          from '@/components/ui/toast';
 import { TaskTemplateEditor } from '@/components/projects/TaskTemplateEditor';
 import type { TaskTemplate } from '@/types';
@@ -41,14 +49,16 @@ function validateProjectCode(code: string): string | null {
 
 export function CreateProjectModal({ open, onClose }: CreateProjectModalProps) {
   const { createProject } = useProjectActions();
+  const { approvers }     = useApprovers();
   const { showToast }     = useToast();
 
-  const [name,        setName]        = useState('');
-  const [code,        setCode]        = useState('');
-  const [description, setDescription] = useState('');
-  const [templates,   setTemplates]   = useState<TaskTemplate[]>([]);
-  const [submitting,  setSubmitting]  = useState(false);
-  const [errors,      setErrors]      = useState<Record<string, string>>({});
+  const [name,             setName]             = useState('');
+  const [code,             setCode]             = useState('');
+  const [description,      setDescription]      = useState('');
+  const [templates,        setTemplates]        = useState<TaskTemplate[]>([]);
+  const [defaultApproverId, setDefaultApproverId] = useState('none');
+  const [submitting,       setSubmitting]       = useState(false);
+  const [errors,           setErrors]           = useState<Record<string, string>>({});
 
   // Reset on open
   useEffect(() => {
@@ -57,6 +67,7 @@ export function CreateProjectModal({ open, onClose }: CreateProjectModalProps) {
     setCode('');
     setDescription('');
     setTemplates([]);
+    setDefaultApproverId('none');
     setErrors({});
   }, [open]);
 
@@ -115,11 +126,17 @@ export function CreateProjectModal({ open, onClose }: CreateProjectModalProps) {
         })),
       }));
 
+      const approver = defaultApproverId === 'none'
+        ? null
+        : approvers.find((a) => a.uid === defaultApproverId);
+
       const { projectNum } = await createProject({
         title:         name.trim(),
         projectCode:   code.trim(),
         description:   description.trim() || undefined,
         taskTemplates: finalTemplates,
+        defaultApproverUid:  approver?.uid         ?? null,
+        defaultApproverName: approver?.displayName ?? null,
       });
 
       showToast(`Project ${projectNum} created`, 'success');
@@ -194,6 +211,28 @@ export function CreateProjectModal({ open, onClose }: CreateProjectModalProps) {
               placeholder="Optional project description…"
               disabled={submitting}
             />
+          </div>
+
+          {/* Default Approver */}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="cp-approver">Default Approver</Label>
+            <Select value={defaultApproverId} onValueChange={setDefaultApproverId}>
+              <SelectTrigger id="cp-approver" disabled={submitting}>
+                <SelectValue placeholder="Select approver…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Unassigned (any admin may approve)</SelectItem>
+                {approvers.map((a) => (
+                  <SelectItem key={a.uid} value={a.uid}>
+                    {a.displayName}
+                    {a.engineerCode ? ` (${a.engineerCode})` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-gray-400">
+              Inherited by every site task created under this project. Can be overridden per task later.
+            </p>
           </div>
 
           {/* Task Templates */}

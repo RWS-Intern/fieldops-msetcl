@@ -110,6 +110,7 @@ export function useSiteActions() {
       completedTaskCount:   0,
       inProgressTaskCount:  0,
       blockedTaskCount:     0,
+      pendingApprovalTaskCount: 0,
       createdBy:            currentUser.uid,
       createdAt:            serverTimestamp(),
       archived:             false,
@@ -139,14 +140,20 @@ export function useSiteActions() {
     // store update, or the project might pre-date Phase B (no taskTemplates
     // written to Firestore yet).  Falls back to the store on read failure.
     let templates: TaskTemplate[] = [];
+    let defaultApproverUid: string | null = null;
+    let defaultApproverName: string | null = null;
     try {
       const projectSnap = await getDoc(doc(db, 'projects', data.projectId));
       const projectData = projectSnap.data();
       templates = (projectData?.['taskTemplates'] as TaskTemplate[] | undefined) ?? [];
+      defaultApproverUid  = (projectData?.['defaultApproverUid']  as string | undefined) ?? null;
+      defaultApproverName = (projectData?.['defaultApproverName'] as string | undefined) ?? null;
     } catch (projErr) {
       console.error('[createSite] getDoc project failed, falling back to store:', projErr);
       const storeProject = projects.find((p) => p.id === data.projectId);
       templates = storeProject?.taskTemplates ?? [];
+      defaultApproverUid  = storeProject?.defaultApproverUid  ?? null;
+      defaultApproverName = storeProject?.defaultApproverName ?? null;
     }
 
     if (templates.length === 0) {
@@ -190,6 +197,13 @@ export function useSiteActions() {
             createdAt:          serverTimestamp(),
             updatedAt:          serverTimestamp(),
             archived:           false,
+            approverUid:        defaultApproverUid,
+            approverName:       defaultApproverName,
+            approverCode:       null,
+            reviewNotes:        null,
+            reviewedBy:         null,
+            reviewedByName:     null,
+            reviewedAt:         null,
           });
         }
 
@@ -197,10 +211,11 @@ export function useSiteActions() {
 
         // Update site's taskCount now that tasks exist
         await updateDoc(doc(db, 'sites', siteId), {
-          taskCount:           templates.length,
-          completedTaskCount:  0,
-          inProgressTaskCount: 0,
-          blockedTaskCount:    0,
+          taskCount:                templates.length,
+          completedTaskCount:       0,
+          inProgressTaskCount:      0,
+          blockedTaskCount:         0,
+          pendingApprovalTaskCount: 0,
         });
 
         // Audit log for auto-create — non-critical

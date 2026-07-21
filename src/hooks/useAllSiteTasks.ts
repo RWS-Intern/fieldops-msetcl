@@ -75,6 +75,13 @@ export function useAllSiteTasks(enabled = true) {
               updatedAt:        data['updatedAt']?.toDate?.()   ?? new Date(),
               archived:         data['archived']         ?? false,
               archivedAt:       data['archivedAt']?.toDate?.()  ?? null,
+              approverUid:      data['approverUid']      ?? null,
+              approverName:     data['approverName']     ?? null,
+              approverCode:     data['approverCode']     ?? null,
+              reviewNotes:      data['reviewNotes']      ?? null,
+              reviewedBy:       data['reviewedBy']       ?? null,
+              reviewedByName:   data['reviewedByName']   ?? null,
+              reviewedAt:       data['reviewedAt']?.toDate?.()  ?? null,
             } as SiteTask;
           })
           .filter((t) => !t.archived);
