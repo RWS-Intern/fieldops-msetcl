@@ -32,6 +32,26 @@ export async function archiveSite(
   });
 }
 
+/**
+ * Set or clear a site's GPS pin. Admin-only utility for re-pinning sites
+ * from the office (e.g. legacy sites bulk-uploaded without coordinates).
+ * Touches ONLY location + updatedAt — no other site fields.
+ */
+export async function updateSiteLocation(
+  siteId:   string,
+  location: { lat: number; lng: number } | null,
+): Promise<void> {
+  try {
+    await updateDoc(doc(db, 'sites', siteId), {
+      location:  location ? new GeoPoint(location.lat, location.lng) : null,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (err) {
+    console.error('[updateSiteLocation] FAILED:', err);
+    throw err;
+  }
+}
+
 // ─── Input types ──────────────────────────────────────────────────────────────
 
 export interface CreateSiteInput {

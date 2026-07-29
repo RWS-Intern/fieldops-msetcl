@@ -1,18 +1,65 @@
-import { useState }               from 'react';
-import { MapPin, Building2, Archive, RotateCcw } from 'lucide-react';
+import { useState, useMemo }      from 'react';
+import { MapPin, Building2, Archive, RotateCcw, Pencil, Navigation, XCircle } from 'lucide-react';
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Button }        from '@/components/ui/button';
+import { Input }         from '@/components/ui/input';
 import { Skeleton }      from '@/components/ui/skeleton';
-import { archiveSite }              from '@/hooks/useSiteActions';
+import { archiveSite, updateSiteLocation } from '@/hooks/useSiteActions';
 import { useSiteTasks }             from '@/hooks/useSiteTasks';
 import { useToast }                 from '@/components/ui/toast';
+import { useAuthStore }             from '@/store/authStore';
 import { SiteTaskDetailDrawer }     from '@/components/siteTasks/SiteTaskDetailDrawer';
 import type { Site, SiteStatus, SiteTask, TaskStatus } from '@/types';
+
+// ─── GPS input parsing ─────────────────────────────────────────────────────────
+//
+// Accepts, in priority order:
+//   1. A Google Maps URL with an "@<lat>,<lng>" viewport centre, e.g.
+//      https://www.google.com/maps/@21.1458,79.0882,15z
+//   2. A Google Maps URL with a "?q=<lat>,<lng>" query param.
+//   3. A Google Maps URL with a "!3d<lat>!4d<lng>" place-pin segment.
+//   4. A plain "<lat>, <lng>" pair (comma and/or whitespace separated).
+// Shortened share links (maps.app.goo.gl/...) can't be expanded client-side
+// without a network request, so they intentionally fall through to "no match".
+
+const NUM = String.raw`-?\d+(?:\.\d+)?`;
+const MAPS_AT_RE    = new RegExp(`@(${NUM}),(${NUM})`);
+const MAPS_Q_RE     = new RegExp(`[?&]q=(${NUM}),(${NUM})`);
+const MAPS_3D4D_RE  = new RegExp(`!3d(${NUM})!4d(${NUM})`);
+const PLAIN_PAIR_RE = new RegExp(`^\\s*(${NUM})\\s*[,\\s]\\s*(${NUM})\\s*$`);
+
+function parseCoordinatesInput(raw: string): { lat: number; lng: number } | null {
+  const input = raw.trim();
+  if (!input) return null;
+
+  for (const re of [MAPS_AT_RE, MAPS_Q_RE, MAPS_3D4D_RE, PLAIN_PAIR_RE]) {
+    const match = input.match(re);
+    if (match) {
+      return { lat: parseFloat(match[1]), lng: parseFloat(match[2]) };
+    }
+  }
+
+  return null;
+}
+
+function isValidLatLng(lat: number, lng: number): boolean {
+  return (
+    Number.isFinite(lat) && Number.isFinite(lng) &&
+    lat >= -90 && lat <= 90 &&
+    lng >= -180 && lng <= 180
+  );
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -141,7 +188,9 @@ export function SiteDetailDrawer({
   onArchived,
 }: SiteDetailDrawerProps) {
   const { showToast }          = useToast();
+  const { currentUser }        = useAuthStore();
   const { siteTasks, loading: tasksLoading } = useSiteTasks(site.id);
+  const isAdmin = currentUser?.role === 'admin';
 
   // Task detail drawer
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -152,6 +201,14 @@ export function SiteDetailDrawer({
       ? Math.round((site.completedTaskCount / site.taskCount) * 100)
       : 0;
 
+  // site.location can be a truthy object with lat/lng undefined (e.g. a
+  // malformed/empty location map written by an older bulk upload) — guard on
+  // finite numbers, not just truthiness, before ever calling .toFixed() on it.
+  const validLocation =
+    site.location && Number.isFinite(site.location.lat) && Number.isFinite(site.location.lng)
+      ? site.location
+      : null;
+
   async function handleArchive() {
     try {
       await archiveSite(site.id, true);
@@ -160,6 +217,69 @@ export function SiteDetailDrawer({
       onArchived?.();
     } catch {
       showToast('Failed to archive site', 'error');
+    }
+  }
+
+  // ── GPS editor state ────────────────────────────────────────────────────
+  const [gpsDialogOpen, setGpsDialogOpen] = useState(false);
+  const [gpsInput,      setGpsInput]      = useState('');
+  const [savingGps,     setSavingGps]     = useState(false);
+  const [removeConfirm, setRemoveConfirm] = useState(false);
+  const [removingGps,   setRemovingGps]   = useState(false);
+
+  const parsedGps = useMemo(() => parseCoordinatesInput(gpsInput), [gpsInput]);
+  const gpsValid  = parsedGps !== null && isValidLatLng(parsedGps.lat, parsedGps.lng);
+  const gpsShowError = gpsInput.trim() !== '' && !gpsValid;
+
+  function openGpsDialog() {
+    setGpsInput(validLocation ? `${validLocation.lat}, ${validLocation.lng}` : '');
+    setGpsDialogOpen(true);
+  }
+
+  function handleUseCurrentLocation() {
+    if (!navigator.geolocation) {
+      showToast('Geolocation is not supported on this device', 'error');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setGpsInput(`${pos.coords.latitude}, ${pos.coords.longitude}`),
+      (err) => {
+        showToast(
+          err.code === err.PERMISSION_DENIED
+            ? 'Location permission denied.'
+            : 'Could not get current location.',
+          'error',
+        );
+      },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 0 },
+    );
+  }
+
+  async function handleSaveGps() {
+    if (!parsedGps || !gpsValid) return;
+    setSavingGps(true);
+    try {
+      await updateSiteLocation(site.id, parsedGps);
+      showToast('GPS location updated', 'success');
+      setGpsDialogOpen(false);
+    } catch {
+      showToast('Failed to update GPS location', 'error');
+    } finally {
+      setSavingGps(false);
+    }
+  }
+
+  async function handleRemoveGps() {
+    setRemovingGps(true);
+    try {
+      await updateSiteLocation(site.id, null);
+      showToast('GPS pin removed', 'success');
+      setRemoveConfirm(false);
+      setGpsDialogOpen(false);
+    } catch {
+      showToast('Failed to remove GPS pin', 'error');
+    } finally {
+      setRemovingGps(false);
     }
   }
 
@@ -234,21 +354,49 @@ export function SiteDetailDrawer({
                 year:  'numeric',
               })}
             />
-            {site.location && (
+            {validLocation ? (
               <InfoRow
                 label="GPS"
                 value={
-                  <a
-                    href={`https://www.google.com/maps?q=${site.location.lat},${site.location.lng}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: '#00B4D8' }}
-                    className="hover:underline"
-                  >
-                    📍 {site.location.lat.toFixed(5)}, {site.location.lng.toFixed(5)}
-                  </a>
+                  <span className="flex items-center gap-2 flex-wrap">
+                    <a
+                      href={`https://www.google.com/maps?q=${validLocation.lat},${validLocation.lng}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: '#00B4D8' }}
+                      className="hover:underline"
+                    >
+                      📍 {validLocation.lat.toFixed(5)}, {validLocation.lng.toFixed(5)}
+                    </a>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={openGpsDialog}
+                        className="inline-flex items-center gap-1 text-xs text-brand-blue hover:underline"
+                      >
+                        <Pencil className="h-3 w-3" />
+                        Edit GPS
+                      </button>
+                    )}
+                  </span>
                 }
               />
+            ) : (
+              isAdmin && (
+                <InfoRow
+                  label="GPS"
+                  value={
+                    <button
+                      type="button"
+                      onClick={openGpsDialog}
+                      className="inline-flex items-center gap-1 text-xs text-brand-blue hover:underline"
+                    >
+                      <MapPin className="h-3 w-3" />
+                      Add GPS
+                    </button>
+                  }
+                />
+              )
             )}
           </div>
 
@@ -302,6 +450,112 @@ export function SiteDetailDrawer({
       open={!!selectedTaskId}
       onClose={() => setSelectedTaskId(null)}
     />
+
+    {/* Edit GPS dialog — admin only */}
+    {isAdmin && (
+      <Dialog open={gpsDialogOpen} onOpenChange={(v) => { if (!v && !savingGps && !removingGps) { setGpsDialogOpen(false); setRemoveConfirm(false); } }}>
+        <DialogContent className="max-w-sm" aria-describedby={undefined}>
+          <DialogHeader>
+            <DialogTitle>{validLocation ? 'Edit GPS' : 'Add GPS'}</DialogTitle>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="gps-input" className="text-xs font-medium text-gray-600">
+                Paste coordinates or Google Maps link
+              </label>
+              <Input
+                id="gps-input"
+                value={gpsInput}
+                onChange={(e) => setGpsInput(e.target.value)}
+                placeholder="21.1458, 79.0882 or a Google Maps link"
+                className={gpsShowError ? 'border-brand-red focus-visible:ring-brand-red' : ''}
+                disabled={savingGps || removingGps}
+                autoFocus
+              />
+              {gpsShowError && (
+                <p className="text-xs text-brand-red">
+                  Couldn&apos;t parse a valid coordinate pair from that input.
+                </p>
+              )}
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs self-start"
+              onClick={handleUseCurrentLocation}
+              disabled={savingGps || removingGps}
+            >
+              <Navigation className="h-3.5 w-3.5" />
+              Use my current location
+            </Button>
+
+            {validLocation && !removeConfirm && (
+              <button
+                type="button"
+                onClick={() => setRemoveConfirm(true)}
+                className="inline-flex items-center gap-1 text-xs text-brand-red hover:underline self-start"
+                disabled={savingGps || removingGps}
+              >
+                <XCircle className="h-3.5 w-3.5" />
+                Remove pin
+              </button>
+            )}
+
+            {removeConfirm && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 flex flex-col gap-2">
+                <p className="text-xs text-red-700">
+                  Remove this site&apos;s GPS pin? It will no longer appear on the map.
+                </p>
+                <div className="flex gap-2 justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="text-xs"
+                    onClick={() => setRemoveConfirm(false)}
+                    disabled={removingGps}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="text-xs bg-brand-red hover:bg-red-700"
+                    onClick={handleRemoveGps}
+                    disabled={removingGps}
+                  >
+                    {removingGps ? 'Removing…' : 'Remove Pin'}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-2 justify-end pt-1 border-t border-gray-100">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => { setGpsDialogOpen(false); setRemoveConfirm(false); }}
+                disabled={savingGps || removingGps}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleSaveGps}
+                disabled={!gpsValid || savingGps || removingGps}
+              >
+                {savingGps ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    )}
     </>
   );
 }
