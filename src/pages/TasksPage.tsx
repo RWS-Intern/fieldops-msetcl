@@ -24,11 +24,13 @@ export interface CreateTaskFormState {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_PILLS: { key: TaskStatus | 'all'; label: string }[] = [
-  { key: 'all',         label: 'All'         },
-  { key: 'pending',     label: 'Pending'     },
-  { key: 'in_progress', label: 'In Progress' },
-  { key: 'completed',   label: 'Completed'   },
-  { key: 'blocked',     label: 'Blocked'     },
+  { key: 'all',                label: 'All'                },
+  { key: 'pending',            label: 'Pending'            },
+  { key: 'in_progress',        label: 'In Progress'        },
+  { key: 'pending_approval',   label: 'Pending Approval'   },
+  { key: 'changes_requested',  label: 'Changes Requested'  },
+  { key: 'completed',          label: 'Completed'          },
+  { key: 'blocked',            label: 'Blocked'            },
 ];
 
 // ─── Field Engineer View ──────────────────────────────────────────────────────
@@ -72,11 +74,13 @@ function FieldTasksView() {
 
   // ── Counts for pills ─────────────────────────────────────────────────────────
   const counts = useMemo(() => ({
-    all:         assignedSiteTasks.length,
-    pending:     assignedSiteTasks.filter((t) => t.status === 'pending').length,
-    in_progress: assignedSiteTasks.filter((t) => t.status === 'in_progress').length,
-    completed:   assignedSiteTasks.filter((t) => t.status === 'completed').length,
-    blocked:     assignedSiteTasks.filter((t) => t.status === 'blocked').length,
+    all:                assignedSiteTasks.length,
+    pending:            assignedSiteTasks.filter((t) => t.status === 'pending').length,
+    in_progress:        assignedSiteTasks.filter((t) => t.status === 'in_progress').length,
+    pending_approval:   assignedSiteTasks.filter((t) => t.status === 'pending_approval').length,
+    changes_requested:  assignedSiteTasks.filter((t) => t.status === 'changes_requested').length,
+    completed:          assignedSiteTasks.filter((t) => t.status === 'completed').length,
+    blocked:            assignedSiteTasks.filter((t) => t.status === 'blocked').length,
   }), [assignedSiteTasks]);
 
   return (

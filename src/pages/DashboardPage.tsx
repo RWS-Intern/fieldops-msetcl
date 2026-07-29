@@ -4,6 +4,8 @@ import { useAuthStore }              from '@/store/authStore';
 import { useSiteStore }              from '@/store/siteStore';
 import { useAssignedSiteTaskStore }  from '@/store/assignedSiteTaskStore';
 import { useAllSiteTasks }           from '@/hooks/useAllSiteTasks';
+import { useApprovalQueue }          from '@/hooks/useApprovalQueue';
+import { useReviewedSiteTasks }      from '@/hooks/useReviewedSiteTasks';
 import { useNetworkStatus }          from '@/hooks/useNetworkStatus';
 import { useRealtimeProjectStats }   from '@/hooks/useRealtimeProjectStats';
 import { StatCard }                  from '@/components/dashboard/StatCard';
@@ -168,6 +170,67 @@ function RecentActivity({ tasks, onUpdate }: RecentActivityProps) {
   );
 }
 
+// ─── Recently Reviewed (approver dashboard) ───────────────────────────────────
+//
+// Colours match taskUtils.ts: completed → #2A9D8F (green), changes_requested
+// → #F97316 (orange). reviewedBy overwrites on every review, so a task only
+// ever reflects its MOST RECENT reviewer's decision — exactly what
+// "reviewedBy == currentUser.uid" should show.
+
+function RecentlyReviewed({ tasks }: { tasks: SiteTask[] }) {
+  return (
+    <div>
+      <h3 className="text-base font-semibold text-gray-900 mb-3">Recently Reviewed</h3>
+      {tasks.length === 0 ? (
+        <p className="text-sm text-gray-400 py-4 text-center">No reviews yet.</p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {tasks.map((t) => {
+            const isApproved = t.status === 'completed';
+            return (
+              <div
+                key={t.id}
+                className="flex rounded-lg border border-gray-100 bg-white shadow-sm overflow-hidden"
+              >
+                {/* Colour stripe */}
+                <div
+                  className="w-1.5 shrink-0"
+                  style={{ backgroundColor: isApproved ? '#2A9D8F' : '#F97316' }}
+                />
+
+                <div className="flex-1 p-3 min-w-0">
+                  {/* Site code + decision */}
+                  <div className="flex items-start justify-between gap-2 mb-0.5">
+                    <span className="text-sm font-bold text-gray-900 font-mono leading-snug truncate">
+                      {t.siteCode}
+                    </span>
+                    <span className={cn(
+                      'text-xs font-medium px-2 py-0.5 rounded-full shrink-0',
+                      isApproved ? 'bg-green-50 text-green-700' : 'bg-orange-50 text-orange-700'
+                    )}>
+                      {isApproved ? 'Approved' : 'Changes Requested'}
+                    </span>
+                  </div>
+
+                  {/* Task label */}
+                  <p className="text-sm font-semibold text-gray-800 leading-snug">
+                    {t.taskLabel}
+                  </p>
+
+                  {/* Reviewed at */}
+                  {t.reviewedAt && (
+                    <p className="text-xs text-gray-400 mt-1">{timeAgo(t.reviewedAt)}</p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function DashboardPage() {
@@ -181,7 +244,8 @@ export function DashboardPage() {
 
   // Admin subscribes to all site tasks for stats + recent activity.
   // Field engineers use their assigned tasks store instead.
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin    = currentUser?.role === 'admin';
+  const isApprover = currentUser?.role === 'approver';
   const { tasks: allSiteTasks, loading: allLoading } = useAllSiteTasks(isAdmin);
 
   // Choose data source based on role
@@ -195,6 +259,36 @@ export function DashboardPage() {
     completed:   siteTasks.filter((t) => t.status === 'completed').length,
     blocked:     siteTasks.filter((t) => t.status === 'blocked').length,
   }), [siteTasks]);
+
+  // ── Approver dashboard data ──────────────────────────────────────────────────
+  // Called unconditionally (rules of hooks) for every role — same tolerance
+  // already established for useAssignedSiteTasks in Layout.tsx: both queries
+  // are scoped by uid (approverUid / reviewedBy), so an admin or field session
+  // simply gets whatever matches their own uid, which is safe and inexpensive.
+  const { queue: approvalQueue, loading: approvalQueueLoading } = useApprovalQueue();
+  const { tasks: reviewedTasks, loading: reviewedLoading }      = useReviewedSiteTasks();
+  const approverLoading = approvalQueueLoading || reviewedLoading;
+
+  const approverStats = useMemo(() => {
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const reviewedThisWeek = reviewedTasks.filter(
+      (t) => t.reviewedAt != null && t.reviewedAt >= sevenDaysAgo,
+    );
+    return {
+      pendingMyApproval: approvalQueue.length,
+      approvedThisWeek:  reviewedThisWeek.filter((t) => t.status === 'completed').length,
+      sentBackThisWeek:  reviewedThisWeek.filter((t) => t.status === 'changes_requested').length,
+    };
+  }, [approvalQueue, reviewedTasks]);
+
+  const recentlyReviewed = useMemo(() =>
+    [...reviewedTasks]
+      .filter((t) => t.reviewedAt != null)
+      .sort((a, b) => (b.reviewedAt?.getTime() ?? 0) - (a.reviewedAt?.getTime() ?? 0))
+      .slice(0, 5),
+    [reviewedTasks]
+  );
 
   // ── Drawer state ────────────────────────────────────────────────────────────
   const [selectedSiteTask, setSelectedSiteTask] = useState<SiteTask | null>(null);
@@ -263,52 +357,98 @@ export function DashboardPage() {
         </>
       )}
 
-      {/* Site task stat cards */}
-      <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide -mb-1">
-        {isAdmin ? 'All Site Tasks' : 'My Tasks'}
-      </p>
-      {isLoading ? (
-        <StatCardSkeletons />
-      ) : (
-        <div className="grid grid-cols-2 gap-3">
-          <StatCard
-            label="All Tasks"
-            count={siteTaskStats.all}
-            colour="#0077B6"
-            onClick={statsNav()}
-          />
-          <StatCard
-            label="In Progress"
-            count={siteTaskStats.in_progress}
-            colour="#F4A261"
-            onClick={statsNav('in_progress')}
-          />
-          <StatCard
-            label="Completed"
-            count={siteTaskStats.completed}
-            colour="#2A9D8F"
-            onClick={statsNav('completed')}
-          />
-          <StatCard
-            label="Blocked"
-            count={siteTaskStats.blocked}
-            colour="#E63946"
-            onClick={statsNav('blocked')}
-          />
-        </div>
+      {/* Site task stat cards — admin & field only; approver has its own block below */}
+      {!isApprover && (
+        <>
+          <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide -mb-1">
+            {isAdmin ? 'All Site Tasks' : 'My Tasks'}
+          </p>
+          {isLoading ? (
+            <StatCardSkeletons />
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <StatCard
+                label="All Tasks"
+                count={siteTaskStats.all}
+                colour="#0077B6"
+                onClick={statsNav()}
+              />
+              <StatCard
+                label="In Progress"
+                count={siteTaskStats.in_progress}
+                colour="#F4A261"
+                onClick={statsNav('in_progress')}
+              />
+              <StatCard
+                label="Completed"
+                count={siteTaskStats.completed}
+                colour="#2A9D8F"
+                onClick={statsNav('completed')}
+              />
+              <StatCard
+                label="Blocked"
+                count={siteTaskStats.blocked}
+                colour="#E63946"
+                onClick={statsNav('blocked')}
+              />
+            </div>
+          )}
+
+          {/* Recent Activity */}
+          {isLoading ? (
+            <div>
+              <Skeleton className="h-5 w-40 mb-3" />
+              <ActivitySkeletons />
+            </div>
+          ) : (
+            <RecentActivity
+              tasks={siteTasks}
+              onUpdate={(t) => setSelectedSiteTask(t)}
+            />
+          )}
+        </>
       )}
 
-      {/* Recent Activity */}
-      {isLoading ? (
-        <div>
-          <Skeleton className="h-5 w-40 mb-3" />
-          <ActivitySkeletons />
-        </div>
-      ) : (
-        <RecentActivity
-          tasks={siteTasks}
-          onUpdate={(t) => setSelectedSiteTask(t)}
-        />
+      {/* Approver dashboard */}
+      {isApprover && (
+        <>
+          <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide -mb-1">
+            Approvals
+          </p>
+          {approverLoading ? (
+            <StatCardSkeletons />
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <StatCard
+                label="Pending My Approval"
+                count={approverStats.pendingMyApproval}
+                colour="#8B5CF6"
+                onClick={() => navigate('/approvals')}
+              />
+              <StatCard
+                label="Approved This Week"
+                count={approverStats.approvedThisWeek}
+                colour="#2A9D8F"
+                onClick={() => navigate('/approvals')}
+              />
+              <StatCard
+                label="Sent Back This Week"
+                count={approverStats.sentBackThisWeek}
+                colour="#F97316"
+                onClick={() => navigate('/approvals')}
+              />
+            </div>
+          )}
+
+          {approverLoading ? (
+            <div>
+              <Skeleton className="h-5 w-40 mb-3" />
+              <ActivitySkeletons />
+            </div>
+          ) : (
+            <RecentlyReviewed tasks={recentlyReviewed} />
+          )}
+        </>
       )}
 
       {/* Site task drawer — admin sees read-only details (no assignment form),

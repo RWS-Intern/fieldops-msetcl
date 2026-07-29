@@ -139,11 +139,13 @@ function FilterSelect({
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: '',            label: 'All statuses'  },
-  { value: 'pending',     label: 'Pending'       },
-  { value: 'in_progress', label: 'In Progress'   },
-  { value: 'completed',   label: 'Completed'     },
-  { value: 'blocked',     label: 'Blocked'       },
+  { value: '',                   label: 'All statuses'     },
+  { value: 'pending',            label: 'Pending'          },
+  { value: 'in_progress',        label: 'In Progress'      },
+  { value: 'pending_approval',   label: 'Pending Approval' },
+  { value: 'changes_requested',  label: 'Changes Requested' },
+  { value: 'completed',          label: 'Completed'        },
+  { value: 'blocked',            label: 'Blocked'          },
 ];
 
 // ─── Main page ────────────────────────────────────────────────────────────────
@@ -382,12 +384,14 @@ export function ReportsPage() {
       </div>
 
       {/* Summary stat cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <StatCard label="Total Tasks"  value={summary.total}          accent="#9CA3AF" />
-        <StatCard label="Completed"    value={summary.completed}      accent="#2A9D8F" />
-        <StatCard label="In Progress"  value={summary.inProgress}     accent="#F4A261" />
-        <StatCard label="Blocked"      value={summary.blocked}        accent="#E63946" />
-        <StatCard label="Overdue"      value={summary.overdue}        accent="#7C3AED" />
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+        <StatCard label="Total Tasks"        value={summary.total}            accent="#9CA3AF" />
+        <StatCard label="Completed"          value={summary.completed}        accent="#2A9D8F" />
+        <StatCard label="In Progress"        value={summary.inProgress}       accent="#F4A261" />
+        <StatCard label="Pending Approval"   value={summary.pendingApproval}  accent="#8B5CF6" />
+        <StatCard label="Changes Requested"  value={summary.changesRequested} accent="#F97316" />
+        <StatCard label="Blocked"            value={summary.blocked}          accent="#E63946" />
+        <StatCard label="Overdue"            value={summary.overdue}          accent="#7C3AED" />
       </div>
 
       {/* Charts — 3×2 grid */}

@@ -96,10 +96,12 @@ export function useReports(siteTasks: SiteTask[]) {
     const now       = new Date();
     const completed = siteTasks.filter((t) => t.status === 'completed').length;
     return {
-      total:          siteTasks.length,
+      total:             siteTasks.length,
       completed,
-      inProgress:     siteTasks.filter((t) => t.status === 'in_progress').length,
-      blocked:        siteTasks.filter((t) => t.status === 'blocked').length,
+      inProgress:        siteTasks.filter((t) => t.status === 'in_progress').length,
+      pendingApproval:   siteTasks.filter((t) => t.status === 'pending_approval').length,
+      changesRequested:  siteTasks.filter((t) => t.status === 'changes_requested').length,
+      blocked:           siteTasks.filter((t) => t.status === 'blocked').length,
       overdue:        siteTasks.filter(
         (t) => t.status !== 'completed' && t.dueDate != null && t.dueDate < now,
       ).length,
