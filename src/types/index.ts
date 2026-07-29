@@ -287,6 +287,19 @@ export interface Site {
   createdAt: Date;
   archived: boolean;
   archivedAt: Date | null;
+  // ── Substation master (tender Annexure-II) — MSETCL Substation Visibility Project ──
+  sapCode?: string | null;
+  /** MSETCL zone — allocation not yet received, so this is plain editable data, not an enum. */
+  zone?: string | null;
+  voltageClass?: '132' | '110' | '100' | null;
+  totalBays?: number | null;
+  numPowerTransformers?: number | null;
+  /**
+   * Per-stage work order sequence, e.g. { survey: 2 } after this site's
+   * second survey work order was created. Absent/missing stage means zero —
+   * NOT initialised in createSite; createWorkOrder reads it with `?? 0`.
+   */
+  workOrderCounters?: Partial<Record<WorkOrderStage, number>>;
 }
 
 // ─── SiteTask ──────────────────────────────────────────────────────────────────
@@ -343,6 +356,188 @@ export interface SiteTask {
   reviewedAt: Date | null;
 }
 
+// ─── MSETCL Substation Visibility Project — WorkOrder + Survey ────────────────
+//
+// A substation (Site) is a long-lived asset worked on repeatedly over the
+// contract life: Site → WorkOrder → stage record (SurveyReport now;
+// Repair/Commissioning/AMC stage records later). The WorkOrder skeleton is
+// defined now, covering all four stages, so there is no second migration when
+// later stages arrive — but only the 'survey' stage is implemented today.
+//
+// Repeatable survey groups (bays, devices, cable runs) are ARRAYS INSIDE the
+// SurveyReport document, not subcollections: one survey = one atomic document
+// write, so an offline sync either lands completely or not at all.
+
+export type WorkOrderStage = 'survey' | 'repair' | 'commissioning' | 'amc';
+
+export type WorkOrderStatus =
+  | 'open' | 'in_progress' | 'pending_approval' | 'changes_requested'
+  | 'approved' | 'closed';
+
+/**
+ * A unit of work against a Site for one stage of the contract lifecycle.
+ * Stored in `workOrders`. Reuses the same approver semantics as SiteTask —
+ * the survey (and later stages) submit into the SAME approval gate
+ * (`reviewSiteTask` in useSiteTaskActions.ts), not a parallel mechanism.
+ */
+export interface WorkOrder {
+  id: string;
+  workOrderCode: string;        // e.g. WO-<siteCode>-SURVEY-01
+  siteId: string;
+  siteCode: string;             // denormalised, consistent with existing SiteTask pattern
+  siteName: string;
+  sapCode: string | null;
+  zone: string | null;
+  stage: WorkOrderStage;
+  status: WorkOrderStatus;
+  assignedTo: string | null;    // field engineer uid
+  assignedToName: string | null;
+  approverUid: string | null;   // nominated per work order by admin (same semantics as SiteTask)
+  approverName: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  archived: boolean;
+}
+
+// ─── Survey sub-shapes ─────────────────────────────────────────────────────────
+
+export type BayType = 'line' | 'transformer' | 'bus_coupler' | 'bus_section' | 'capacitor' | 'reactor';
+
+/** One bay row surveyed at the substation — an array element, not a subcollection. */
+export interface SurveyBay {
+  uid: string;                  // client-generated id for list keys / edits
+  bayNumber: string;
+  bayType: BayType;
+  voltageLevel: '132' | '110' | '100' | '66';
+  diPoints: number;             // status points — CB, isolators, earth switches, trip/alarm
+  doPoints: number;             // control points — open/close
+  aiPoints: number;             // analog — MW, MVAR, V, I, Hz
+  ctRatio: string | null;
+  ptRatio: string | null;
+  tapChangerPresent: boolean | null;   // conditional: transformer bays
+  tapPositions: number | null;         // conditional: show if tapChangerPresent
+  photos: string[];                    // Cloudinary URLs
+  remarks: string | null;
+}
+
+export type DeviceType = 'mfm' | 'cmr' | 'tpi' | 'gps' | 'numerical_relay' | 'legacy_rtu';
+export type DeviceProtocol = 'modbus' | 'iec_61850' | 'iec_103' | 'serial' | 'none';
+
+/** One existing device found on-site during survey — an array element. */
+export interface SurveyDevice {
+  uid: string;
+  deviceType: DeviceType;
+  make: string | null;
+  model: string | null;
+  protocol: DeviceProtocol;
+  port: 'rs485' | 'rs232' | 'ethernet' | 'other' | null;
+  quantity: number;
+  reusable: boolean;
+  photos: string[];
+  remarks: string | null;
+}
+
+/** One cable run surveyed at the substation — an array element. */
+export interface SurveyCableRun {
+  uid: string;
+  cableType: 'cat6' | 'power';
+  fromTo: string;
+  lengthM: number;
+  trays: 'available' | 'new_required' | null;
+}
+
+/** Sections E–G of the survey form — one set per site (not a repeatable group). */
+export interface SurveyInfrastructure {
+  panelSpaceAvailable: boolean | null;
+  newPanelRequired: boolean | null;
+  mountingNotes: string | null;
+  civilWork: ('grouting' | 'cable_entry' | 'foundation' | 'none')[];
+  dcSupplyAvailable: boolean | null;
+  dcVoltages: ('110' | '48' | '24')[];
+  acSupplyAvailable: boolean | null;
+  spareMcbs: boolean | null;
+  ofcAvailable: boolean | null;
+  routerAvailable: boolean | null;
+  mplsAvailable: boolean | null;
+  sldcPathNotes: string | null;
+  earthingAvailable: boolean | null;
+}
+
+/** One BOQ line item as surveyed at this site (surveyedQty is the field-filled value). */
+export interface SurveyBoqLine {
+  sr: number;
+  itemKey: string;              // stable key from the BOQ master (see src/lib/boqMaster.ts)
+  surveyedQty: number | null;
+  remarks: string | null;
+}
+
+/**
+ * The physically signed paper BOQ page is the legal artefact for government
+ * vetting — signedPagePhotos is the record of that, not a substitute for it.
+ */
+export interface SurveySignOff {
+  signedPagePhotos: string[];   // photo(s) of the PHYSICALLY signed BOQ page — the legal artefact
+  surveyorName: string | null;
+  msetclEngineerName: string | null;
+  msetclEngineerDesignation: string | null;
+  msetclEngineerEmpId: string | null;
+  surveyorSignatureImage: string | null;      // optional on-screen signature
+  msetclSignatureImage: string | null;        // optional on-screen signature
+}
+
+/**
+ * The 'survey' stage record for a WorkOrder. Stored in `surveyReports`, one
+ * document per WorkOrder. All repeatable groups (bays/devices/cableRuns) are
+ * embedded arrays — see the module-level note above for why.
+ */
+export interface SurveyReport {
+  id: string;
+  workOrderId: string;
+  siteId: string;
+  siteCode: string;
+  sapCode: string | null;
+  zone: string | null;
+  voltageClass: string | null;
+
+  /**
+   * Denormalised from the parent WorkOrder — NOT looked up via the parent at
+   * read/rule-evaluation time. Firestore can't filter a query on a parent
+   * document's field, and a security-rule get() on the parent is a billed
+   * read per document evaluated (a list query multiplies this and can hit
+   * the 10-lookup ceiling). Kept in sync at write time by
+   * createWorkOrder/reassignWorkOrder/setWorkOrderApprover in
+   * useWorkOrderActions.ts — never edit these two independently of the
+   * parent WorkOrder.
+   */
+  assignedTo: string | null;
+  assignedToName: string | null;
+  approverUid: string | null;
+  approverName: string | null;
+
+  surveyDate: Date | null;
+  location: { lat: number; lng: number } | null;   // auto-captured, manual override allowed
+
+  bays: SurveyBay[];
+  devices: SurveyDevice[];
+  cableRuns: SurveyCableRun[];
+  infrastructure: SurveyInfrastructure;
+  boqSupply: SurveyBoqLine[];
+  boqService: SurveyBoqLine[];
+  sitePhotos: { url: string; caption: string }[];  // Section I
+  signOff: SurveySignOff;
+
+  submittedBy: string | null;
+  submittedByName: string | null;
+  submittedAt: Date | null;
+  status: WorkOrderStatus;
+  reviewNotes: string | null;      // reuse approver semantics
+  reviewedBy: string | null;
+  reviewedByName: string | null;
+  reviewedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 // ─── BulkUpload ────────────────────────────────────────────────────────────────
 
 export type BulkUploadStatus = 'pending' | 'processing' | 'done' | 'failed';
@@ -379,6 +574,12 @@ export interface BulkUploadRow {
   address?:    string;
   latitude?:   string;
   longitude?:  string;
+  // ── Substation master (tender Annexure-II) — optional, MSETCL project only ──
+  sapCode?:               string;
+  zone?:                  string;
+  voltageClass?:          string;   // validated against '132' | '110' | '100' at parse time
+  totalBays?:             string;
+  numPowerTransformers?:  string;
 }
 
 export type BulkRowStatus = 'valid' | 'error' | 'duplicate';

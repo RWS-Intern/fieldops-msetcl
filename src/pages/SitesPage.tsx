@@ -315,6 +315,12 @@ export function SitesPage() {
             createdAt:           data['createdAt']?.toDate?.()  ?? new Date(),
             archived:            true,
             archivedAt:         data['archivedAt']?.toDate?.() ?? null,
+            sapCode:             data['sapCode']             ?? null,
+            zone:                data['zone']                ?? null,
+            voltageClass:        data['voltageClass']        ?? null,
+            totalBays:           data['totalBays']            ?? null,
+            numPowerTransformers: data['numPowerTransformers'] ?? null,
+            workOrderCounters:   data['workOrderCounters']    ?? {},
           } as Site;
         })
         .sort((a, b) => (b.archivedAt?.getTime() ?? 0) - (a.archivedAt?.getTime() ?? 0));

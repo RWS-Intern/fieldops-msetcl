@@ -47,6 +47,12 @@ export function useSites() {
             createdAt:          data['createdAt']?.toDate?.() ?? new Date(),
             archived:           data['archived']           ?? false,
             archivedAt:         data['archivedAt']?.toDate?.() ?? null,
+            sapCode:             data['sapCode']             ?? null,
+            zone:                data['zone']                ?? null,
+            voltageClass:        data['voltageClass']        ?? null,
+            totalBays:           data['totalBays']            ?? null,
+            numPowerTransformers: data['numPowerTransformers'] ?? null,
+            workOrderCounters:   data['workOrderCounters']    ?? {},
           } as Site;
         })
         // Client-side sort by createdAt descending (no composite index needed)

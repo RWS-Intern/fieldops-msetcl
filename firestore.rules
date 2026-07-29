@@ -122,14 +122,115 @@ service cloud.firestore {
       // field engineers can update only tasks explicitly assigned to them.
       allow create: if isAdmin();
       allow update: if isAdmin()
-                    || (isAuthenticated() && resource.data.assignedTo == request.auth.uid)
+                    // Engineer branch — may only move the task through the
+                    // engineer-owned lifecycle states. 'completed' is reachable
+                    // ONLY via the approver branch below. Ownership fields
+                    // (assignedTo/approverUid) must be unchanged from this
+                    // branch — otherwise an engineer could name themselves
+                    // approver and self-approve.
+                    || (isAuthenticated()
+                        && resource.data.assignedTo == request.auth.uid
+                        && request.resource.data.status in ['in_progress', 'pending_approval', 'blocked']
+                        && request.resource.data.assignedTo == resource.data.assignedTo
+                        && request.resource.data.get('approverUid', null) == resource.data.get('approverUid', null))
                     // Approver branch — the assigned approver (or an admin, when the
                     // task has no approver, as a legacy-safety fallback) may update
-                    // ONLY the review fields. They must never touch the engineer's
-                    // answers or photos.
+                    // ONLY the review fields, and only into a review-terminal
+                    // status. They must never touch the engineer's answers or photos.
                     || (isAuthenticated()
                         && (resource.data.get('approverUid', null) == request.auth.uid
                             || (isAdmin() && resource.data.get('approverUid', null) == null))
+                        && request.resource.data.status in ['completed', 'changes_requested']
+                        && request.resource.data.diff(resource.data)
+                             .affectedKeys()
+                             .hasOnly([
+                               'status',
+                               'reviewNotes',
+                               'reviewedBy',
+                               'reviewedByName',
+                               'reviewedAt',
+                               'updatedAt',
+                             ]));
+      allow delete: if isAdmin();
+    }
+
+    // ── MSETCL Substation Visibility Project — WorkOrder + Survey ──────────────
+    // Neither collection has legacy data (nothing has been deployed yet), so
+    // unlike siteTasks there is no null-approver admin fallback to preserve —
+    // the unconditional isAdmin() branch already covers that case.
+    //
+    // Least-privilege list/get: only admin, the assigned engineer, or the
+    // nominated approver may read a document at all (siteTasks still allows
+    // any authenticated user to `list` — that is NOT repeated here). Firestore
+    // evaluates `list` per returned document, so this forces every caller to
+    // include a matching `where` clause; see the composite indexes added to
+    // firestore.indexes.json for the assignedTo/approverUid + status +
+    // updatedAt queries task 2 will run.
+    //
+    // Field-manager scoping (zone/team) is NOT implemented here — task 5.
+
+    match /workOrders/{workOrderId} {
+      allow get:  if isAdmin()
+                  || resource.data.assignedTo  == request.auth.uid
+                  || resource.data.approverUid == request.auth.uid;
+      allow list: if isAdmin()
+                  || resource.data.assignedTo  == request.auth.uid
+                  || resource.data.approverUid == request.auth.uid;
+      // The admin pre-creates the blank work order (+ paired survey, in the
+      // same batch — see useWorkOrderActions.ts). Engineers never create,
+      // only update — this is what makes the offline-draft model work: the
+      // target document already exists before the engineer goes offline.
+      allow create: if isAdmin();
+      allow update: if isAdmin()
+                    // Engineer branch — may only move the work order through
+                    // the engineer-owned lifecycle states; 'approved'/'closed'
+                    // are reachable only via the approver/admin branches.
+                    // Ownership fields must be unchanged from this branch —
+                    // otherwise an engineer could name themselves approver
+                    // and self-approve.
+                    || (isAuthenticated()
+                        && resource.data.assignedTo == request.auth.uid
+                        && request.resource.data.status in ['in_progress', 'pending_approval']
+                        && request.resource.data.assignedTo  == resource.data.assignedTo
+                        && request.resource.data.approverUid == resource.data.approverUid)
+                    // Approver branch — nominated approver may update ONLY the
+                    // workflow status, and only into a review-terminal status.
+                    || (isAuthenticated()
+                        && resource.data.approverUid == request.auth.uid
+                        && request.resource.data.status in ['approved', 'changes_requested']
+                        && request.resource.data.diff(resource.data)
+                             .affectedKeys()
+                             .hasOnly(['status', 'updatedAt']));
+      allow delete: if isAdmin();
+    }
+
+    match /surveyReports/{reportId} {
+      // assignedTo/approverUid are denormalised directly onto SurveyReport
+      // (kept in sync with the parent WorkOrder by useWorkOrderActions.ts) —
+      // NOT looked up via the parent. Firestore can't filter a query on a
+      // parent document's field, and a rule-level get() on the parent is a
+      // billed read per document evaluated, which multiplies across a list
+      // query and can hit the 10-lookup ceiling.
+      allow get:  if isAdmin()
+                  || resource.data.assignedTo  == request.auth.uid
+                  || resource.data.approverUid == request.auth.uid;
+      allow list: if isAdmin()
+                  || resource.data.assignedTo  == request.auth.uid
+                  || resource.data.approverUid == request.auth.uid;
+      allow create: if isAdmin();
+      allow update: if isAdmin()
+                    // Engineer branch — same lifecycle + anti-self-reassignment
+                    // guard as workOrders above.
+                    || (isAuthenticated()
+                        && resource.data.assignedTo == request.auth.uid
+                        && request.resource.data.status in ['in_progress', 'pending_approval']
+                        && request.resource.data.assignedTo  == resource.data.assignedTo
+                        && request.resource.data.approverUid == resource.data.approverUid)
+                    // Approver branch — ONLY the review fields, same field list as siteTasks,
+                    // and only into a review-terminal status.
+                    || (isAuthenticated()
+                        && resource.data.approverUid == request.auth.uid
+                        && request.resource.data.status in ['approved', 'changes_requested']
                         && request.resource.data.diff(resource.data)
                              .affectedKeys()
                              .hasOnly([

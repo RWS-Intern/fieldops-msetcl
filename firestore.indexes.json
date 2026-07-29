@@ -109,6 +109,43 @@
         { "fieldPath": "engineerCode", "order": "ASCENDING" },
         { "fieldPath": "role",         "order": "ASCENDING" }
       ]
+    },
+
+    {
+      "collectionGroup": "workOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "assignedTo", "order": "ASCENDING" },
+        { "fieldPath": "status",     "order": "ASCENDING" },
+        { "fieldPath": "updatedAt",  "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "workOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "approverUid", "order": "ASCENDING" },
+        { "fieldPath": "status",      "order": "ASCENDING" },
+        { "fieldPath": "updatedAt",   "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "surveyReports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "assignedTo", "order": "ASCENDING" },
+        { "fieldPath": "status",     "order": "ASCENDING" },
+        { "fieldPath": "updatedAt",  "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "surveyReports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "approverUid", "order": "ASCENDING" },
+        { "fieldPath": "status",      "order": "ASCENDING" },
+        { "fieldPath": "updatedAt",   "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

@@ -23,6 +23,9 @@ import type {
 
 const REQUIRED_HEADERS = ['projectCode', 'siteCode', 'siteName', 'city', 'state'];
 
+/** Valid values for the optional Annexure-II `voltageClass` column. */
+const VALID_VOLTAGE_CLASSES = ['132', '110', '100'];
+
 /** Maximum rows per upload to stay within Firestore batch limits and page performance. */
 const MAX_ROWS = 1000;
 
@@ -80,6 +83,12 @@ export function useBulkSiteUpload() {
               address:     row['address']     ?? '',
               latitude:    row['latitude']    ?? '',
               longitude:   row['longitude']   ?? '',
+              // ── Substation master (tender Annexure-II) — optional columns ──
+              sapCode:              row['sapCode']              ?? '',
+              zone:                  row['zone']                  ?? '',
+              voltageClass:          row['voltageClass']          ?? '',
+              totalBays:             row['totalBays']             ?? '',
+              numPowerTransformers:  row['numPowerTransformers']  ?? '',
             })
           );
 
@@ -162,6 +171,25 @@ export function useBulkSiteUpload() {
         const lng = parseFloat(row.longitude);
         if (isNaN(lng) || lng < -180 || lng > 180) {
           errors.push('longitude must be a decimal number between -180 and 180');
+        }
+      }
+
+      // ── Substation master: validate only when provided ────────────────────
+      if (row.voltageClass?.trim() && !VALID_VOLTAGE_CLASSES.includes(row.voltageClass.trim())) {
+        errors.push(
+          `voltageClass "${row.voltageClass}" is invalid. Must be one of: ${VALID_VOLTAGE_CLASSES.join(', ')}`
+        );
+      }
+      if (row.totalBays?.trim()) {
+        const n = Number(row.totalBays);
+        if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+          errors.push('totalBays must be a whole non-negative number');
+        }
+      }
+      if (row.numPowerTransformers?.trim()) {
+        const n = Number(row.numPowerTransformers);
+        if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+          errors.push('numPowerTransformers must be a whole non-negative number');
         }
       }
 
@@ -259,6 +287,11 @@ export function useBulkSiteUpload() {
           createdBy:           currentUser?.uid ?? '',
           archived:            false,
           archivedAt:          null,
+          sapCode:             row.sapCode?.trim()      || null,
+          zone:                row.zone?.trim()          || null,
+          voltageClass:        row.voltageClass?.trim()  || null,
+          totalBays:           row.totalBays?.trim()            ? Number(row.totalBays)            : null,
+          numPowerTransformers: row.numPowerTransformers?.trim() ? Number(row.numPowerTransformers) : null,
         });
 
         // ── SiteTask documents — one per task template ─────────────────────

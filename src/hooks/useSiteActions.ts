@@ -67,6 +67,12 @@ export interface CreateSiteInput {
   projectCode: string;
   status?:     SiteStatus;
   location?:   { lat: number; lng: number } | null;
+  // ── Substation master (tender Annexure-II) — MSETCL project only, optional ──
+  sapCode?:               string | null;
+  zone?:                  string | null;
+  voltageClass?:          '132' | '110' | '100' | null;
+  totalBays?:             number | null;
+  numPowerTransformers?:  number | null;
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -135,6 +141,11 @@ export function useSiteActions() {
       createdAt:            serverTimestamp(),
       archived:             false,
       archivedAt:           null,
+      sapCode:              data.sapCode              ?? null,
+      zone:                 data.zone                 ?? null,
+      voltageClass:         data.voltageClass          ?? null,
+      totalBays:            data.totalBays             ?? null,
+      numPowerTransformers: data.numPowerTransformers  ?? null,
     });
 
     const siteId = newSiteRef.id;
