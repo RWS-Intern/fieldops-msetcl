@@ -89,7 +89,14 @@ export function useWorkOrderActions() {
 
     const siteRef          = doc(db, 'sites', input.siteId);
     const workOrderRef     = doc(collection(db, 'workOrders'));
-    const surveyReportRef  = doc(collection(db, 'surveyReports'));
+    // Deterministic ID == the work order's own ID: exactly one survey exists
+    // per work order, so the work order ID is a natural key. This lets
+    // useSurveyReport read the survey with a single-doc get() instead of a
+    // where('workOrderId','==',...) query — Firestore evaluates `list` rules
+    // against the query itself (not the matched documents), and a query on
+    // workOrderId can't be proven to satisfy the assignedTo/approverUid rule
+    // condition, so it was rejected outright under the deployed rules.
+    const surveyReportRef  = doc(db, 'surveyReports', workOrderRef.id);
 
     const emptySurvey = createEmptySurveyReport({
       workOrderId:  workOrderRef.id,

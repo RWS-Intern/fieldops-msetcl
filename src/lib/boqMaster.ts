@@ -3,6 +3,7 @@ import type {
   SurveyReport,
   SurveyInfrastructure,
   SurveySignOff,
+  SurveyPreVisit,
 } from '@/types';
 
 /**
@@ -71,19 +72,31 @@ export function createEmptyBoqLines(): { boqSupply: SurveyBoqLine[]; boqService:
 
 function createEmptyInfrastructure(): SurveyInfrastructure {
   return {
-    panelSpaceAvailable: null,
-    newPanelRequired:    null,
-    mountingNotes:       null,
-    civilWork:           [],
-    dcSupplyAvailable:   null,
-    dcVoltages:          [],
-    acSupplyAvailable:   null,
-    spareMcbs:           null,
-    ofcAvailable:        null,
-    routerAvailable:     null,
-    mplsAvailable:       null,
-    sldcPathNotes:       null,
-    earthingAvailable:   null,
+    panelSpaceAvailable:   null,
+    panelSpaceMeasurement: null,
+    newPanelRequired:      null,
+    mountingNotes:         null,
+    civilWork:             [],
+    dcSupplyAvailable:     null,
+    dcVoltages:            [],
+    acSupplyAvailable:     null,
+    spareMcbs:             null,
+    dcdbLocation:          null,
+    ofcAvailable:          null,
+    routerAvailable:       null,
+    mplsAvailable:         null,
+    sldcPathNotes:         null,
+    earthingAvailable:     null,
+  };
+}
+
+function createEmptyPreVisit(): SurveyPreVisit {
+  return {
+    inZonalPlanAndEngineerConfirmed:     false,
+    authorisationLetterCarried:          false,
+    existingSldObtained:                 false,
+    toolsCarried:                        false,
+    substationInchargeContactConfirmed:  false,
   };
 }
 
@@ -136,12 +149,17 @@ export function createEmptySurveyReport(input: CreateEmptySurveyReportInput): Su
     approverUid:    input.approverUid    ?? null,
     approverName:   input.approverName   ?? null,
 
-    surveyDate: null,
-    location:   null,
+    surveyDate:   null,
+    location:     null,
+    surveyorName: null,
+    surveyedTotalBays:            null,
+    surveyedNumPowerTransformers: null,
+    preVisit: createEmptyPreVisit(),
 
-    bays:      [],
-    devices:   [],
-    cableRuns: [],
+    bays:               [],
+    devices:            [],
+    cableRuns:          [],
+    difficultRunsNotes: null,
     infrastructure: createEmptyInfrastructure(),
     boqSupply,
     boqService,

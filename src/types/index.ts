@@ -403,15 +403,23 @@ export interface WorkOrder {
 
 export type BayType = 'line' | 'transformer' | 'bus_coupler' | 'bus_section' | 'capacitor' | 'reactor';
 
-/** One bay row surveyed at the substation — an array element, not a subcollection. */
+/**
+ * One bay row surveyed at the substation — an array element, not a subcollection.
+ * bayType/voltageLevel/diPoints/doPoints/aiPoints are nullable despite being
+ * required-for-submit fields (see validateSurvey): this becomes a
+ * jointly-signed BOQ submitted for government vetting, so "surveyor didn't
+ * answer yet" must be a distinguishable state from any real value — 0 status
+ * points is a legitimate answer, so it must never be indistinguishable from
+ * unanswered.
+ */
 export interface SurveyBay {
   uid: string;                  // client-generated id for list keys / edits
   bayNumber: string;
-  bayType: BayType;
-  voltageLevel: '132' | '110' | '100' | '66';
-  diPoints: number;             // status points — CB, isolators, earth switches, trip/alarm
-  doPoints: number;             // control points — open/close
-  aiPoints: number;             // analog — MW, MVAR, V, I, Hz
+  bayType: BayType | null;
+  voltageLevel: '132' | '110' | '100' | '66' | null;
+  diPoints: number | null;      // status points — CB, isolators, earth switches, trip/alarm
+  doPoints: number | null;      // control points — open/close
+  aiPoints: number | null;      // analog — MW, MVAR, V, I, Hz
   ctRatio: string | null;
   ptRatio: string | null;
   tapChangerPresent: boolean | null;   // conditional: transformer bays
@@ -423,32 +431,40 @@ export interface SurveyBay {
 export type DeviceType = 'mfm' | 'cmr' | 'tpi' | 'gps' | 'numerical_relay' | 'legacy_rtu';
 export type DeviceProtocol = 'modbus' | 'iec_61850' | 'iec_103' | 'serial' | 'none';
 
-/** One existing device found on-site during survey — an array element. */
+/**
+ * One existing device found on-site during survey — an array element.
+ * deviceType/protocol/quantity/reusable are nullable — same "unanswered must
+ * never look like a real answer" reasoning as SurveyBay above.
+ */
 export interface SurveyDevice {
   uid: string;
-  deviceType: DeviceType;
+  deviceType: DeviceType | null;
   make: string | null;
   model: string | null;
-  protocol: DeviceProtocol;
+  protocol: DeviceProtocol | null;
   port: 'rs485' | 'rs232' | 'ethernet' | 'other' | null;
-  quantity: number;
-  reusable: boolean;
+  quantity: number | null;
+  reusable: boolean | null;
   photos: string[];
   remarks: string | null;
 }
 
-/** One cable run surveyed at the substation — an array element. */
+/**
+ * One cable run surveyed at the substation — an array element.
+ * cableType/lengthM are nullable — same reasoning as SurveyBay above.
+ */
 export interface SurveyCableRun {
   uid: string;
-  cableType: 'cat6' | 'power';
+  cableType: 'cat6' | 'power' | null;
   fromTo: string;
-  lengthM: number;
+  lengthM: number | null;
   trays: 'available' | 'new_required' | null;
 }
 
 /** Sections E–G of the survey form — one set per site (not a repeatable group). */
 export interface SurveyInfrastructure {
   panelSpaceAvailable: boolean | null;
+  panelSpaceMeasurement: string | null;      // Section E "(measure)"
   newPanelRequired: boolean | null;
   mountingNotes: string | null;
   civilWork: ('grouting' | 'cable_entry' | 'foundation' | 'none')[];
@@ -456,11 +472,21 @@ export interface SurveyInfrastructure {
   dcVoltages: ('110' | '48' | '24')[];
   acSupplyAvailable: boolean | null;
   spareMcbs: boolean | null;
+  dcdbLocation: string | null;                // Section F "DCDB / distribution location"
   ofcAvailable: boolean | null;
   routerAvailable: boolean | null;
   mplsAvailable: boolean | null;
   sldcPathNotes: string | null;
   earthingAvailable: boolean | null;
+}
+
+/** Section B — pre-visit checklist, all default false. */
+export interface SurveyPreVisit {
+  inZonalPlanAndEngineerConfirmed: boolean;
+  authorisationLetterCarried: boolean;
+  existingSldObtained: boolean;
+  toolsCarried: boolean;
+  substationInchargeContactConfirmed: boolean;
 }
 
 /** One BOQ line item as surveyed at this site (surveyedQty is the field-filled value). */
@@ -516,10 +542,21 @@ export interface SurveyReport {
 
   surveyDate: Date | null;
   location: { lat: number; lng: number } | null;   // auto-captured, manual override allowed
+  surveyorName: string | null;                     // Section A "Surveyor (our rep)"
+  /**
+   * As counted on site during this survey — may differ from the Annexure-II
+   * site master values (Site.totalBays / Site.numPowerTransformers), which is
+   * exactly why both are kept: a discrepancy here is a survey finding, not a
+   * data-entry error to silently reconcile.
+   */
+  surveyedTotalBays: number | null;
+  surveyedNumPowerTransformers: number | null;
+  preVisit: SurveyPreVisit;
 
   bays: SurveyBay[];
   devices: SurveyDevice[];
   cableRuns: SurveyCableRun[];
+  difficultRunsNotes: string | null;    // Section H "Longest / difficult runs noted"
   infrastructure: SurveyInfrastructure;
   boqSupply: SurveyBoqLine[];
   boqService: SurveyBoqLine[];

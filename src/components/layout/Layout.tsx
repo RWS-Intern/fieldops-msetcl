@@ -11,6 +11,7 @@ import { SideNav } from './SideNav';
 import { OfflineBanner }           from '@/components/offline/OfflineBanner';
 import { OfflineQueueProcessor }   from '@/components/offline/OfflineQueueProcessor';
 import { SiteTaskQueueProcessor }  from '@/components/offline/SiteTaskQueueProcessor';
+import { SurveyQueueProcessor }    from '@/components/survey/SurveyQueueProcessor';
 
 // Starts the single shared Firestore tasks listener for the whole session.
 function TasksListener() {
@@ -83,6 +84,8 @@ export function Layout() {
       <OfflineQueueProcessor />
       {/* Drains site-task IndexedDB queue when connection is restored */}
       <SiteTaskQueueProcessor />
+      {/* Drains survey-submission IndexedDB queue when connection is restored */}
+      <SurveyQueueProcessor />
       <Header />
       <SideNav />
       {/* Offline / syncing banner sits below the header */}

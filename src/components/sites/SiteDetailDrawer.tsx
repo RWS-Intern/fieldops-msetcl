@@ -1,5 +1,5 @@
 import { useState, useMemo }      from 'react';
-import { MapPin, Building2, Archive, RotateCcw, Pencil, Navigation, XCircle } from 'lucide-react';
+import { MapPin, Building2, Archive, RotateCcw, Pencil, Navigation, XCircle, FileText } from 'lucide-react';
 import {
   Sheet,
   SheetContent,
@@ -12,6 +12,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Button }        from '@/components/ui/button';
 import { Input }         from '@/components/ui/input';
 import { Skeleton }      from '@/components/ui/skeleton';
@@ -19,47 +26,12 @@ import { archiveSite, updateSiteLocation } from '@/hooks/useSiteActions';
 import { useSiteTasks }             from '@/hooks/useSiteTasks';
 import { useToast }                 from '@/components/ui/toast';
 import { useAuthStore }             from '@/store/authStore';
+import { useFieldEngineers }        from '@/hooks/useFieldEngineers';
+import { useApprovers }             from '@/hooks/useApprovers';
+import { useWorkOrderActions }      from '@/hooks/useWorkOrderActions';
 import { SiteTaskDetailDrawer }     from '@/components/siteTasks/SiteTaskDetailDrawer';
+import { parseCoordinatesInput, isValidLatLng } from '@/lib/coordinates';
 import type { Site, SiteStatus, SiteTask, TaskStatus } from '@/types';
-
-// ─── GPS input parsing ─────────────────────────────────────────────────────────
-//
-// Accepts, in priority order:
-//   1. A Google Maps URL with an "@<lat>,<lng>" viewport centre, e.g.
-//      https://www.google.com/maps/@21.1458,79.0882,15z
-//   2. A Google Maps URL with a "?q=<lat>,<lng>" query param.
-//   3. A Google Maps URL with a "!3d<lat>!4d<lng>" place-pin segment.
-//   4. A plain "<lat>, <lng>" pair (comma and/or whitespace separated).
-// Shortened share links (maps.app.goo.gl/...) can't be expanded client-side
-// without a network request, so they intentionally fall through to "no match".
-
-const NUM = String.raw`-?\d+(?:\.\d+)?`;
-const MAPS_AT_RE    = new RegExp(`@(${NUM}),(${NUM})`);
-const MAPS_Q_RE     = new RegExp(`[?&]q=(${NUM}),(${NUM})`);
-const MAPS_3D4D_RE  = new RegExp(`!3d(${NUM})!4d(${NUM})`);
-const PLAIN_PAIR_RE = new RegExp(`^\\s*(${NUM})\\s*[,\\s]\\s*(${NUM})\\s*$`);
-
-function parseCoordinatesInput(raw: string): { lat: number; lng: number } | null {
-  const input = raw.trim();
-  if (!input) return null;
-
-  for (const re of [MAPS_AT_RE, MAPS_Q_RE, MAPS_3D4D_RE, PLAIN_PAIR_RE]) {
-    const match = input.match(re);
-    if (match) {
-      return { lat: parseFloat(match[1]), lng: parseFloat(match[2]) };
-    }
-  }
-
-  return null;
-}
-
-function isValidLatLng(lat: number, lng: number): boolean {
-  return (
-    Number.isFinite(lat) && Number.isFinite(lng) &&
-    lat >= -90 && lat <= 90 &&
-    lng >= -180 && lng <= 180
-  );
-}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -190,6 +162,9 @@ export function SiteDetailDrawer({
   const { showToast }          = useToast();
   const { currentUser }        = useAuthStore();
   const { siteTasks, loading: tasksLoading } = useSiteTasks(site.id);
+  const { engineers, loading: engLoading }   = useFieldEngineers();
+  const { approvers, loading: apprLoading }  = useApprovers();
+  const { createWorkOrder }                  = useWorkOrderActions();
   const isAdmin = currentUser?.role === 'admin';
 
   // Task detail drawer
@@ -280,6 +255,50 @@ export function SiteDetailDrawer({
       showToast('Failed to remove GPS pin', 'error');
     } finally {
       setRemovingGps(false);
+    }
+  }
+
+  // ── Create Survey Work Order — admin only, plain entry point for testing ──
+  const [surveyDialogOpen,  setSurveyDialogOpen]  = useState(false);
+  const [surveyEngineerId,  setSurveyEngineerId]  = useState('');
+  const [surveyApproverId,  setSurveyApproverId]  = useState('none');
+  const [creatingSurvey,    setCreatingSurvey]    = useState(false);
+
+  function openSurveyDialog() {
+    setSurveyEngineerId('');
+    setSurveyApproverId('none');
+    setSurveyDialogOpen(true);
+  }
+
+  async function handleCreateSurveyWorkOrder() {
+    if (!surveyEngineerId) {
+      showToast('Select a field engineer', 'error');
+      return;
+    }
+    const engineer = engineers.find((e) => e.uid === surveyEngineerId);
+    const approver = surveyApproverId === 'none' ? null : approvers.find((a) => a.uid === surveyApproverId);
+
+    setCreatingSurvey(true);
+    try {
+      const { workOrderCode } = await createWorkOrder({
+        siteId:       site.id,
+        siteCode:     site.siteCode,
+        siteName:     site.siteName,
+        sapCode:      site.sapCode      ?? null,
+        zone:         site.zone         ?? null,
+        voltageClass: site.voltageClass ?? null,
+        assignedTo:      engineer?.uid         ?? null,
+        assignedToName:  engineer?.displayName ?? null,
+        approverUid:     approver?.uid         ?? null,
+        approverName:    approver?.displayName ?? null,
+      });
+      showToast(`Survey work order created: ${workOrderCode}`, 'success');
+      setSurveyDialogOpen(false);
+    } catch (err) {
+      console.error('[SiteDetailDrawer] createWorkOrder failed:', err);
+      showToast('Failed to create survey work order', 'error');
+    } finally {
+      setCreatingSurvey(false);
     }
   }
 
@@ -428,8 +447,19 @@ export function SiteDetailDrawer({
             )}
           </div>
 
-          {/* Archive action */}
-          <div className="flex justify-end pt-1">
+          {/* Actions */}
+          <div className="flex justify-end gap-2 pt-1">
+            {isAdmin && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-xs"
+                onClick={openSurveyDialog}
+              >
+                <FileText className="h-3.5 w-3.5" />
+                Create Survey Work Order
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -550,6 +580,87 @@ export function SiteDetailDrawer({
                 disabled={!gpsValid || savingGps || removingGps}
               >
                 {savingGps ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    )}
+
+    {/* Create Survey Work Order dialog — admin only */}
+    {isAdmin && (
+      <Dialog
+        open={surveyDialogOpen}
+        onOpenChange={(v) => { if (!v && !creatingSurvey) setSurveyDialogOpen(false); }}
+      >
+        <DialogContent className="max-w-sm" aria-describedby={undefined}>
+          <DialogHeader>
+            <DialogTitle>Create Survey Work Order</DialogTitle>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-gray-600">
+                Field Engineer <span className="text-brand-red">*</span>
+              </label>
+              {engLoading ? (
+                <Skeleton className="h-9 rounded-md" />
+              ) : (
+                <Select value={surveyEngineerId} onValueChange={setSurveyEngineerId}>
+                  <SelectTrigger disabled={creatingSurvey}>
+                    <SelectValue placeholder="Select engineer…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {engineers.map((e) => (
+                      <SelectItem key={e.uid} value={e.uid}>
+                        {e.displayName}
+                        {e.engineerCode ? ` (${e.engineerCode})` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-gray-600">Approver</label>
+              {apprLoading ? (
+                <Skeleton className="h-9 rounded-md" />
+              ) : (
+                <Select value={surveyApproverId} onValueChange={setSurveyApproverId}>
+                  <SelectTrigger disabled={creatingSurvey}>
+                    <SelectValue placeholder="Select approver…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Unassigned (any admin may approve)</SelectItem>
+                    {approvers.map((a) => (
+                      <SelectItem key={a.uid} value={a.uid}>
+                        {a.displayName}
+                        {a.engineerCode ? ` (${a.engineerCode})` : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            <div className="flex gap-2 justify-end pt-1 border-t border-gray-100">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setSurveyDialogOpen(false)}
+                disabled={creatingSurvey}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleCreateSurveyWorkOrder}
+                disabled={creatingSurvey || !surveyEngineerId}
+              >
+                {creatingSurvey ? 'Creating…' : 'Create'}
               </Button>
             </div>
           </div>
