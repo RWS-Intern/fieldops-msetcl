@@ -1,6 +1,10 @@
+import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
 import { PhotoCapture } from '@/components/survey/PhotoCapture';
+import { SurveyPhotoThumb } from '@/components/survey/SurveyPhotoThumb';
+import { SurveyPreview } from '@/components/survey/SurveyPreview';
 import type { SurveyStepProps } from './StepProps';
 
 function SummaryStat({ label, value }: { label: string; value: string | number }) {
@@ -12,16 +16,34 @@ function SummaryStat({ label, value }: { label: string; value: string | number }
   );
 }
 
+function SignatureThumb({ label, reference }: { label: string; reference: string | null }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs text-gray-500">{label}</span>
+      <div className="h-16 border border-gray-200 rounded-lg bg-white flex items-center justify-center overflow-hidden">
+        {reference ? (
+          <SurveyPhotoThumb reference={reference} className="h-full w-full object-contain" />
+        ) : (
+          <span className="text-[10px] text-gray-400">Not signed</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Joint sign-off & submit. The signed paper BOQ page is the legal artefact
- * for SE-PAC vetting — this step captures the app's verifiable evidence of
- * it (who signed, and a photo of the signed page), not a replacement for it.
- * No on-screen signature pad: signOff.surveyorSignatureImage/
- * msetclSignatureImage stay in the type, unused, for a later phase — a
- * canvas signature has no legal standing here that the paper + photo don't
- * already provide, so it would only add complexity right now.
+ * for SE-PAC vetting — the photo of it stays a hard requirement. "Preview &
+ * Sign" opens a full-page read-only preview of everything recorded, printable
+ * to PDF, with both parties' on-screen signatures at the end of it —
+ * supplementary evidence alongside the paper original, not a replacement for
+ * it (see the comment in surveyValidation.ts's validateSignOff for why they're
+ * warnings, not errors).
  */
-export function StepSignOff({ survey, onChange, readOnly, onReplacePhotoRef }: SurveyStepProps) {
+export function StepSignOff({
+  survey, onChange, readOnly, onReplacePhotoRef, siteName, siteMaster, workOrderCode,
+}: SurveyStepProps) {
+  const [showPreview, setShowPreview] = useState(false);
   const signOff = survey.signOff;
 
   function patchSignOff(patch: Partial<typeof signOff>) {
@@ -82,6 +104,30 @@ export function StepSignOff({ survey, onChange, readOnly, onReplacePhotoRef }: S
           />
         </div>
       </div>
+
+      {/* Preview & Sign */}
+      <div className="flex flex-col gap-3 pt-3 border-t border-gray-100">
+        <Button type="button" className="w-full" onClick={() => setShowPreview(true)}>
+          Preview &amp; Sign
+        </Button>
+        <div className="grid grid-cols-2 gap-3">
+          <SignatureThumb label="Surveyor" reference={signOff.surveyorSignatureImage} />
+          <SignatureThumb label="MSETCL Engineer" reference={signOff.msetclSignatureImage} />
+        </div>
+      </div>
+
+      {showPreview && (
+        <SurveyPreview
+          survey={survey}
+          siteName={siteName || survey.siteCode}
+          siteMaster={siteMaster}
+          workOrderCode={workOrderCode}
+          onChange={onChange}
+          workOrderId={survey.workOrderId}
+          readOnly={readOnly}
+          onClose={() => setShowPreview(false)}
+        />
+      )}
 
       {/* Photo of the signed page — the document of record */}
       <div className="flex flex-col gap-2">

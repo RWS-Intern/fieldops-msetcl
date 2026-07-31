@@ -519,6 +519,7 @@ export function SurveyWizardPage() {
           readOnly={isReadOnly}
           siteName={workOrderMeta?.siteName ?? null}
           siteMaster={siteMaster}
+          workOrderCode={workOrderMeta?.workOrderCode ?? null}
         />
       </div>
 

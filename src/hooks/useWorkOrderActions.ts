@@ -98,23 +98,6 @@ export function useWorkOrderActions() {
     // condition, so it was rejected outright under the deployed rules.
     const surveyReportRef  = doc(db, 'surveyReports', workOrderRef.id);
 
-    const emptySurvey = createEmptySurveyReport({
-      workOrderId:  workOrderRef.id,
-      siteId:       input.siteId,
-      siteCode:     input.siteCode,
-      sapCode:      input.sapCode      ?? null,
-      zone:         input.zone         ?? null,
-      voltageClass: input.voltageClass ?? null,
-      assignedTo,
-      assignedToName,
-      approverUid,
-      approverName,
-    });
-    // Strip the client-only placeholders — Firestore assigns the real doc ID,
-    // and createdAt/updatedAt must be serverTimestamp() at write time.
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...surveyData } = emptySurvey;
-
     const workOrderCode = await runTransaction(db, async (tx) => {
       const siteSnap = await tx.get(siteRef);
       if (!siteSnap.exists()) {
@@ -124,6 +107,28 @@ export function useWorkOrderActions() {
       const counters = (siteSnap.data()['workOrderCounters'] as Partial<Record<WorkOrderStage, number>> | undefined) ?? {};
       const next = (counters[stage] ?? 0) + 1;
       const code = `WO-${input.siteCode}-${stage.toUpperCase()}-${String(next).padStart(2, '0')}`;
+
+      // Built here (not before the transaction) because workOrderCode isn't
+      // known until the counter read above — a pure function, safe to
+      // recompute on a transaction retry.
+      const emptySurvey = createEmptySurveyReport({
+        workOrderId:   workOrderRef.id,
+        workOrderCode: code,
+        siteId:        input.siteId,
+        siteCode:      input.siteCode,
+        siteName:      input.siteName,
+        sapCode:       input.sapCode      ?? null,
+        zone:          input.zone         ?? null,
+        voltageClass:  input.voltageClass ?? null,
+        assignedTo,
+        assignedToName,
+        approverUid,
+        approverName,
+      });
+      // Strip the client-only placeholders — Firestore assigns the real doc
+      // ID, and createdAt/updatedAt must be serverTimestamp() at write time.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { id: _id, createdAt: _createdAt, updatedAt: _updatedAt, ...surveyData } = emptySurvey;
 
       // Dotted field path so sibling stage counters are never clobbered.
       tx.update(siteRef, { [`workOrderCounters.${stage}`]: next });

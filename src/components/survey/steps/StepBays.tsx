@@ -8,17 +8,9 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { BAY_TYPE_LABELS } from '@/lib/surveyLabels';
 import type { SurveyStepProps } from './StepProps';
 import type { SurveyBay, BayType } from '@/types';
-
-const BAY_TYPE_LABELS: Record<BayType, string> = {
-  line:         'Line',
-  transformer:  'Transformer',
-  bus_coupler:  'Bus Coupler',
-  bus_section:  'Bus Section',
-  capacitor:    'Capacitor',
-  reactor:      'Reactor',
-};
 
 type VoltageLevel = NonNullable<SurveyBay['voltageLevel']>;
 const VOLTAGE_LEVELS: VoltageLevel[] = ['132', '110', '100', '66'];

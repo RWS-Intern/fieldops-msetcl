@@ -1,5 +1,7 @@
 import {
   doc,
+  collection,
+  addDoc,
   writeBatch,
   serverTimestamp,
 } from 'firebase/firestore';
@@ -51,6 +53,22 @@ export interface SubmitSurveyInput {
   submittedByName: string;
 }
 
+export interface ReviewSurveyInput {
+  decision: 'approve' | 'request_changes';
+  /** Required when decision === 'request_changes'. */
+  reviewNotes?: string;
+  workOrderId: string;
+  /**
+   * The survey's current approverUid — passed in so the guard can be checked
+   * without an extra read (same pattern as reviewSiteTask). Unlike
+   * reviewSiteTask, there is no null-approver admin fallback: neither
+   * workOrders nor surveyReports has legacy data predating mandatory
+   * approver assignment, and the deployed rules' approver branch on both
+   * collections has no such fallback either.
+   */
+  approverUid: string | null;
+}
+
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useSurveyActions() {
@@ -100,6 +118,14 @@ export function useSurveyActions() {
    * status: 'pending_approval' and updates the parent WorkOrder to the same
    * status in the SAME batch — the work order and its survey must never
    * disagree. Never writes assignedTo/approverUid (rules reject it).
+   *
+   * Also writes an immutable audit-trail snapshot to
+   * surveyReports/{id}/updates in the same batch (action: 'submit', plus a
+   * full copy of the payload as submitted) — the round-by-round history of
+   * what was actually certified. This is the ONLY place submitSurvey is
+   * called from (both the online path in SurveyWizardPage.tsx and the
+   * offline-drain path in SurveyQueueProcessor.tsx call this same function),
+   * so every real submission gets a snapshot with no duplicated call site.
    */
   async function submitSurvey(
     surveyReportId: string,
@@ -122,8 +148,88 @@ export function useSurveyActions() {
       status:    'pending_approval',
       updatedAt: serverTimestamp(),
     });
+
+    const updateRef = doc(collection(db, 'surveyReports', surveyReportId, 'updates'));
+    batch.set(updateRef, {
+      action:    'submit',
+      actorUid:  input.submittedBy,
+      actorName: input.submittedByName,
+      createdAt: serverTimestamp(),
+      payload:   safeData,
+    });
+
     await batch.commit();
   }
 
-  return { saveProgress, submitSurvey };
+  /**
+   * Approver review of a pending_approval SurveyReport — approve or send
+   * back with review notes. Guarded strictly to the nominated approver (no
+   * admin fallback — see ReviewSurveyInput). Online-only: no offline queue,
+   * matching reviewSiteTask.
+   *
+   * One writeBatch updates surveyReports + the parent workOrders doc to the
+   * SAME status (they must never disagree — the discipline carried since
+   * task 2), and writes an immutable audit-trail snapshot to
+   * surveyReports/{id}/updates (metadata only — approve/request_changes
+   * never change survey content, so there's nothing to duplicate).
+   */
+  async function reviewSurvey(
+    surveyReportId: string,
+    input: ReviewSurveyInput,
+  ): Promise<void> {
+    if (!currentUser) throw new Error('Not authenticated');
+    if (currentUser.uid !== input.approverUid) {
+      throw new Error('You are not authorized to review this survey.');
+    }
+
+    const trimmedNotes = input.reviewNotes?.trim() ?? '';
+    if (input.decision === 'request_changes' && !trimmedNotes) {
+      throw new Error('Review notes are required when requesting changes.');
+    }
+
+    const newStatus: WorkOrderStatus = input.decision === 'approve' ? 'approved' : 'changes_requested';
+    const reviewNotes = input.decision === 'request_changes' ? trimmedNotes : null;
+
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'surveyReports', surveyReportId), {
+      status:         newStatus,
+      reviewNotes,
+      reviewedBy:     currentUser.uid,
+      reviewedByName: currentUser.name,
+      reviewedAt:     serverTimestamp(),
+      updatedAt:      serverTimestamp(),
+    });
+    batch.update(doc(db, 'workOrders', input.workOrderId), {
+      status:    newStatus,
+      updatedAt: serverTimestamp(),
+    });
+
+    const updateRef = doc(collection(db, 'surveyReports', surveyReportId, 'updates'));
+    batch.set(updateRef, {
+      action:    input.decision,
+      actorUid:  currentUser.uid,
+      actorName: currentUser.name,
+      createdAt: serverTimestamp(),
+      ...(input.decision === 'request_changes' ? { reviewNotes } : {}),
+    });
+
+    await batch.commit();
+
+    // ── Audit log (non-critical) ──────────────────────────────────────────────
+    try {
+      await addDoc(collection(db, 'auditLog'), {
+        timestamp:      serverTimestamp(),
+        uid:            currentUser.uid,
+        userName:       currentUser.name,
+        action:         'REVIEW_SURVEY',
+        detail:         `${input.decision === 'approve' ? 'Approved' : 'Requested changes on'} survey ${surveyReportId}`,
+        surveyReportId,
+        workOrderId:    input.workOrderId,
+      });
+    } catch (auditErr) {
+      console.warn('[reviewSurvey] auditLog write failed:', auditErr);
+    }
+  }
+
+  return { saveProgress, submitSurvey, reviewSurvey };
 }

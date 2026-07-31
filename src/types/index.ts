@@ -533,6 +533,18 @@ export interface SurveyReport {
   voltageClass: string | null;
 
   /**
+   * Denormalised from the parent WorkOrder purely for list-view display —
+   * SurveyReport has no other source for these. Avoids an N+1 getDoc per row
+   * on pages that list many surveys (admin oversight, the approvals queue).
+   * Set once at creation by createWorkOrder in useWorkOrderActions.ts (never
+   * changes after — a work order's code and its site's name are permanent).
+   * '' is the load-time fallback for documents written before this field
+   * existed, not a real "no work order" state (every survey has exactly one).
+   */
+  siteName: string;
+  workOrderCode: string;
+
+  /**
    * Denormalised from the parent WorkOrder — NOT looked up via the parent at
    * read/rule-evaluation time. Firestore can't filter a query on a parent
    * document's field, and a security-rule get() on the parent is a billed
@@ -581,6 +593,24 @@ export interface SurveyReport {
   reviewedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/**
+ * Immutable audit-trail snapshot written to surveyReports/{id}/updates on
+ * submit/approve/request_changes (see useSurveyActions.ts). Never updated or
+ * deleted after creation — the round-by-round history of what was actually
+ * certified, for a document headed to SE-PAC for vetting.
+ */
+export interface SurveyUpdate {
+  id: string;
+  action: 'submit' | 'approve' | 'request_changes';
+  actorUid: string;
+  actorName: string;
+  createdAt: Date;
+  /** Only present for request_changes. */
+  reviewNotes?: string;
+  /** Full survey payload as submitted — only present for the 'submit' action. */
+  payload?: Partial<SurveyReport>;
 }
 
 // ─── BulkUpload ────────────────────────────────────────────────────────────────

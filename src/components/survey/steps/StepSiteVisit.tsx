@@ -6,18 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { PRE_VISIT_LABELS } from '@/lib/surveyLabels';
 import type { SurveyStepProps } from './StepProps';
-import type { SurveyPreVisit } from '@/types';
-
-// ─── Section B checklist items ─────────────────────────────────────────────────
-
-const PRE_VISIT_ITEMS: { key: keyof SurveyPreVisit; label: string }[] = [
-  { key: 'inZonalPlanAndEngineerConfirmed', label: 'Site included in the zonal survey plan and MSETCL engineer confirmed' },
-  { key: 'authorisationLetterCarried',      label: 'Authorisation / intimation letter to the substation carried' },
-  { key: 'existingSldObtained',             label: 'Existing SLD / substation drawings obtained (if available)' },
-  { key: 'toolsCarried',                    label: 'Tools carried: measuring tape/laser, camera, this checklist, tender BOQ, laptop' },
-  { key: 'substationInchargeContactConfirmed', label: 'Substation in-charge contact confirmed' },
-];
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -240,7 +230,7 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
       {/* Section B — Pre-visit checklist */}
       <div className="flex flex-col gap-2">
         <h3 className="text-base font-semibold text-gray-900">Pre-Visit Checklist</h3>
-        {PRE_VISIT_ITEMS.map((item) => (
+        {PRE_VISIT_LABELS.map((item) => (
           <label
             key={item.key}
             className={cn(

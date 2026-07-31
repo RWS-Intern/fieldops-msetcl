@@ -5,22 +5,10 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { CABLE_TYPE_LABELS, TRAYS_LABELS } from '@/lib/surveyLabels';
+import type { CableType, Trays } from '@/lib/surveyLabels';
 import type { SurveyStepProps } from './StepProps';
 import type { SurveyCableRun } from '@/types';
-
-type CableType = NonNullable<SurveyCableRun['cableType']>;
-
-const CABLE_TYPE_LABELS: Record<CableType, string> = {
-  cat6:  'CAT6',
-  power: 'Power',
-};
-
-type Trays = NonNullable<SurveyCableRun['trays']>;
-
-const TRAYS_LABELS: Record<Trays, string> = {
-  available:    'Available',
-  new_required: 'New Required',
-};
 
 const TRAYS_UNSPECIFIED = 'unspecified';
 

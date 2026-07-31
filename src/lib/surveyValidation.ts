@@ -254,8 +254,27 @@ function validateSignOff(survey: SurveyReport): SurveyValidationIssue[] {
   if (!signOff.msetclEngineerDesignation || !signOff.msetclEngineerDesignation.trim()) {
     issues.push(issue(STEP.signOff, 'MSETCL joint engineer designation is required.'));
   }
+  // Keep this a hard error. Whether MSETCL and SE-PAC accept an on-screen
+  // signature in place of wet ink has not been confirmed — until it is, the
+  // photographed paper original is the document of record, and the two
+  // on-screen signatures below are supplementary only. If that's ever
+  // confirmed and someone wants to relax this photo requirement instead,
+  // that should be a deliberate call informed by that confirmation, not a
+  // side effect of touching this function for something else.
   if (signOff.signedPagePhotos.length === 0) {
     issues.push(issue(STEP.signOff, 'A photo of the signed BOQ page is required.'));
+  }
+
+  // Both on-screen signatures are warnings, not errors, for the same reason
+  // the signed-page photo above stays a hard error: acceptance of a drawn
+  // signature over wet ink is unconfirmed, so gating Submit on it would be
+  // premature. Promote these to errors only once that's actually settled —
+  // don't flip severity here without re-reading this comment first.
+  if (!signOff.surveyorSignatureImage) {
+    issues.push(issue(STEP.signOff, 'Surveyor on-screen signature not captured.', 'warning'));
+  }
+  if (!signOff.msetclSignatureImage) {
+    issues.push(issue(STEP.signOff, 'MSETCL engineer on-screen signature not captured.', 'warning'));
   }
 
   return issues;
@@ -352,7 +371,9 @@ export function getStepStatuses(survey: SurveyReport): StepStatus[] {
     !!survey.signOff.msetclEngineerName?.trim() ||
       !!survey.signOff.msetclEngineerDesignation?.trim() ||
       !!survey.signOff.msetclEngineerEmpId?.trim() ||
-      survey.signOff.signedPagePhotos.length > 0,
+      survey.signOff.signedPagePhotos.length > 0 ||
+      !!survey.signOff.surveyorSignatureImage ||
+      !!survey.signOff.msetclSignatureImage,
   ];
 
   return touched.map((isTouched, stepIndex) => {

@@ -19,6 +19,8 @@ export interface SurveyStepProps {
   readOnly: boolean;
   /** Denormalised WorkOrder field not present on SurveyReport — Step 1 read-only display. */
   siteName: string | null;
+  /** WorkOrder field not present on SurveyReport — used in SurveyPreview's header. Step 8 only. */
+  workOrderCode: string | null;
   /** Fetched once from the parent Site doc; null while loading or if unset. Step 1 only. */
   siteMaster: SurveyStepSiteMaster | null;
   /**

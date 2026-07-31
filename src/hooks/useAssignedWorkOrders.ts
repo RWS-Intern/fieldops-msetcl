@@ -9,6 +9,30 @@ import { db } from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
 import type { WorkOrder, WorkOrderStage, WorkOrderStatus } from '@/types';
 
+// Exported for reuse by useSiteWorkOrders.ts — every reader of workOrders
+// documents must map them identically.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function mapWorkOrder(id: string, data: Record<string, any>): WorkOrder {
+  return {
+    id,
+    workOrderCode:  data['workOrderCode']  ?? '',
+    siteId:         data['siteId']         ?? '',
+    siteCode:       data['siteCode']       ?? '',
+    siteName:       data['siteName']       ?? '',
+    sapCode:        data['sapCode']        ?? null,
+    zone:           data['zone']           ?? null,
+    stage:          (data['stage']  ?? 'survey') as WorkOrderStage,
+    status:         (data['status'] ?? 'open')   as WorkOrderStatus,
+    assignedTo:     data['assignedTo']     ?? null,
+    assignedToName: data['assignedToName'] ?? null,
+    approverUid:    data['approverUid']    ?? null,
+    approverName:   data['approverName']   ?? null,
+    createdAt:      data['createdAt']?.toDate?.() ?? new Date(),
+    updatedAt:      data['updatedAt']?.toDate?.() ?? new Date(),
+    archived:       data['archived'] ?? false,
+  };
+}
+
 /**
  * Real-time listener for WorkOrders assigned to the current user.
  *
@@ -39,27 +63,7 @@ export function useAssignedWorkOrders() {
       q,
       (snap) => {
         const result: WorkOrder[] = snap.docs
-          .map((d) => {
-            const data = d.data();
-            return {
-              id:             d.id,
-              workOrderCode:  data['workOrderCode']  ?? '',
-              siteId:         data['siteId']         ?? '',
-              siteCode:       data['siteCode']       ?? '',
-              siteName:       data['siteName']       ?? '',
-              sapCode:        data['sapCode']        ?? null,
-              zone:           data['zone']           ?? null,
-              stage:          (data['stage']  ?? 'survey') as WorkOrderStage,
-              status:         (data['status'] ?? 'open')   as WorkOrderStatus,
-              assignedTo:     data['assignedTo']     ?? null,
-              assignedToName: data['assignedToName'] ?? null,
-              approverUid:    data['approverUid']    ?? null,
-              approverName:   data['approverName']   ?? null,
-              createdAt:      data['createdAt']?.toDate?.() ?? new Date(),
-              updatedAt:      data['updatedAt']?.toDate?.() ?? new Date(),
-              archived:       data['archived'] ?? false,
-            } as WorkOrder;
-          })
+          .map((d) => mapWorkOrder(d.id, d.data()))
           // Client-side archived filter — avoids needing a 3-field composite index.
           .filter((w) => !w.archived)
           .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());

@@ -14,8 +14,10 @@ import { ProjectsPage } from '@/pages/ProjectsPage';
 import { SitesPage }    from '@/pages/SitesPage';
 import { SignupPage }   from '@/pages/SignupPage';
 import { ApprovalsPage } from '@/pages/ApprovalsPage';
+import { ApproverSurveyReviewPage } from '@/pages/ApproverSurveyReviewPage';
 import { SurveysPage } from '@/pages/SurveysPage';
 import { SurveyWizardPage } from '@/pages/SurveyWizardPage';
+import { AdminSurveyOversightPage } from '@/pages/AdminSurveyOversightPage';
 import type { UserRole } from '@/types';
 
 // Initialises the Firebase auth listener at the app root
@@ -99,6 +101,14 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/approvals/survey/:workOrderId"
+              element={
+                <ProtectedRoute allowRoles={['approver', 'admin']}>
+                  <ApproverSurveyReviewPage />
+                </ProtectedRoute>
+              }
+            />
 
             {/* Field + admin — MSETCL Substation Visibility Project survey wizard */}
             <Route
@@ -114,6 +124,16 @@ export default function App() {
               element={
                 <ProtectedRoute allowRoles={['field', 'admin']}>
                   <SurveyWizardPage />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Admin-only — survey oversight across every site/status */}
+            <Route
+              path="/surveys/all"
+              element={
+                <ProtectedRoute allowRoles={['admin']}>
+                  <AdminSurveyOversightPage />
                 </ProtectedRoute>
               }
             />

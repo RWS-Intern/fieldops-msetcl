@@ -7,34 +7,10 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { DEVICE_TYPE_LABELS, PROTOCOL_LABELS, PORT_LABELS } from '@/lib/surveyLabels';
+import type { Port } from '@/lib/surveyLabels';
 import type { SurveyStepProps } from './StepProps';
 import type { SurveyDevice, DeviceType, DeviceProtocol } from '@/types';
-
-const DEVICE_TYPE_LABELS: Record<DeviceType, string> = {
-  mfm:             'MFM',
-  cmr:             'CMR',
-  tpi:             'TPI',
-  gps:             'GPS',
-  numerical_relay: 'Numerical Relay',
-  legacy_rtu:      'Legacy RTU',
-};
-
-const PROTOCOL_LABELS: Record<DeviceProtocol, string> = {
-  modbus:    'Modbus',
-  iec_61850: 'IEC 61850',
-  iec_103:   'IEC 103',
-  serial:    'Serial',
-  none:      'None',
-};
-
-type Port = NonNullable<SurveyDevice['port']>;
-
-const PORT_LABELS: Record<Port, string> = {
-  rs485:    'RS485',
-  rs232:    'RS232',
-  ethernet: 'Ethernet',
-  other:    'Other',
-};
 
 const PORT_UNSPECIFIED = 'unspecified';
 

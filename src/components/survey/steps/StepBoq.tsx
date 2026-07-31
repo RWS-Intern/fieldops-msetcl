@@ -1,10 +1,12 @@
 import { SUPPLY_BOQ_MASTER, SERVICE_BOQ_MASTER } from '@/lib/boqMaster';
+import { formatMetresAsKm } from '@/lib/units';
+import { BOQ_CHECK_LABELS } from '@/lib/surveyLabels';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import type { SurveyStepProps } from './StepProps';
 import type { BoqMasterItem } from '@/lib/boqMaster';
-import type { SurveyBoqLine, SurveyBoqChecks, SurveyReport } from '@/types';
+import type { SurveyBoqLine, SurveyReport } from '@/types';
 
 // ─── Cable-length hint — 4 items in Km correspond to Section H cable runs ──────
 
@@ -20,26 +22,6 @@ function cableRunTotalMetres(cableRuns: SurveyReport['cableRuns'], cableType: 'c
     .filter((r) => r.cableType === cableType)
     .reduce((sum, r) => sum + (r.lengthM ?? 0), 0);
 }
-
-/** Formats metres as km with no artificial precision loss (1 m = 0.001 km exactly) and no trailing zeros. */
-function formatKmFromMetres(metres: number): string {
-  const trimmed = (metres / 1000).toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
-  return trimmed === '' ? '0' : trimmed;
-}
-
-// ─── Confirmation checklist ─────────────────────────────────────────────────────
-
-const BOQ_CHECK_ITEMS: { key: keyof SurveyBoqChecks; label: string }[] = [
-  {
-    key: 'quantitiesCrossCheckedAgainstAnnexureI',
-    label: 'Surveyed quantities cross-checked against tender Annexure-I; deviations noted with reason',
-  },
-  { key: 'markedUpSldAttached', label: 'Marked-up SLD / architecture attached' },
-  {
-    key: 'updatedInMsetclWebAppAndTracker',
-    label: 'Survey data / progress updated in MSETCL web-application (if available) and our tracker',
-  },
-];
 
 // ─── One BOQ section (Supply or Service) — stacked cards, matched by itemKey ───
 
@@ -70,8 +52,8 @@ function BoqSection({
         const cableType  = CABLE_HINT_BY_ITEM_KEY[item.itemKey];
         const hintMetres = cableType ? cableRunTotalMetres(cableRuns, cableType) : null;
         // Narrow directly off hintMetres (not the separate showHint flag) so
-        // TS can prove it's non-null at the formatKmFromMetres call site.
-        const hintKmStr  = hintMetres !== null ? formatKmFromMetres(hintMetres) : null;
+        // TS can prove it's non-null at the formatMetresAsKm call site.
+        const hintKmStr  = hintMetres !== null ? formatMetresAsKm(hintMetres) : null;
         const showHint   = hintMetres !== null && hintMetres > 0;
 
         return (
@@ -171,7 +153,7 @@ export function StepBoq({ survey, onChange, readOnly }: SurveyStepProps) {
 
       <div className="flex flex-col gap-2 pt-2 border-t border-gray-100">
         <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Confirmation</h4>
-        {BOQ_CHECK_ITEMS.map((item) => (
+        {BOQ_CHECK_LABELS.map((item) => (
           <label
             key={item.key}
             className={cn(

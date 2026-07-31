@@ -146,6 +146,14 @@
         { "fieldPath": "status",      "order": "ASCENDING" },
         { "fieldPath": "updatedAt",   "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "surveyReports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status",     "order": "ASCENDING" },
+        { "fieldPath": "updatedAt",  "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

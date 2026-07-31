@@ -9,7 +9,7 @@ let _cacheTime = 0;
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
 const DEFAULT_CONFIG: AppConfig = {
-  orgName:          'Rite Solar',
+  orgName:          'Rite Water Solutions',
   taskNumPrefix:    'RS',
   taskNumCounter:   0,
   mapDefaultLat:    20.5937,

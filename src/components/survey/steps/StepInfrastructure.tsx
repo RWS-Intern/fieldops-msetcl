@@ -3,26 +3,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { CIVIL_WORK_LABELS, DC_VOLTAGE_LABELS } from '@/lib/surveyLabels';
+import type { CivilWork, DcVoltage } from '@/lib/surveyLabels';
 import type { SurveyStepProps } from './StepProps';
 import type { SurveyInfrastructure } from '@/types';
 
-type CivilWork = SurveyInfrastructure['civilWork'][number];
-type DcVoltage  = SurveyInfrastructure['dcVoltages'][number];
-
 const CIVIL_WORK_OPTIONS: CivilWork[] = ['grouting', 'cable_entry', 'foundation', 'none'];
-const CIVIL_WORK_LABELS: Record<CivilWork, string> = {
-  grouting:     'Grouting',
-  cable_entry:  'Cable Entry',
-  foundation:   'Foundation',
-  none:         'None',
-};
-
 const DC_VOLTAGE_OPTIONS: DcVoltage[] = ['110', '48', '24'];
-const DC_VOLTAGE_LABELS: Record<DcVoltage, string> = {
-  '110': '110V',
-  '48':  '48V',
-  '24':  '24V',
-};
 
 function MultiSelectChips<T extends string>({
   options, labels, value, onToggle, readOnly,

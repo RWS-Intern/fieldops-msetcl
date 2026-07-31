@@ -49,7 +49,9 @@ export type PendingSurveyPhotoTarget =
   | { kind: 'bay'; bayUid: string }
   | { kind: 'device'; deviceUid: string }
   | { kind: 'sitePhoto'; caption: string }
-  | { kind: 'signOffSignedPage' };
+  | { kind: 'signOffSignedPage' }
+  | { kind: 'signOffSurveyorSignature' }
+  | { kind: 'signOffMsetclSignature' };
 
 export interface PendingSurveyPhoto {
   /** Stable id assigned at capture time — lets the processor log/dedupe. */
@@ -86,13 +88,16 @@ export function toSurveyPayload(survey: SurveyReport): SurveyPayload {
 }
 
 // ─── local:// photo reference helpers ──────────────────────────────────────────
-// A captured-but-not-yet-uploaded photo is referenced inside bays[].photos /
-// devices[].photos / sitePhotos[] as the sentinel string `local://<photoId>`
-// (see surveyPhotoStore.ts). These three helpers are the single place that
-// knows how to find, strip, and replace those references across all three
-// array shapes — used by SurveyWizardPage.tsx when queueing an offline
-// submission and when resolving any still-local photos at online submit time.
-// A `local://` string must NEVER reach Firestore on either path.
+// A captured-but-not-yet-uploaded photo/signature is referenced as the
+// sentinel string `local://<photoId>` (see surveyPhotoStore.ts) inside
+// bays[].photos / devices[].photos / sitePhotos[] / signOff.signedPagePhotos
+// (arrays) and signOff.surveyorSignatureImage / signOff.msetclSignatureImage
+// (single nullable strings — handled explicitly below, not assumed to be
+// arrays). These three helpers are the single place that knows how to find,
+// strip, and replace those references across every one of those fields —
+// used by SurveyWizardPage.tsx when queueing an offline submission and when
+// resolving any still-local photos/signatures at online submit time. A
+// `local://` string must NEVER reach Firestore on either path.
 
 export const LOCAL_PHOTO_PREFIX = 'local://';
 
@@ -132,6 +137,20 @@ export function findLocalPhotoRefs(data: PhotoBearingSurvey): LocalPhotoRef[] {
       found.push({ photoId: url.slice(LOCAL_PHOTO_PREFIX.length), target: { kind: 'signOffSignedPage' } });
     }
   }
+  // Signatures are single nullable strings, not arrays — handled explicitly
+  // rather than assuming the array shape the other four fields share.
+  if (data.signOff.surveyorSignatureImage?.startsWith(LOCAL_PHOTO_PREFIX)) {
+    found.push({
+      photoId: data.signOff.surveyorSignatureImage.slice(LOCAL_PHOTO_PREFIX.length),
+      target:  { kind: 'signOffSurveyorSignature' },
+    });
+  }
+  if (data.signOff.msetclSignatureImage?.startsWith(LOCAL_PHOTO_PREFIX)) {
+    found.push({
+      photoId: data.signOff.msetclSignatureImage.slice(LOCAL_PHOTO_PREFIX.length),
+      target:  { kind: 'signOffMsetclSignature' },
+    });
+  }
 
   return found;
 }
@@ -150,6 +169,15 @@ export function stripLocalPhotoRefs(data: SurveyReport): SurveyReport {
     signOff: {
       ...data.signOff,
       signedPagePhotos: data.signOff.signedPagePhotos.filter((p) => !p.startsWith(LOCAL_PHOTO_PREFIX)),
+      // Single nullable strings, not arrays — a local:// value with nothing
+      // to strip it into becomes null (there is no "filter it out" for a
+      // scalar field) until the processor splices the uploaded URL back in.
+      surveyorSignatureImage: data.signOff.surveyorSignatureImage?.startsWith(LOCAL_PHOTO_PREFIX)
+        ? null
+        : data.signOff.surveyorSignatureImage,
+      msetclSignatureImage: data.signOff.msetclSignatureImage?.startsWith(LOCAL_PHOTO_PREFIX)
+        ? null
+        : data.signOff.msetclSignatureImage,
     },
   };
 }
@@ -164,6 +192,12 @@ export function replaceLocalPhotoRef(data: SurveyReport, oldRef: string, newUrl:
     signOff: {
       ...data.signOff,
       signedPagePhotos: data.signOff.signedPagePhotos.map((p) => (p === oldRef ? newUrl : p)),
+      surveyorSignatureImage: data.signOff.surveyorSignatureImage === oldRef
+        ? newUrl
+        : data.signOff.surveyorSignatureImage,
+      msetclSignatureImage: data.signOff.msetclSignatureImage === oldRef
+        ? newUrl
+        : data.signOff.msetclSignatureImage,
     },
   };
 }

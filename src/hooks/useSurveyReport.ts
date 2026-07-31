@@ -57,13 +57,17 @@ function mapCableRun(raw: Record<string, any>): SurveyCableRun {
   };
 }
 
+// Exported for reuse by useSurveyApprovalQueue.ts / useReviewedSurveys.ts —
+// every listener that reads surveyReports documents must map them identically.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapSurveyReport(id: string, data: Record<string, any>): SurveyReport {
+export function mapSurveyReport(id: string, data: Record<string, any>): SurveyReport {
   return {
     id,
     workOrderId:    data['workOrderId']    ?? '',
+    workOrderCode:  data['workOrderCode']  ?? '',
     siteId:         data['siteId']         ?? '',
     siteCode:       data['siteCode']       ?? '',
+    siteName:       data['siteName']       ?? '',
     sapCode:        data['sapCode']        ?? null,
     zone:           data['zone']           ?? null,
     voltageClass:   data['voltageClass']   ?? null,

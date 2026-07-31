@@ -30,6 +30,7 @@ import { useFieldEngineers }        from '@/hooks/useFieldEngineers';
 import { useApprovers }             from '@/hooks/useApprovers';
 import { useWorkOrderActions }      from '@/hooks/useWorkOrderActions';
 import { SiteTaskDetailDrawer }     from '@/components/siteTasks/SiteTaskDetailDrawer';
+import { SiteWorkOrdersSection }    from '@/components/sites/SiteWorkOrdersSection';
 import { parseCoordinatesInput, isValidLatLng } from '@/lib/coordinates';
 import type { Site, SiteStatus, SiteTask, TaskStatus } from '@/types';
 
@@ -259,24 +260,28 @@ export function SiteDetailDrawer({
   }
 
   // ── Create Survey Work Order — admin only, plain entry point for testing ──
+  // Both engineer and approver are required: a survey with no approver has
+  // no one who can ever review it (unlike siteTasks, there is no
+  // unassigned-approver admin fallback for surveys — see useSurveyActions.ts's
+  // reviewSurvey guard).
   const [surveyDialogOpen,  setSurveyDialogOpen]  = useState(false);
   const [surveyEngineerId,  setSurveyEngineerId]  = useState('');
-  const [surveyApproverId,  setSurveyApproverId]  = useState('none');
+  const [surveyApproverId,  setSurveyApproverId]  = useState('');
   const [creatingSurvey,    setCreatingSurvey]    = useState(false);
 
   function openSurveyDialog() {
     setSurveyEngineerId('');
-    setSurveyApproverId('none');
+    setSurveyApproverId('');
     setSurveyDialogOpen(true);
   }
 
   async function handleCreateSurveyWorkOrder() {
-    if (!surveyEngineerId) {
-      showToast('Select a field engineer', 'error');
+    if (!surveyEngineerId || !surveyApproverId) {
+      showToast('Select a field engineer and an approver', 'error');
       return;
     }
     const engineer = engineers.find((e) => e.uid === surveyEngineerId);
-    const approver = surveyApproverId === 'none' ? null : approvers.find((a) => a.uid === surveyApproverId);
+    const approver = approvers.find((a) => a.uid === surveyApproverId);
 
     setCreatingSurvey(true);
     try {
@@ -446,6 +451,9 @@ export function SiteDetailDrawer({
               </div>
             )}
           </div>
+
+          {/* Work Orders section — per-site survey history + reassignment */}
+          <SiteWorkOrdersSection siteId={site.id} onNavigateAway={onClose} />
 
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-1">
@@ -623,7 +631,9 @@ export function SiteDetailDrawer({
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-gray-600">Approver</label>
+              <label className="text-xs font-medium text-gray-600">
+                Approver <span className="text-brand-red">*</span>
+              </label>
               {apprLoading ? (
                 <Skeleton className="h-9 rounded-md" />
               ) : (
@@ -632,7 +642,6 @@ export function SiteDetailDrawer({
                     <SelectValue placeholder="Select approver…" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Unassigned (any admin may approve)</SelectItem>
                     {approvers.map((a) => (
                       <SelectItem key={a.uid} value={a.uid}>
                         {a.displayName}
@@ -642,6 +651,9 @@ export function SiteDetailDrawer({
                   </SelectContent>
                 </Select>
               )}
+              <p className="text-xs text-gray-400">
+                A survey with no approver cannot be reviewed by anyone.
+              </p>
             </div>
 
             <div className="flex gap-2 justify-end pt-1 border-t border-gray-100">
@@ -658,7 +670,7 @@ export function SiteDetailDrawer({
                 type="button"
                 size="sm"
                 onClick={handleCreateSurveyWorkOrder}
-                disabled={creatingSurvey || !surveyEngineerId}
+                disabled={creatingSurvey || !surveyEngineerId || !surveyApproverId}
               >
                 {creatingSurvey ? 'Creating…' : 'Create'}
               </Button>

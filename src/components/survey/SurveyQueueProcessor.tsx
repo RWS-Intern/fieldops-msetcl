@@ -84,6 +84,16 @@ function appendUploadedPhoto(
         ...data,
         signOff: { ...data.signOff, signedPagePhotos: [...data.signOff.signedPagePhotos, url] },
       };
+    case 'signOffSurveyorSignature':
+      return {
+        ...data,
+        signOff: { ...data.signOff, surveyorSignatureImage: url },
+      };
+    case 'signOffMsetclSignature':
+      return {
+        ...data,
+        signOff: { ...data.signOff, msetclSignatureImage: url },
+      };
   }
 }
 

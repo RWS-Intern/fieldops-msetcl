@@ -123,8 +123,11 @@ function createEmptySignOff(): SurveySignOff {
 
 export interface CreateEmptySurveyReportInput {
   workOrderId:   string;
+  /** See the SurveyReport type comment — denormalised for list-view display. */
+  workOrderCode: string;
   siteId:        string;
   siteCode:      string;
+  siteName:      string;
   sapCode?:      string | null;
   zone?:         string | null;
   voltageClass?: string | null;
@@ -145,13 +148,15 @@ export function createEmptySurveyReport(input: CreateEmptySurveyReportInput): Su
   const now = new Date();
 
   return {
-    id:           '',
-    workOrderId:  input.workOrderId,
-    siteId:       input.siteId,
-    siteCode:     input.siteCode,
-    sapCode:      input.sapCode      ?? null,
-    zone:         input.zone         ?? null,
-    voltageClass: input.voltageClass ?? null,
+    id:            '',
+    workOrderId:   input.workOrderId,
+    workOrderCode: input.workOrderCode,
+    siteId:        input.siteId,
+    siteCode:      input.siteCode,
+    siteName:      input.siteName,
+    sapCode:       input.sapCode      ?? null,
+    zone:          input.zone         ?? null,
+    voltageClass:  input.voltageClass ?? null,
 
     assignedTo:     input.assignedTo     ?? null,
     assignedToName: input.assignedToName ?? null,

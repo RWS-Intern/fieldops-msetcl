@@ -6,6 +6,8 @@ import { useAssignedSiteTaskStore }  from '@/store/assignedSiteTaskStore';
 import { useAllSiteTasks }           from '@/hooks/useAllSiteTasks';
 import { useApprovalQueue }          from '@/hooks/useApprovalQueue';
 import { useReviewedSiteTasks }      from '@/hooks/useReviewedSiteTasks';
+import { useSurveyApprovalQueue }    from '@/hooks/useSurveyApprovalQueue';
+import { useReviewedSurveys }        from '@/hooks/useReviewedSurveys';
 import { useNetworkStatus }          from '@/hooks/useNetworkStatus';
 import { useRealtimeProjectStats }   from '@/hooks/useRealtimeProjectStats';
 import { StatCard }                  from '@/components/dashboard/StatCard';
@@ -15,7 +17,7 @@ import { SiteTaskDetailDrawer }     from '@/components/siteTasks/SiteTaskDetailD
 import { AdminMap }                  from '@/components/map/AdminMap';
 import { Skeleton }                  from '@/components/ui/skeleton';
 import { cn }                        from '@/lib/utils';
-import type { SiteTask } from '@/types';
+import type { SiteTask, SurveyReport } from '@/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -172,24 +174,36 @@ function RecentActivity({ tasks, onUpdate }: RecentActivityProps) {
 
 // ─── Recently Reviewed (approver dashboard) ───────────────────────────────────
 //
-// Colours match taskUtils.ts: completed → #2A9D8F (green), changes_requested
-// → #F97316 (orange). reviewedBy overwrites on every review, so a task only
-// ever reflects its MOST RECENT reviewer's decision — exactly what
-// "reviewedBy == currentUser.uid" should show.
+// Colours match taskUtils.ts: completed/approved → #2A9D8F (green),
+// changes_requested → #F97316 (orange). reviewedBy overwrites on every
+// review, so an item only ever reflects its MOST RECENT reviewer's decision
+// — exactly what "reviewedBy == currentUser.uid" should show.
+//
+// Site tasks (status 'completed') and surveys (status 'approved') use
+// different literal values for "approved" — ReviewedRow normalises that at
+// the call site so this component only ever branches on `kind`.
 
-function RecentlyReviewed({ tasks }: { tasks: SiteTask[] }) {
+type ReviewedRow =
+  | { kind: 'siteTask'; reviewedAt: Date; task: SiteTask }
+  | { kind: 'survey';   reviewedAt: Date; survey: SurveyReport };
+
+function RecentlyReviewed({ rows }: { rows: ReviewedRow[] }) {
   return (
     <div>
       <h3 className="text-base font-semibold text-gray-900 mb-3">Recently Reviewed</h3>
-      {tasks.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="text-sm text-gray-400 py-4 text-center">No reviews yet.</p>
       ) : (
         <div className="flex flex-col gap-2">
-          {tasks.map((t) => {
-            const isApproved = t.status === 'completed';
+          {rows.map((row) => {
+            const isSurvey    = row.kind === 'survey';
+            const siteCode    = isSurvey ? row.survey.siteCode : row.task.siteCode;
+            const label       = isSurvey ? 'Survey' : row.task.taskLabel;
+            const isApproved  = isSurvey ? row.survey.status === 'approved' : row.task.status === 'completed';
+            const key         = isSurvey ? `survey-${row.survey.id}` : `task-${row.task.id}`;
             return (
               <div
-                key={t.id}
+                key={key}
                 className="flex rounded-lg border border-gray-100 bg-white shadow-sm overflow-hidden"
               >
                 {/* Colour stripe */}
@@ -202,7 +216,7 @@ function RecentlyReviewed({ tasks }: { tasks: SiteTask[] }) {
                   {/* Site code + decision */}
                   <div className="flex items-start justify-between gap-2 mb-0.5">
                     <span className="text-sm font-bold text-gray-900 font-mono leading-snug truncate">
-                      {t.siteCode}
+                      {siteCode}
                     </span>
                     <span className={cn(
                       'text-xs font-medium px-2 py-0.5 rounded-full shrink-0',
@@ -212,15 +226,13 @@ function RecentlyReviewed({ tasks }: { tasks: SiteTask[] }) {
                     </span>
                   </div>
 
-                  {/* Task label */}
+                  {/* Task label / "Survey" marker */}
                   <p className="text-sm font-semibold text-gray-800 leading-snug">
-                    {t.taskLabel}
+                    {label}
                   </p>
 
                   {/* Reviewed at */}
-                  {t.reviewedAt && (
-                    <p className="text-xs text-gray-400 mt-1">{timeAgo(t.reviewedAt)}</p>
-                  )}
+                  <p className="text-xs text-gray-400 mt-1">{timeAgo(row.reviewedAt)}</p>
                 </div>
               </div>
             );
@@ -265,29 +277,45 @@ export function DashboardPage() {
   // already established for useAssignedSiteTasks in Layout.tsx: both queries
   // are scoped by uid (approverUid / reviewedBy), so an admin or field session
   // simply gets whatever matches their own uid, which is safe and inexpensive.
-  const { queue: approvalQueue, loading: approvalQueueLoading } = useApprovalQueue();
-  const { tasks: reviewedTasks, loading: reviewedLoading }      = useReviewedSiteTasks();
-  const approverLoading = approvalQueueLoading || reviewedLoading;
+  const { queue: approvalQueue, loading: approvalQueueLoading }             = useApprovalQueue();
+  const { queue: surveyApprovalQueue, loading: surveyApprovalQueueLoading } = useSurveyApprovalQueue();
+  const { tasks: reviewedTasks, loading: reviewedLoading }                  = useReviewedSiteTasks();
+  const { surveys: reviewedSurveys, loading: reviewedSurveysLoading }      = useReviewedSurveys();
+  const approverLoading =
+    approvalQueueLoading || surveyApprovalQueueLoading || reviewedLoading || reviewedSurveysLoading;
 
   const approverStats = useMemo(() => {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const reviewedThisWeek = reviewedTasks.filter(
+    const reviewedTasksThisWeek = reviewedTasks.filter(
       (t) => t.reviewedAt != null && t.reviewedAt >= sevenDaysAgo,
     );
+    const reviewedSurveysThisWeek = reviewedSurveys.filter(
+      (s) => s.reviewedAt != null && s.reviewedAt >= sevenDaysAgo,
+    );
     return {
-      pendingMyApproval: approvalQueue.length,
-      approvedThisWeek:  reviewedThisWeek.filter((t) => t.status === 'completed').length,
-      sentBackThisWeek:  reviewedThisWeek.filter((t) => t.status === 'changes_requested').length,
+      pendingMyApproval: approvalQueue.length + surveyApprovalQueue.length,
+      approvedThisWeek:
+        reviewedTasksThisWeek.filter((t) => t.status === 'completed').length +
+        reviewedSurveysThisWeek.filter((s) => s.status === 'approved').length,
+      sentBackThisWeek:
+        reviewedTasksThisWeek.filter((t) => t.status === 'changes_requested').length +
+        reviewedSurveysThisWeek.filter((s) => s.status === 'changes_requested').length,
     };
-  }, [approvalQueue, reviewedTasks]);
+  }, [approvalQueue, surveyApprovalQueue, reviewedTasks, reviewedSurveys]);
 
-  const recentlyReviewed = useMemo(() =>
-    [...reviewedTasks]
-      .filter((t) => t.reviewedAt != null)
-      .sort((a, b) => (b.reviewedAt?.getTime() ?? 0) - (a.reviewedAt?.getTime() ?? 0))
+  const recentlyReviewed = useMemo((): ReviewedRow[] =>
+    [
+      ...reviewedTasks
+        .filter((t) => t.reviewedAt != null)
+        .map((task): ReviewedRow => ({ kind: 'siteTask', reviewedAt: task.reviewedAt!, task })),
+      ...reviewedSurveys
+        .filter((s) => s.reviewedAt != null)
+        .map((survey): ReviewedRow => ({ kind: 'survey', reviewedAt: survey.reviewedAt!, survey })),
+    ]
+      .sort((a, b) => b.reviewedAt.getTime() - a.reviewedAt.getTime())
       .slice(0, 5),
-    [reviewedTasks]
+    [reviewedTasks, reviewedSurveys]
   );
 
   // ── Drawer state ────────────────────────────────────────────────────────────
@@ -446,7 +474,7 @@ export function DashboardPage() {
               <ActivitySkeletons />
             </div>
           ) : (
-            <RecentlyReviewed tasks={recentlyReviewed} />
+            <RecentlyReviewed rows={recentlyReviewed} />
           )}
         </>
       )}

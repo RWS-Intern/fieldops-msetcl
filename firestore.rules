@@ -242,6 +242,26 @@ service cloud.firestore {
                                'updatedAt',
                              ]));
       allow delete: if isAdmin();
+
+      // Immutable audit trail — see submitSurvey/reviewSurvey in
+      // useSurveyActions.ts. Parent-ownership check (get() on the PARENT
+      // surveyReports/{reportId}, not resource.data of the child) so this
+      // subcollection is never more permissive than the document it audits
+      // — admin, the assigned engineer, or the nominated approver, same as
+      // the parent rule above. A denormalised field on the child (the
+      // pattern used on workOrders/surveyReports themselves in task 1b)
+      // isn't an option here: the 'submit' snapshot's whole reason for
+      // existing is to hold a payload copy, and copying assignedTo/
+      // approverUid onto every entry would need to be kept in sync forever
+      // for no benefit when the parent already has them. Firestore dedupes
+      // identical document reads within one rule evaluation, so listing N
+      // updates for one survey costs one extra read, not N.
+      match /updates/{updateId} {
+        allow read, create: if isAdmin()
+          || get(/databases/$(database)/documents/surveyReports/$(reportId)).data.assignedTo  == request.auth.uid
+          || get(/databases/$(database)/documents/surveyReports/$(reportId)).data.approverUid == request.auth.uid;
+        allow update, delete: if false;   // immutable audit trail
+      }
     }
 
     match /bulkUploads/{uploadId} {
