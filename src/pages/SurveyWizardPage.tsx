@@ -6,10 +6,19 @@ import { db } from '@/firebase/config';
 import { useAuthStore }         from '@/store/authStore';
 import { useSurveyReport }      from '@/hooks/useSurveyReport';
 import { useSurveyActions }     from '@/hooks/useSurveyActions';
-import { useSurveySubmitQueue, toSurveyPayload } from '@/lib/surveySubmitQueue';
+import {
+  useSurveySubmitQueue,
+  toSurveyPayload,
+  findLocalPhotoRefs,
+  stripLocalPhotoRefs,
+  replaceLocalPhotoRef,
+} from '@/lib/surveySubmitQueue';
+import type { PendingSurveyPhoto } from '@/lib/surveySubmitQueue';
 import { useNetworkStatus }     from '@/hooks/useNetworkStatus';
 import { useToast }             from '@/components/ui/toast';
 import { saveDraft, loadDraft, deleteDraft } from '@/lib/surveyDraftStore';
+import { getPhoto, deletePhoto, blobToDataUrl, deletePhotosForWorkOrder } from '@/lib/surveyPhotoStore';
+import { uploadToCloudinary } from '@/utils/uploadToCloudinary';
 import { validateSurvey, getStepStatuses } from '@/lib/surveyValidation';
 import { Button } from '@/components/ui/button';
 import { cn }      from '@/lib/utils';
@@ -39,6 +48,41 @@ const STEPS: { key: string; label: string; Component: React.ComponentType<Survey
 
 function formatTime(ms: number): string {
   return new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+/**
+ * Attempts to resolve every still-local photo reference by uploading it right
+ * now (used at online Submit — capture-time upload may have failed earlier
+ * in the session, e.g. a transient network blip). Returns the survey with
+ * whatever succeeded replaced by its https:// URL, and allUploaded=false if
+ * anything is still local:// afterward — the caller falls back to queueing
+ * in that case rather than ever submitting a local:// reference to Firestore.
+ */
+async function resolveOnlinePhotoUploads(
+  data: SurveyReport,
+  siteCode: string,
+): Promise<{ resolved: SurveyReport; allUploaded: boolean }> {
+  let resolved = data;
+  let allUploaded = true;
+
+  for (const { photoId } of findLocalPhotoRefs(data)) {
+    const stored = await getPhoto(photoId);
+    if (!stored) {
+      allUploaded = false; // orphan reference — nothing recoverable locally
+      continue;
+    }
+    try {
+      const file = new File([stored.blob], `${photoId}.jpg`, { type: stored.mimeType });
+      const result = await uploadToCloudinary(file, { taskNum: siteCode, photoType: 'completion', index: 0 });
+      resolved = replaceLocalPhotoRef(resolved, `local://${photoId}`, result.url);
+      await deletePhoto(photoId).catch(() => {});
+    } catch (err) {
+      console.error('[SurveyWizardPage] submit-time photo upload failed:', err);
+      allUploaded = false;
+    }
+  }
+
+  return { resolved, allUploaded };
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -181,9 +225,22 @@ export function SurveyWizardPage() {
     void ensureInProgress();
   }
 
+  // Runs inside the setState updater, so it always sees the latest state —
+  // unlike an onChange(photos.map(...)) call computed from a possibly-stale
+  // prop snapshot, concurrent replacements (e.g. several photos uploading in
+  // the same React batch) can never clobber each other here.
+  function replacePhotoReference(oldRef: string, newRef: string) {
+    setSurveyData((prev) => (prev ? replaceLocalPhotoRef(prev, oldRef, newRef) : prev));
+  }
+
   async function handleDiscardDraft() {
     if (!workOrderId || !survey) return;
     await deleteDraft(workOrderId);
+    // The server copy we're reverting to can never contain a local:// photo
+    // reference (those are stripped before any Firestore write), so any
+    // blobs still in surveyPhotoStore for this work order are orphaned the
+    // moment we revert — safe to clear, same as the draft itself.
+    await deletePhotosForWorkOrder(workOrderId).catch(() => {});
     setSurveyData(survey);
     setStepIndex(0);
     setDraftInfo(null);
@@ -194,44 +251,92 @@ export function SurveyWizardPage() {
   async function handleSubmit() {
     if (!survey || !surveyData || !workOrderId || !currentUser) return;
 
-    if (validateSurvey(surveyData).length > 0) {
+    if (validateSurvey(surveyData).some((i) => i.severity === 'error')) {
       setShowValidationSummary(true);
       return;
     }
     setShowValidationSummary(false);
     setSubmitting(true);
 
+    // Captured as plain locals (rather than referencing survey/currentUser
+    // directly) so the nested queueOffline function below doesn't depend on
+    // TypeScript's narrowing surviving into a hoisted function declaration —
+    // it doesn't, since a declaration is technically callable from anywhere
+    // in this scope.
+    const woId            = workOrderId;
+    const surveyId         = survey.id;
+    const siteCode         = survey.siteCode;
+    const submittedBy      = currentUser.uid;
+    const submittedByName  = currentUser.name;
+
+    // Builds the pendingPhotos envelope from every local:// reference still
+    // in `data`, reading each blob and converting it to the base64 data: URI
+    // SurveyQueueProcessor's base64ToFile expects, then enqueues with those
+    // references stripped out — a local:// string must never reach
+    // Firestore. The processor's appendUploadedPhoto re-appends the real URL
+    // once each pending photo uploads successfully.
+    async function queueOffline(data: SurveyReport) {
+      const pendingPhotos: PendingSurveyPhoto[] = [];
+      for (const { photoId, target } of findLocalPhotoRefs(data)) {
+        const stored = await getPhoto(photoId);
+        if (!stored) continue; // orphan reference — nothing recoverable, drop silently
+        const dataUri = await blobToDataUrl(stored.blob);
+        pendingPhotos.push({ photoId, target, localUrl: dataUri });
+      }
+
+      await enqueue({
+        workOrderId:     woId,
+        surveyReportId:  surveyId,
+        siteCode,
+        submittedBy,
+        submittedByName,
+        data:            toSurveyPayload(stripLocalPhotoRefs(data)),
+        pendingPhotos,
+        queuedAt: Date.now(),
+        attempts: 0,
+      });
+    }
+
     try {
       await ensureInProgress();
 
       if (!isOnline) {
-        await enqueue({
-          workOrderId,
-          surveyReportId:  survey.id,
-          siteCode:        survey.siteCode,
-          submittedBy:     currentUser.uid,
-          submittedByName: currentUser.name,
-          data:            toSurveyPayload(surveyData),
-          pendingPhotos:   [],
-          queuedAt: Date.now(),
-          attempts: 0,
-        });
-        // Do NOT delete the local draft here — the submission only exists in
-        // the IndexedDB queue until SurveyQueueProcessor successfully drains
-        // it. Deleting the draft now would leave no recoverable copy if the
-        // drain fails permanently. The processor deletes it after success.
+        await queueOffline(surveyData);
+        // Do NOT delete the local draft or photos here — the submission only
+        // exists in the IndexedDB queue until SurveyQueueProcessor
+        // successfully drains it. Deleting them now would leave no
+        // recoverable copy if the drain fails permanently. The processor
+        // deletes the draft after success; pendingPhotos' blobs are read
+        // straight from the queue item from here on, not from the photo
+        // store, so they're already redundant — but harmless until cleared.
         showToast('Saved offline — kept on this device until it syncs', 'success');
         navigate('/surveys');
         return;
       }
 
+      // Online: resolve any photo still local:// (normally none — capture
+      // time already uploaded — but a transient failure can leave one
+      // behind). Never submit a survey containing a local:// reference.
+      let dataToSubmit = surveyData;
+      if (findLocalPhotoRefs(surveyData).length > 0) {
+        const { resolved, allUploaded } = await resolveOnlinePhotoUploads(surveyData, survey.siteCode);
+        if (!allUploaded) {
+          await queueOffline(resolved);
+          showToast("Some photos couldn't upload right now — saved offline and will sync automatically", 'warning');
+          navigate('/surveys');
+          return;
+        }
+        dataToSubmit = resolved;
+      }
+
       await submitSurvey(survey.id, {
         workOrderId,
-        data: surveyData,
+        data: dataToSubmit,
         submittedBy:     currentUser.uid,
         submittedByName: currentUser.name,
       });
       await deleteDraft(workOrderId);
+      await deletePhotosForWorkOrder(workOrderId).catch(() => {});
       showToast('Survey submitted for approval', 'success');
       navigate('/surveys');
     } catch (err) {
@@ -277,6 +382,8 @@ export function SurveyWizardPage() {
   const stepStatuses     = getStepStatuses(surveyData);
   const validationIssues = validateSurvey(surveyData);
   const currentStepStatus = stepStatuses[stepIndex];
+  const validationErrorCount   = validationIssues.filter((i) => i.severity === 'error').length;
+  const validationWarningCount = validationIssues.length - validationErrorCount;
 
   return (
     <div className="flex flex-col gap-4 max-w-2xl mx-auto pb-24">
@@ -408,18 +515,21 @@ export function SurveyWizardPage() {
         <StepComponent
           survey={surveyData}
           onChange={handleChange}
+          onReplacePhotoRef={replacePhotoReference}
           readOnly={isReadOnly}
           siteName={workOrderMeta?.siteName ?? null}
           siteMaster={siteMaster}
         />
       </div>
 
-      {/* Submit-blocked validation summary — hard gate, Submit only; navigation is never blocked */}
+      {/* Submit-blocked validation summary — hard gate on errors only, Submit only; navigation is never blocked */}
       {showValidationSummary && validationIssues.length > 0 && (
         <div className="flex flex-col gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm font-semibold text-red-800">
-              {validationIssues.length} item{validationIssues.length !== 1 ? 's' : ''} must be completed before submitting
+              {validationErrorCount} item{validationErrorCount !== 1 ? 's' : ''} must be completed before submitting
+              {validationWarningCount > 0 &&
+                ` (plus ${validationWarningCount} warning${validationWarningCount !== 1 ? 's' : ''})`}
             </p>
             <button
               type="button"
@@ -435,9 +545,13 @@ export function SurveyWizardPage() {
                 <button
                   type="button"
                   onClick={() => setStepIndex(iss.stepIndex)}
-                  className="text-xs text-red-700 hover:underline text-left"
+                  className={cn(
+                    'text-xs hover:underline text-left',
+                    iss.severity === 'error' ? 'text-red-700' : 'text-amber-700',
+                  )}
                 >
                   <span className="font-semibold">{iss.label}:</span> {iss.message}
+                  {iss.severity === 'warning' && <span className="italic"> (optional)</span>}
                 </button>
               </li>
             ))}

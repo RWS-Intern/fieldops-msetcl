@@ -1,6 +1,7 @@
 import { AlertTriangle } from 'lucide-react';
 import { RepeatableGroup } from '@/components/survey/RepeatableGroup';
 import { TriStateToggle } from '@/components/survey/TriStateToggle';
+import { PhotoCapture } from '@/components/survey/PhotoCapture';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -58,7 +59,7 @@ function renderBaySummary(bay: SurveyBay, index: number) {
 }
 
 /** Bays — Section C, repeatable. */
-export function StepBays({ survey, onChange, readOnly }: SurveyStepProps) {
+export function StepBays({ survey, onChange, readOnly, onReplacePhotoRef }: SurveyStepProps) {
   function renderBayForm(bay: SurveyBay, update: (patch: Partial<SurveyBay>) => void) {
     return (
       <div className="flex flex-col gap-3">
@@ -166,6 +167,16 @@ export function StepBays({ survey, onChange, readOnly }: SurveyStepProps) {
             />
           </div>
         )}
+
+        <PhotoCapture
+          photos={bay.photos}
+          onChange={(photos) => update({ photos })}
+          onReplacePhotoRef={onReplacePhotoRef}
+          workOrderId={survey.workOrderId}
+          siteCode={survey.siteCode}
+          readOnly={readOnly}
+          label="Photo of the bay / relay panel"
+        />
 
         <div className="flex flex-col gap-1.5">
           <Label>Remarks</Label>

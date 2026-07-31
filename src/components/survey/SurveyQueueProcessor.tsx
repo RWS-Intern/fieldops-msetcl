@@ -7,6 +7,7 @@ import {
   updateSurveyQueueItem,
 } from '@/lib/surveySubmitQueue';
 import { deleteDraft }       from '@/lib/surveyDraftStore';
+import { deletePhotosForWorkOrder } from '@/lib/surveyPhotoStore';
 import { uploadToCloudinary } from '@/utils/uploadToCloudinary';
 import { _emitToast }        from '@/components/ui/toast';
 import { useAuthStore }      from '@/store/authStore';
@@ -123,9 +124,15 @@ export function SurveyQueueProcessor() {
       submittedByName: item.submittedByName,
     });
 
-    // Step 3: clear the local draft — the server now has the submitted copy.
+    // Step 3: clear the local draft and any remaining local photo blobs — the
+    // server now has the submitted copy (any pendingPhotos blobs still in
+    // surveyPhotoStore are redundant at this point: their bytes already made
+    // it to Firestore via the URL spliced in step 1).
     await deleteDraft(item.workOrderId).catch(() => {
       // Non-critical — a stray local draft is harmless, just cleanup debt.
+    });
+    await deletePhotosForWorkOrder(item.workOrderId).catch(() => {
+      // Non-critical — stray local blobs are harmless, just cleanup debt.
     });
   }
 

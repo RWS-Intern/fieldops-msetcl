@@ -1,14 +1,120 @@
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { PhotoCapture } from '@/components/survey/PhotoCapture';
 import type { SurveyStepProps } from './StepProps';
 
-/** Joint sign-off & submit. Fields added in task 3. */
-export function StepSignOff({ readOnly }: SurveyStepProps) {
+function SummaryStat({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col">
+      <span className="text-lg font-bold text-gray-900 leading-tight">{value}</span>
+      <span className="text-[11px] text-gray-500">{label}</span>
+    </div>
+  );
+}
+
+/**
+ * Joint sign-off & submit. The signed paper BOQ page is the legal artefact
+ * for SE-PAC vetting — this step captures the app's verifiable evidence of
+ * it (who signed, and a photo of the signed page), not a replacement for it.
+ * No on-screen signature pad: signOff.surveyorSignatureImage/
+ * msetclSignatureImage stay in the type, unused, for a later phase — a
+ * canvas signature has no legal standing here that the paper + photo don't
+ * already provide, so it would only add complexity right now.
+ */
+export function StepSignOff({ survey, onChange, readOnly, onReplacePhotoRef }: SurveyStepProps) {
+  const signOff = survey.signOff;
+
+  function patchSignOff(patch: Partial<typeof signOff>) {
+    onChange({ signOff: { ...signOff, ...patch } });
+  }
+
+  const totalPhotos =
+    survey.sitePhotos.length +
+    survey.bays.reduce((n, b) => n + b.photos.length, 0) +
+    survey.devices.reduce((n, d) => n + d.photos.length, 0) +
+    signOff.signedPagePhotos.length;
+  const boqTotalLines = survey.boqSupply.length + survey.boqService.length;
+  const boqFilledLines =
+    survey.boqSupply.filter((l) => l.surveyedQty != null).length +
+    survey.boqService.filter((l) => l.surveyedQty != null).length;
+
+  return (
+    <div className="flex flex-col gap-5">
       <h3 className="text-base font-semibold text-gray-900">Joint Sign-Off &amp; Submit</h3>
-      <p className="text-sm text-gray-400">Fields added in task 3.</p>
-      {readOnly && (
-        <p className="text-xs text-gray-400 italic">Read-only — this survey cannot be edited right now.</p>
-      )}
+
+      {/* Surveyor — captured in Step 1, read-only here */}
+      <div className="flex flex-col gap-1.5">
+        <Label>Surveyor (our rep)</Label>
+        <p className="text-sm font-medium text-gray-800 py-2">{survey.surveyorName || '—'}</p>
+        <p className="text-xs text-gray-400">To change this, go back to Step 1 (Site &amp; Visit).</p>
+      </div>
+
+      {/* MSETCL joint engineer */}
+      <div className="flex flex-col gap-3">
+        <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">MSETCL Joint Engineer</h4>
+        <div className="flex flex-col gap-1.5">
+          <Label>
+            Name<span className="text-brand-red"> *</span>
+          </Label>
+          <Input
+            disabled={readOnly}
+            value={signOff.msetclEngineerName ?? ''}
+            onChange={(e) => patchSignOff({ msetclEngineerName: e.target.value || null })}
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label>
+            Designation<span className="text-brand-red"> *</span>
+          </Label>
+          <Input
+            disabled={readOnly}
+            value={signOff.msetclEngineerDesignation ?? ''}
+            onChange={(e) => patchSignOff({ msetclEngineerDesignation: e.target.value || null })}
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <Label>Employee ID</Label>
+          <Input
+            disabled={readOnly}
+            value={signOff.msetclEngineerEmpId ?? ''}
+            placeholder="Optional — not always to hand on site"
+            onChange={(e) => patchSignOff({ msetclEngineerEmpId: e.target.value || null })}
+          />
+        </div>
+      </div>
+
+      {/* Photo of the signed page — the document of record */}
+      <div className="flex flex-col gap-2">
+        <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Signed Page</h4>
+        <p className="text-xs text-gray-500">
+          Photograph the physically signed BOQ page with both signatures visible — this photo,
+          together with the paper original, is the document of record for SE-PAC vetting.
+        </p>
+        <PhotoCapture
+          photos={signOff.signedPagePhotos}
+          onChange={(photos) => patchSignOff({ signedPagePhotos: photos })}
+          onReplacePhotoRef={onReplacePhotoRef}
+          workOrderId={survey.workOrderId}
+          siteCode={survey.siteCode}
+          readOnly={readOnly}
+          label="Photo of the signed BOQ page (both signatures visible)"
+        />
+      </div>
+
+      {/* Pre-submit summary */}
+      <div className="flex flex-col gap-2 pt-3 border-t border-gray-100">
+        <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Before You Submit</h4>
+        <p className="text-xs text-gray-500">
+          This is the last screen before a contractual submission for approval.
+        </p>
+        <div className="grid grid-cols-3 gap-3 p-3 rounded-lg bg-gray-50 border border-gray-100">
+          <SummaryStat label="Bays" value={survey.bays.length} />
+          <SummaryStat label="Devices" value={survey.devices.length} />
+          <SummaryStat label="Cable Runs" value={survey.cableRuns.length} />
+          <SummaryStat label="BOQ Lines Filled" value={`${boqFilledLines}/${boqTotalLines}`} />
+          <SummaryStat label="Total Photos" value={totalPhotos} />
+        </div>
+      </div>
     </div>
   );
 }

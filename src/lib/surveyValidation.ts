@@ -28,14 +28,31 @@ const STEP = {
   signOff:        7,
 } as const;
 
+/**
+ * Section I's seven named photo slots — stored in sitePhotos[] keyed by
+ * caption (see StepPhotos.tsx). Exported so the UI and this validator never
+ * drift on the exact slot names; slot 0 is the required one.
+ */
+export const SURVEY_PHOTO_SLOTS = [
+  'Substation nameplate / entrance',
+  'Existing SLD (photo)',
+  'Each relay / control panel',
+  'Existing MFM / GPS / RTU (if any)',
+  'Panel space earmarked for new equipment',
+  'Any site-specific constraint',
+  'Marked-up SLD / architecture prepared for this site',
+] as const;
+
 export interface SurveyValidationIssue {
   stepIndex: number;
   label: string;
   message: string;
+  /** Only 'error' blocks Submit. 'warning' shows in the summary/step indicator but never gates. */
+  severity: 'error' | 'warning';
 }
 
-function issue(stepIndex: number, message: string): SurveyValidationIssue {
-  return { stepIndex, label: SURVEY_STEP_LABELS[stepIndex], message };
+function issue(stepIndex: number, message: string, severity: 'error' | 'warning' = 'error'): SurveyValidationIssue {
+  return { stepIndex, label: SURVEY_STEP_LABELS[stepIndex], message, severity };
 }
 
 // ─── Section A + B — Site & Visit ───────────────────────────────────────────────
@@ -91,6 +108,11 @@ function validateBays(survey: SurveyReport): SurveyValidationIssue[] {
         issues.push(issue(STEP.bays, `${label}: number of tap positions is required.`));
       }
     }
+    // Warning, not an error — a relay panel may genuinely be
+    // un-photographable in a live substation, so this must never block Submit.
+    if (bay.photos.length === 0) {
+      issues.push(issue(STEP.bays, `${label}: no photo attached.`, 'warning'));
+    }
   });
 
   return issues;
@@ -141,20 +163,116 @@ function validateCableRuns(survey: SurveyReport): SurveyValidationIssue[] {
   return issues;
 }
 
+// ─── Section I — Photos ──────────────────────────────────────────────────────
+
+function validatePhotos(survey: SurveyReport): SurveyValidationIssue[] {
+  const issues: SurveyValidationIssue[] = [];
+
+  const totalPhotoCount =
+    survey.sitePhotos.length +
+    survey.bays.reduce((n, b) => n + b.photos.length, 0) +
+    survey.devices.reduce((n, d) => n + d.photos.length, 0);
+
+  if (totalPhotoCount === 0) {
+    issues.push(issue(STEP.photos, 'At least one photo is required.'));
+  }
+
+  const hasNameplatePhoto = survey.sitePhotos.some((p) => p.caption === SURVEY_PHOTO_SLOTS[0]);
+  if (!hasNameplatePhoto) {
+    issues.push(issue(STEP.photos, `"${SURVEY_PHOTO_SLOTS[0]}" photo is required.`));
+  }
+
+  // Cross-check against BOQ's markedUpSldAttached checkbox: that checkbox is
+  // a hard error when unticked, but slot 7 itself is otherwise optional, so
+  // it can be ticked with no evidence attached. Catch that inconsistency
+  // here rather than let it become a false attestation on a document going
+  // for government vetting.
+  if (survey.boqChecks.markedUpSldAttached) {
+    const hasMarkedUpSldPhoto = survey.sitePhotos.some((p) => p.caption === SURVEY_PHOTO_SLOTS[6]);
+    if (!hasMarkedUpSldPhoto) {
+      issues.push(issue(STEP.photos, 'Marked-up SLD is confirmed attached, but no photo was added for that slot.'));
+    }
+  }
+
+  return issues;
+}
+
+// ─── Section J — BOQ ──────────────────────────────────────────────────────────
+
+/**
+ * quantitiesCrossCheckedAgainstAnnexureI and markedUpSldAttached are errors
+ * when unticked — both are things the surveyor genuinely does/confirms in
+ * the field (markedUpSldAttached is additionally cross-checked against the
+ * Photos step above, since the checkbox alone can't prove a photo exists).
+ *
+ * updatedInMsetclWebAppAndTracker is a warning instead: updating the MSETCL
+ * web-application is an office activity the surveyor cannot perform from a
+ * substation — the form itself hedges with "(if available)" — so a hard
+ * gate here would either block a legitimate field submission or induce a
+ * false attestation on a document going for government vetting.
+ *
+ * A blank BOQ line is only a warning: most sites won't need all 19 items,
+ * and requiring a 0 on every line invites careless filling. One summarising
+ * warning, not one per blank line.
+ */
+function validateBoq(survey: SurveyReport): SurveyValidationIssue[] {
+  const issues: SurveyValidationIssue[] = [];
+
+  if (!survey.boqChecks.quantitiesCrossCheckedAgainstAnnexureI) {
+    issues.push(issue(STEP.boq, 'Confirm quantities were cross-checked against tender Annexure-I.'));
+  }
+  if (!survey.boqChecks.markedUpSldAttached) {
+    issues.push(issue(STEP.boq, 'Confirm the marked-up SLD / architecture is attached.'));
+  }
+  if (!survey.boqChecks.updatedInMsetclWebAppAndTracker) {
+    issues.push(issue(
+      STEP.boq,
+      'Reminder: update survey data in the MSETCL web-application and our tracker.',
+      'warning',
+    ));
+  }
+
+  const blankCount =
+    survey.boqSupply.filter((l) => l.surveyedQty == null).length +
+    survey.boqService.filter((l) => l.surveyedQty == null).length;
+  if (blankCount > 0) {
+    issues.push(issue(STEP.boq, `${blankCount} BOQ line${blankCount !== 1 ? 's' : ''} left blank.`, 'warning'));
+  }
+
+  return issues;
+}
+
+// ─── Sign-off ─────────────────────────────────────────────────────────────────
+
+function validateSignOff(survey: SurveyReport): SurveyValidationIssue[] {
+  const issues: SurveyValidationIssue[] = [];
+  const signOff = survey.signOff;
+
+  if (!signOff.msetclEngineerName || !signOff.msetclEngineerName.trim()) {
+    issues.push(issue(STEP.signOff, 'MSETCL joint engineer name is required.'));
+  }
+  if (!signOff.msetclEngineerDesignation || !signOff.msetclEngineerDesignation.trim()) {
+    issues.push(issue(STEP.signOff, 'MSETCL joint engineer designation is required.'));
+  }
+  if (signOff.signedPagePhotos.length === 0) {
+    issues.push(issue(STEP.signOff, 'A photo of the signed BOQ page is required.'));
+  }
+
+  return issues;
+}
+
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 /**
  * Hard-validation gate for Submit. Pure function of the survey document —
  * used both for the submit-time block/summary and (via getStepStatuses
  * below) for the per-step soft-validation indicators. Navigation itself is
- * never blocked by this; only Submit is.
+ * never blocked by this; only issues with severity 'error' gate Submit —
+ * 'warning' issues (e.g. a bay with no photo, or blank BOQ lines) show in the
+ * same summary and step indicators but never block.
  *
  * Sections E–G (Infrastructure) have no required fields — a reviewer can
  * chase gaps there, and a locked DC room shouldn't block a submission.
- *
- * Section I (photos), Section J (BOQ) and sign-off are task 3b's job — no
- * rules exist for them yet. Add validatePhotos/validateBoq/validateSignOff
- * above and spread them into the array below when those steps land.
  */
 export function validateSurvey(survey: SurveyReport): SurveyValidationIssue[] {
   return [
@@ -162,6 +280,9 @@ export function validateSurvey(survey: SurveyReport): SurveyValidationIssue[] {
     ...validateBays(survey),
     ...validateDevices(survey),
     ...validateCableRuns(survey),
+    ...validatePhotos(survey),
+    ...validateBoq(survey),
+    ...validateSignOff(survey),
   ];
 }
 
@@ -192,10 +313,13 @@ function isInfrastructureTouched(infra: SurveyInfrastructure): boolean {
  * Per-step soft-validation status for the wizard's step pills. "untouched"
  * only applies to steps where an empty/default state is a legitimate,
  * deliberate outcome (Devices and Cable Runs may have none; Infrastructure
- * has no required fields at all) — Bays can never read as untouched since
- * zero bays is itself a hard-validation issue (shows as incomplete instead).
- * Photos/BOQ/Sign-off have no field content yet (task 3b), so they always
- * report untouched for now.
+ * has no required fields at all) — Bays, Photos, BOQ and Sign-Off can never
+ * read as untouched since each has at least one hard-validation issue that's
+ * present from a blank state (shows as incomplete instead). missingCount
+ * mixes errors and warnings together (e.g. a bay missing a photo, or blank
+ * BOQ lines, count here even though neither blocks Submit) — that's
+ * deliberate, so the indicator surfaces anything worth a surveyor's
+ * attention, not just blocking issues.
  */
 export function getStepStatuses(survey: SurveyReport): StepStatus[] {
   const issues = validateSurvey(survey);
@@ -218,12 +342,17 @@ export function getStepStatuses(survey: SurveyReport): StepStatus[] {
     isInfrastructureTouched(survey.infrastructure),
     // Cable Runs
     survey.cableRuns.length > 0 || !!survey.difficultRunsNotes?.trim(),
-    // Photos — task 3b
-    false,
-    // BOQ — task 3b
-    false,
-    // Sign-off — task 3b
-    false,
+    // Photos
+    survey.sitePhotos.length > 0,
+    // BOQ
+    Object.values(survey.boqChecks).some(Boolean) ||
+      survey.boqSupply.some((l) => l.surveyedQty != null || !!l.remarks?.trim()) ||
+      survey.boqService.some((l) => l.surveyedQty != null || !!l.remarks?.trim()),
+    // Sign-off
+    !!survey.signOff.msetclEngineerName?.trim() ||
+      !!survey.signOff.msetclEngineerDesignation?.trim() ||
+      !!survey.signOff.msetclEngineerEmpId?.trim() ||
+      survey.signOff.signedPagePhotos.length > 0,
   ];
 
   return touched.map((isTouched, stepIndex) => {

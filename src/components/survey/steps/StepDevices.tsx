@@ -1,5 +1,6 @@
 import { RepeatableGroup } from '@/components/survey/RepeatableGroup';
 import { TriStateToggle } from '@/components/survey/TriStateToggle';
+import { PhotoCapture } from '@/components/survey/PhotoCapture';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -68,7 +69,7 @@ function renderDeviceSummary(device: SurveyDevice, index: number) {
 }
 
 /** Existing devices — Section D, repeatable. */
-export function StepDevices({ survey, onChange, readOnly }: SurveyStepProps) {
+export function StepDevices({ survey, onChange, readOnly, onReplacePhotoRef }: SurveyStepProps) {
   function renderDeviceForm(device: SurveyDevice, update: (patch: Partial<SurveyDevice>) => void) {
     return (
       <div className="flex flex-col gap-3">
@@ -155,6 +156,16 @@ export function StepDevices({ survey, onChange, readOnly }: SurveyStepProps) {
           value={device.reusable}
           onChange={(v) => update({ reusable: v })}
           readOnly={readOnly}
+        />
+
+        <PhotoCapture
+          photos={device.photos}
+          onChange={(photos) => update({ photos })}
+          onReplacePhotoRef={onReplacePhotoRef}
+          workOrderId={survey.workOrderId}
+          siteCode={survey.siteCode}
+          readOnly={readOnly}
+          label="Photo"
         />
 
         <div className="flex flex-col gap-1.5">

@@ -1,5 +1,6 @@
 import type {
   SurveyBoqLine,
+  SurveyBoqChecks,
   SurveyReport,
   SurveyInfrastructure,
   SurveySignOff,
@@ -100,6 +101,14 @@ function createEmptyPreVisit(): SurveyPreVisit {
   };
 }
 
+function createEmptyBoqChecks(): SurveyBoqChecks {
+  return {
+    quantitiesCrossCheckedAgainstAnnexureI: false,
+    markedUpSldAttached:                    false,
+    updatedInMsetclWebAppAndTracker:         false,
+  };
+}
+
 function createEmptySignOff(): SurveySignOff {
   return {
     signedPagePhotos:          [],
@@ -163,6 +172,7 @@ export function createEmptySurveyReport(input: CreateEmptySurveyReportInput): Su
     infrastructure: createEmptyInfrastructure(),
     boqSupply,
     boqService,
+    boqChecks:  createEmptyBoqChecks(),
     sitePhotos: [],
     signOff:    createEmptySignOff(),
 

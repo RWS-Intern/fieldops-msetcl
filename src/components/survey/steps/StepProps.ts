@@ -21,4 +21,13 @@ export interface SurveyStepProps {
   siteName: string | null;
   /** Fetched once from the parent Site doc; null while loading or if unset. Step 1 only. */
   siteMaster: SurveyStepSiteMaster | null;
+  /**
+   * Replaces one local://<photoId> reference with its uploaded https:// URL
+   * via a functional setSurveyData update, so concurrent photo uploads (e.g.
+   * selecting several at once) can never clobber each other the way a
+   * precomputed-array onChange call can. Used by PhotoCapture wherever it's
+   * rendered (StepPhotos, StepBays, StepDevices) — steps without photos can
+   * ignore it.
+   */
+  onReplacePhotoRef: (oldRef: string, newRef: string) => void;
 }

@@ -497,6 +497,13 @@ export interface SurveyBoqLine {
   remarks: string | null;
 }
 
+/** Section J's three confirmation checkboxes, all default false. */
+export interface SurveyBoqChecks {
+  quantitiesCrossCheckedAgainstAnnexureI: boolean;  // "deviations noted with reason"
+  markedUpSldAttached: boolean;
+  updatedInMsetclWebAppAndTracker: boolean;
+}
+
 /**
  * The physically signed paper BOQ page is the legal artefact for government
  * vetting — signedPagePhotos is the record of that, not a substitute for it.
@@ -560,6 +567,7 @@ export interface SurveyReport {
   infrastructure: SurveyInfrastructure;
   boqSupply: SurveyBoqLine[];
   boqService: SurveyBoqLine[];
+  boqChecks: SurveyBoqChecks;
   sitePhotos: { url: string; caption: string }[];  // Section I
   signOff: SurveySignOff;
 

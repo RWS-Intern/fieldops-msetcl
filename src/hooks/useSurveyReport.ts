@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/firebase/config';
-import type { SurveyReport, SurveyPreVisit, SurveyBay, SurveyDevice, SurveyCableRun, WorkOrderStatus } from '@/types';
+import type { SurveyReport, SurveyPreVisit, SurveyBay, SurveyDevice, SurveyCableRun, SurveyBoqChecks, WorkOrderStatus } from '@/types';
 
 // ─── Mapper ─────────────────────────────────────────────────────────────────────
 
@@ -114,6 +114,11 @@ function mapSurveyReport(id: string, data: Record<string, any>): SurveyReport {
     },
     boqSupply:      data['boqSupply']  ?? [],
     boqService:     data['boqService'] ?? [],
+    boqChecks: {
+      quantitiesCrossCheckedAgainstAnnexureI: data['boqChecks']?.quantitiesCrossCheckedAgainstAnnexureI ?? false,
+      markedUpSldAttached:                    data['boqChecks']?.markedUpSldAttached                    ?? false,
+      updatedInMsetclWebAppAndTracker:         data['boqChecks']?.updatedInMsetclWebAppAndTracker         ?? false,
+    } as SurveyBoqChecks,
     sitePhotos:     data['sitePhotos'] ?? [],
     signOff:        data['signOff'] ?? {
       signedPagePhotos:          [],

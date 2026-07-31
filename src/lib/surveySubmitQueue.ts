@@ -85,6 +85,89 @@ export function toSurveyPayload(survey: SurveyReport): SurveyPayload {
   return rest;
 }
 
+// ─── local:// photo reference helpers ──────────────────────────────────────────
+// A captured-but-not-yet-uploaded photo is referenced inside bays[].photos /
+// devices[].photos / sitePhotos[] as the sentinel string `local://<photoId>`
+// (see surveyPhotoStore.ts). These three helpers are the single place that
+// knows how to find, strip, and replace those references across all three
+// array shapes — used by SurveyWizardPage.tsx when queueing an offline
+// submission and when resolving any still-local photos at online submit time.
+// A `local://` string must NEVER reach Firestore on either path.
+
+export const LOCAL_PHOTO_PREFIX = 'local://';
+
+/** The subset of SurveyReport/SurveyPayload that can hold photo references. */
+type PhotoBearingSurvey = Pick<SurveyReport, 'bays' | 'devices' | 'sitePhotos' | 'signOff'>;
+
+export interface LocalPhotoRef {
+  photoId: string;
+  target:  PendingSurveyPhotoTarget;
+}
+
+/** Finds every local:// reference currently in the survey, with its splice target. */
+export function findLocalPhotoRefs(data: PhotoBearingSurvey): LocalPhotoRef[] {
+  const found: LocalPhotoRef[] = [];
+
+  for (const bay of data.bays) {
+    for (const url of bay.photos) {
+      if (url.startsWith(LOCAL_PHOTO_PREFIX)) {
+        found.push({ photoId: url.slice(LOCAL_PHOTO_PREFIX.length), target: { kind: 'bay', bayUid: bay.uid } });
+      }
+    }
+  }
+  for (const device of data.devices) {
+    for (const url of device.photos) {
+      if (url.startsWith(LOCAL_PHOTO_PREFIX)) {
+        found.push({ photoId: url.slice(LOCAL_PHOTO_PREFIX.length), target: { kind: 'device', deviceUid: device.uid } });
+      }
+    }
+  }
+  for (const photo of data.sitePhotos) {
+    if (photo.url.startsWith(LOCAL_PHOTO_PREFIX)) {
+      found.push({ photoId: photo.url.slice(LOCAL_PHOTO_PREFIX.length), target: { kind: 'sitePhoto', caption: photo.caption } });
+    }
+  }
+  for (const url of data.signOff.signedPagePhotos) {
+    if (url.startsWith(LOCAL_PHOTO_PREFIX)) {
+      found.push({ photoId: url.slice(LOCAL_PHOTO_PREFIX.length), target: { kind: 'signOffSignedPage' } });
+    }
+  }
+
+  return found;
+}
+
+/**
+ * Removes every local:// reference from a survey's photo arrays — never send
+ * one to Firestore. The processor's appendUploadedPhoto re-appends the real
+ * URL once the corresponding queued PendingSurveyPhoto uploads successfully.
+ */
+export function stripLocalPhotoRefs(data: SurveyReport): SurveyReport {
+  return {
+    ...data,
+    bays: data.bays.map((b) => ({ ...b, photos: b.photos.filter((p) => !p.startsWith(LOCAL_PHOTO_PREFIX)) })),
+    devices: data.devices.map((d) => ({ ...d, photos: d.photos.filter((p) => !p.startsWith(LOCAL_PHOTO_PREFIX)) })),
+    sitePhotos: data.sitePhotos.filter((p) => !p.url.startsWith(LOCAL_PHOTO_PREFIX)),
+    signOff: {
+      ...data.signOff,
+      signedPagePhotos: data.signOff.signedPagePhotos.filter((p) => !p.startsWith(LOCAL_PHOTO_PREFIX)),
+    },
+  };
+}
+
+/** Replaces one specific local:// reference in place with its uploaded URL. */
+export function replaceLocalPhotoRef(data: SurveyReport, oldRef: string, newUrl: string): SurveyReport {
+  return {
+    ...data,
+    bays: data.bays.map((b) => ({ ...b, photos: b.photos.map((p) => (p === oldRef ? newUrl : p)) })),
+    devices: data.devices.map((d) => ({ ...d, photos: d.photos.map((p) => (p === oldRef ? newUrl : p)) })),
+    sitePhotos: data.sitePhotos.map((p) => (p.url === oldRef ? { ...p, url: newUrl } : p)),
+    signOff: {
+      ...data.signOff,
+      signedPagePhotos: data.signOff.signedPagePhotos.map((p) => (p === oldRef ? newUrl : p)),
+    },
+  };
+}
+
 export interface QueuedSurveySubmission {
   /** IDB auto-increment primary key — undefined before first insert. */
   id?: number;
