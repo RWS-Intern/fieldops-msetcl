@@ -106,7 +106,7 @@ export function LoginPage() {
         <h1 className="text-3xl font-extrabold text-brand-navy leading-tight">
           FieldOps
         </h1>
-        <p className="text-sm text-gray-500 mt-1">by Rite Water Solutions</p>
+        <p className="text-sm text-gray-500 mt-1">MSETCL Substation · by Rite Water Solutions</p>
       </div>
 
       <Card className="w-full max-w-sm shadow-md">
@@ -117,7 +117,7 @@ export function LoginPage() {
               <Input
                 id="email"
                 type="email"
-                placeholder="you@ritesolar.com"
+                placeholder="you@ritewater.in"
                 value={email}
                 onChange={(e) => { setEmail(e.target.value); setAuthError(null); }}
                 required

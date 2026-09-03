@@ -50,7 +50,12 @@ export function Header() {
         />
         <div className="flex flex-col leading-tight">
           <span className="text-base font-bold text-brand-blue">FieldOps</span>
-          <span className="text-xs text-gray-500">by Rite Water Solutions</span>
+          {/* "MSETCL Substation · Rite Water Solutions" doesn't fit this
+              header's available width at mobile viewports (logo + gap on the
+              left, sync dot + bell + avatar cluster on the right leave too
+              little room for ~40 characters at text-xs) — the deployment
+              name alone does. */}
+          <span className="text-xs text-gray-500">MSETCL Substation</span>
         </div>
       </div>
 

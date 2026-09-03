@@ -35,13 +35,17 @@ export function SurveyApprovalCard({ survey, onOpen }: SurveyApprovalCardProps) 
           </span>
         </div>
 
-        <p className="text-xs text-gray-400 mt-0.5 leading-snug font-mono">
-          {survey.workOrderCode || '—'}
-        </p>
+        {survey.workOrderCode && (
+          <p className="text-xs text-gray-400 mt-0.5 leading-snug font-mono">
+            {survey.workOrderCode}
+          </p>
+        )}
 
-        <p className="text-sm font-semibold text-gray-800 mt-1 leading-snug">
-          {survey.siteName || survey.siteCode}
-        </p>
+        {survey.siteName && (
+          <p className="text-sm font-semibold text-gray-800 mt-1 leading-snug">
+            {survey.siteName}
+          </p>
+        )}
 
         <div className="flex items-center gap-2 mt-1.5 flex-wrap">
           {survey.assignedToName && (

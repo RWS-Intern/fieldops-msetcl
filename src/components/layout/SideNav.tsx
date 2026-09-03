@@ -24,13 +24,13 @@ const approverItems = [
 ];
 
 const adminItems = [
-  { to: '/dashboard', label: 'Home',      Icon: LayoutDashboard },
-  { to: '/approvals', label: 'Approvals', Icon: CheckSquare },
-  { to: '/surveys',   label: 'Surveys',   Icon: ClipboardCheck },
-  { to: '/projects',  label: 'Projects',  Icon: FolderKanban },
-  { to: '/sites',     label: 'Sites',     Icon: MapPin },
-  { to: '/team',      label: 'Engineers', Icon: Users },
-  { to: '/reports',   label: 'Reports',   Icon: BarChart2 },
+  { to: '/dashboard',   label: 'Home',      Icon: LayoutDashboard },
+  { to: '/approvals',   label: 'Approvals', Icon: CheckSquare },
+  { to: '/surveys/all', label: 'Surveys',   Icon: ClipboardCheck },
+  { to: '/projects',    label: 'Projects',  Icon: FolderKanban },
+  { to: '/sites',       label: 'Sites',     Icon: MapPin },
+  { to: '/team',        label: 'Engineers', Icon: Users },
+  { to: '/reports',     label: 'Reports',   Icon: BarChart2 },
 ];
 
 export function SideNav() {

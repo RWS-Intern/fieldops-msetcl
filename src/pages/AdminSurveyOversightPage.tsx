@@ -55,8 +55,12 @@ function SurveyOversightRow({ survey, onOpen }: { survey: SurveyReport; onOpen: 
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-sm font-bold text-gray-900 font-mono leading-snug">{survey.siteCode}</p>
-          <p className="text-sm font-semibold text-gray-800 leading-snug">{survey.siteName || survey.siteCode}</p>
-          <p className="text-xs text-gray-400 font-mono">{survey.workOrderCode || '—'}</p>
+          {survey.siteName && (
+            <p className="text-sm font-semibold text-gray-800 leading-snug">{survey.siteName}</p>
+          )}
+          {survey.workOrderCode && (
+            <p className="text-xs text-gray-400 font-mono">{survey.workOrderCode}</p>
+          )}
         </div>
         <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full shrink-0', STATUS_BADGE[survey.status])}>
           {STATUS_LABEL[survey.status]}
@@ -90,7 +94,7 @@ export function AdminSurveyOversightPage() {
 
   return (
     <div className="flex flex-col gap-4 max-w-2xl mx-auto pb-24">
-      <h2 className="text-xl font-bold text-gray-900">All Surveys</h2>
+      <h2 className="text-xl font-bold text-gray-900">Surveys</h2>
 
       <div className="flex flex-wrap gap-2">
         {STATUS_FILTERS.map(({ key, label }) => (
@@ -127,7 +131,7 @@ export function AdminSurveyOversightPage() {
               <SurveyOversightRow
                 key={survey.id}
                 survey={survey}
-                onOpen={() => navigate(`/approvals/survey/${survey.workOrderId}`)}
+                onOpen={() => navigate(`/survey-record/${survey.workOrderId}`)}
               />
             ))}
           </div>

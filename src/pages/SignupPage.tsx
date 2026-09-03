@@ -207,7 +207,7 @@ export function SignupPage() {
             className="h-16 w-auto mx-auto mb-4"
           />
           <h1 className="text-3xl font-extrabold text-brand-navy leading-tight">FieldOps</h1>
-          <p className="text-sm text-gray-500 mt-1">by Rite Water Solutions</p>
+          <p className="text-sm text-gray-500 mt-1">MSETCL Substation · by Rite Water Solutions</p>
         </div>
         <Card className="w-full max-w-sm shadow-md">
           <CardContent className="pt-6 text-center flex flex-col gap-3">
@@ -233,7 +233,7 @@ export function SignupPage() {
           className="h-16 w-auto mx-auto mb-4"
         />
         <h1 className="text-3xl font-extrabold text-brand-navy leading-tight">FieldOps</h1>
-        <p className="text-sm text-gray-500 mt-1">by Rite Water Solutions</p>
+        <p className="text-sm text-gray-500 mt-1">MSETCL Substation · by Rite Water Solutions</p>
       </div>
 
       <Card className="w-full max-w-sm shadow-md">

@@ -44,7 +44,7 @@ const db = getFirestore(app);
 async function seed() {
   // 1. appConfig/global
   await setDoc(doc(db, 'appConfig', 'global'), {
-    orgName:          'Rite Solar',
+    orgName:          'Rite Water Solutions',
     taskNumPrefix:    'RS',
     taskNumCounter:   0,
     mapDefaultLat:    24.8607,
@@ -56,7 +56,7 @@ async function seed() {
   // 2. users
   await setDoc(doc(db, 'users', VITE_ADMIN_UID as string), {
     name:      'Rite Admin',
-    email:     'admin@ritesolar.com',
+    email:     'admin@ritewater.in',
     role:      'admin',
     active:    true,
     createdAt: serverTimestamp(),
@@ -66,7 +66,7 @@ async function seed() {
 
   await setDoc(doc(db, 'users', VITE_FIELD_UID as string), {
     name:      'Field Engineer',
-    email:     'field@ritesolar.com',
+    email:     'field@ritewater.in',
     role:      'field',
     active:    true,
     createdAt: serverTimestamp(),

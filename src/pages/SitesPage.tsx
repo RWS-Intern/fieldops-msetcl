@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Plus, Search, RotateCcw, Upload, UserPlus, ChevronDown, ClipboardCheck } from 'lucide-react';
+import { Plus, Search, RotateCcw, Upload, UserPlus, ChevronDown } from 'lucide-react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useSiteStore } from '@/store/siteStore';
@@ -114,7 +113,6 @@ interface ProjectGroup {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function SitesPage() {
-  const navigate = useNavigate();
   const { sites, lastUpdated } = useSiteStore();
   const { showToast }          = useToast();
 
@@ -363,16 +361,6 @@ export function SitesPage() {
             {currentlyLoading ? '…' : showArchived ? archivedSites.length : totalFiltered}
           </span>
         </div>
-        {!showArchived && (
-          <button
-            type="button"
-            onClick={() => navigate('/surveys/all')}
-            className="inline-flex items-center gap-1.5 self-start text-sm font-medium text-brand-blue hover:underline"
-          >
-            <ClipboardCheck className="h-4 w-4" />
-            All Surveys
-          </button>
-        )}
         {!showArchived && (
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
             <Button

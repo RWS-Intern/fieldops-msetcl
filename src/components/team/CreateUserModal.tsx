@@ -93,7 +93,7 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="user@ritesolar.com"
+                placeholder="user@ritewater.in"
                 required
                 autoComplete="off"
               />

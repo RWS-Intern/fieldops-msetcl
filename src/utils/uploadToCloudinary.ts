@@ -11,7 +11,7 @@ export interface UploadResult {
  * before upload. Progress callbacks fire per-xhr upload event.
  *
  * Optional naming options:
- *   taskNum   — used as the sub-folder:  fieldops/<taskNum>/
+ *   taskNum   — used as the sub-folder:  <VITE_CLOUDINARY_FOLDER>/<taskNum>/
  *   subtaskId — used as the filename prefix for subtask photos
  *   photoType — 'subtask' | 'completion'
  *   index     — position within the upload batch (for ordering)
@@ -27,17 +27,18 @@ export async function uploadToCloudinary(
     index?:      number;
   },
 ): Promise<UploadResult> {
-  const cloudName    = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME    as string;
-  const uploadPreset = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string;
+  const cloudName        = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME    as string;
+  const uploadPreset     = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string;
+  const cloudinaryFolder = import.meta.env.VITE_CLOUDINARY_FOLDER        as string;
 
-  if (!cloudName || !uploadPreset) {
+  if (!cloudName || !uploadPreset || !cloudinaryFolder) {
     throw new Error('Cloudinary env vars not set');
   }
 
   const { onProgress, taskNum, subtaskId, photoType, index } = options ?? {};
 
-  // Build folder path: fieldops/<taskNum> or fieldops
-  const folder = taskNum ? `fieldops/${taskNum}` : 'fieldops';
+  // Build folder path: <VITE_CLOUDINARY_FOLDER>/<taskNum> or <VITE_CLOUDINARY_FOLDER>
+  const folder = taskNum ? `${cloudinaryFolder}/${taskNum}` : cloudinaryFolder;
 
   // Build public_id (filename without extension — Cloudinary adds it)
   let publicId: string | undefined;

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
 import { useAuthStore }     from '@/store/authStore';
 import { useSurveyReport }  from '@/hooks/useSurveyReport';
 import { useSurveyActions } from '@/hooks/useSurveyActions';
@@ -29,7 +30,11 @@ const ACTION_LABEL: Record<SurveyUpdate['action'], string> = {
   request_changes: 'Changes Requested',
 };
 
-// ─── Review actions — rendered inside SurveyPreview's toolbar via renderActions ──
+// ─── Review actions — rendered on the record page itself AND passed into
+// SurveyPreview's toolbar (via renderActions), so acting isn't reachable only
+// from inside the preview. Each render site mounts its own instance with
+// independent local state, which is fine — only one is ever visible at a time
+// (the preview is a full-screen overlay).
 //
 // Approver review of a pending_approval SurveyReport. Read-only view of the
 // engineer's survey — approvers never edit it. Online-only: no offline queue
@@ -154,7 +159,10 @@ export function ApproverSurveyReviewPage() {
   const { updates, loading: updatesLoading } = useSurveyUpdates(workOrderId);
   const { reviewSurvey }               = useSurveyActions();
   const { showToast, ToastComponent }  = useToast();
-  const [showPreview, setShowPreview]  = useState(true);
+  // Lands on the record page (header, History, actions) rather than the full
+  // preview — closing the preview then returns somewhere the user has
+  // already seen, instead of straight back out of the page entirely.
+  const [showPreview, setShowPreview]  = useState(false);
 
   async function handleApprove() {
     if (!survey || !workOrderId) return;
@@ -165,7 +173,10 @@ export function ApproverSurveyReviewPage() {
         approverUid: survey.approverUid,
       });
       showToast('Survey approved', 'success');
-      navigate('/approvals');
+      // Close the preview first — otherwise its full-screen overlay can
+      // briefly render over whatever page navigate(-1) lands on.
+      setShowPreview(false);
+      navigate(-1);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to approve survey';
       showToast(msg, 'error');
@@ -182,7 +193,10 @@ export function ApproverSurveyReviewPage() {
         approverUid: survey.approverUid,
       });
       showToast('Changes requested', 'success');
-      navigate('/approvals');
+      // Close the preview first — otherwise its full-screen overlay can
+      // briefly render over whatever page navigate(-1) lands on.
+      setShowPreview(false);
+      navigate(-1);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to request changes';
       showToast(msg, 'error');
@@ -206,15 +220,19 @@ export function ApproverSurveyReviewPage() {
   }
 
   // Plain primitive locals — not the nullable `survey` object itself — so
-  // renderToolbarActions (a nested function declaration) doesn't depend on
+  // renderActions (a nested function declaration) doesn't depend on
   // TypeScript's narrowing surviving into it (it doesn't; see the identical
   // reasoning in SurveyWizardPage.tsx's handleSubmit).
   const canAct = !!currentUser
     && survey.approverUid === currentUser.uid
     && survey.status === 'pending_approval';
   const surveyStatus = survey.status;
+  // The heading falls back to siteCode when a survey predates siteName being
+  // denormalised — when that happens, the sub-line below must not ALSO show
+  // the bare siteCode, or the same code repeats twice in the header.
+  const showSiteCodeInSubline = !!survey.siteName;
 
-  function renderToolbarActions() {
+  function renderActions() {
     if (canAct) {
       return <ReviewActions onApprove={handleApprove} onRequestChanges={handleRequestChanges} />;
     }
@@ -236,13 +254,32 @@ export function ApproverSurveyReviewPage() {
     <div className="flex flex-col gap-4 max-w-2xl mx-auto pb-24">
       {ToastComponent}
 
-      <div>
-        <p className="text-xs text-gray-400 font-mono">{survey.workOrderCode || survey.siteCode}</p>
-        <h2 className="text-xl font-bold text-gray-900 leading-snug">{survey.siteName || survey.siteCode}</h2>
-        <p className="text-xs text-gray-500 mt-0.5">
-          {survey.siteCode}
-          {survey.assignedToName && <> · {survey.assignedToName}</>}
-        </p>
+      <div className="flex items-start gap-2">
+        <Button
+          type="button" variant="outline" size="sm"
+          onClick={() => navigate(-1)}
+          aria-label="Back"
+          className="shrink-0"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <div className="min-w-0">
+          {survey.workOrderCode && (
+            <p className="text-xs text-gray-400 font-mono">{survey.workOrderCode}</p>
+          )}
+          <h2 className="text-xl font-bold text-gray-900 leading-snug">{survey.siteName || survey.siteCode}</h2>
+          {(showSiteCodeInSubline || survey.assignedToName) && (
+            <p className="text-xs text-gray-500 mt-0.5">
+              {showSiteCodeInSubline && survey.siteCode}
+              {showSiteCodeInSubline && survey.assignedToName && ' · '}
+              {survey.assignedToName}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {renderActions()}
       </div>
 
       {!showPreview && (
@@ -260,7 +297,7 @@ export function ApproverSurveyReviewPage() {
           workOrderCode={survey.workOrderCode}
           readOnly
           onClose={() => setShowPreview(false)}
-          renderActions={renderToolbarActions}
+          renderActions={renderActions}
         />
       )}
     </div>

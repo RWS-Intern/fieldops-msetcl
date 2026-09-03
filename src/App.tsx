@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { useAuthStore } from '@/store/authStore';
 import { Toaster } from '@/components/ui/toaster';
@@ -65,6 +65,27 @@ function CatchAll() {
   return <Navigate to={currentUser ? '/dashboard' : '/login'} replace />;
 }
 
+// Admins land on the survey oversight page (AdminSurveyOversightPage) instead
+// of the field engineer's personal assigned-surveys list — /surveys itself
+// stays the field/admin-allowed route so old links/bookmarks still resolve.
+function SurveysRoute() {
+  const { currentUser } = useAuthStore();
+  if (currentUser?.role === 'admin') {
+    return <Navigate to="/surveys/all" replace />;
+  }
+  return <SurveysPage />;
+}
+
+// The survey record viewer used to live only under /approvals — now that
+// AdminSurveyOversightPage (reached from Surveys, not Approvals) also opens
+// it, that path put admins on a URL that highlighted the wrong nav item. This
+// keeps the old links/bookmarks working by handing off to the real route,
+// which re-applies the same role check.
+function LegacySurveyRecordRedirect() {
+  const { workOrderId } = useParams<{ workOrderId: string }>();
+  return <Navigate to={`/survey-record/${workOrderId}`} replace />;
+}
+
 export default function App() {
   useEffect(() => {
     document.body.style.backgroundColor = '#F0F4F8';
@@ -101,13 +122,22 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
+
+            {/* Survey record viewer — shared by ApprovalsPage and
+                AdminSurveyOversightPage, so it lives at a neutral path
+                rather than nested under /approvals. */}
             <Route
-              path="/approvals/survey/:workOrderId"
+              path="/survey-record/:workOrderId"
               element={
                 <ProtectedRoute allowRoles={['approver', 'admin']}>
                   <ApproverSurveyReviewPage />
                 </ProtectedRoute>
               }
+            />
+            {/* Old path — kept so existing links/bookmarks still resolve. */}
+            <Route
+              path="/approvals/survey/:workOrderId"
+              element={<LegacySurveyRecordRedirect />}
             />
 
             {/* Field + admin — MSETCL Substation Visibility Project survey wizard */}
@@ -115,7 +145,7 @@ export default function App() {
               path="/surveys"
               element={
                 <ProtectedRoute allowRoles={['field', 'admin']}>
-                  <SurveysPage />
+                  <SurveysRoute />
                 </ProtectedRoute>
               }
             />

@@ -69,7 +69,7 @@ export function ApprovalsPage() {
               <SurveyApprovalCard
                 key={`survey-${row.survey.id}`}
                 survey={row.survey}
-                onOpen={() => navigate(`/approvals/survey/${row.survey.workOrderId}`)}
+                onOpen={() => navigate(`/survey-record/${row.survey.workOrderId}`)}
               />
             ),
           )}
