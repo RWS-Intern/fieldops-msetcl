@@ -3,6 +3,7 @@ import { Plus, Search, RotateCcw, Upload, UserPlus, ChevronDown } from 'lucide-r
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useSiteStore } from '@/store/siteStore';
+import { useAuthStore } from '@/store/authStore';
 import { archiveSite } from '@/hooks/useSiteActions';
 import { useToast } from '@/components/ui/toast';
 import { SiteCard } from '@/components/sites/SiteCard';
@@ -49,10 +50,13 @@ function SiteSkeletons() {
 
 function ArchivedSiteCard({
   site,
+  canRestore,
   onRestore,
 }: {
-  site:      Site;
-  onRestore: () => void;
+  site:       Site;
+  /** False for a read-only viewer — Restore is not rendered. */
+  canRestore: boolean;
+  onRestore:  () => void;
 }) {
   return (
     <Card className="overflow-hidden border-0 shadow-sm opacity-75">
@@ -79,17 +83,19 @@ function ArchivedSiteCard({
           <p className="text-xs text-gray-400 mt-0.5">
             {site.city}{site.state ? `, ${site.state}` : ''}
           </p>
-          <div className="flex justify-end mt-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs gap-1.5"
-              onClick={onRestore}
-            >
-              <RotateCcw className="h-3 w-3" />
-              Restore
-            </Button>
-          </div>
+          {canRestore && (
+            <div className="flex justify-end mt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1.5"
+                onClick={onRestore}
+              >
+                <RotateCcw className="h-3 w-3" />
+                Restore
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </Card>
@@ -115,6 +121,12 @@ interface ProjectGroup {
 export function SitesPage() {
   const { sites, lastUpdated } = useSiteStore();
   const { showToast }          = useToast();
+  const { currentUser }        = useAuthStore();
+
+  // A viewer gets this whole screen — the grouped list, the filters, the
+  // archived view and the site detail drawer — with every mutating control
+  // (New Site, Bulk Upload, Bulk Assign, Restore) simply not rendered.
+  const canManageSites = currentUser?.role === 'admin';
 
   // ── Filter state ─────────────────────────────────────────────────────────────
   const [activeFilter,     setActiveFilter]     = useState<SiteStatus | 'all'>('all');
@@ -361,7 +373,7 @@ export function SitesPage() {
             {currentlyLoading ? '…' : showArchived ? archivedSites.length : totalFiltered}
           </span>
         </div>
-        {!showArchived && (
+        {!showArchived && canManageSites && (
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
             <Button
               variant="outline"
@@ -499,6 +511,7 @@ export function SitesPage() {
               <ArchivedSiteCard
                 key={site.id}
                 site={site}
+                canRestore={canManageSites}
                 onRestore={() => handleRestore(site.id)}
               />
             ))}
@@ -515,7 +528,7 @@ export function SitesPage() {
               ? 'No sites match your filters.'
               : 'No sites to display.'}
           </p>
-          {sites.length === 0 && (
+          {sites.length === 0 && canManageSites && (
             <button
               type="button"
               onClick={() => setShowCreate(true)}
@@ -635,30 +648,34 @@ export function SitesPage() {
         </div>
       )}
 
-      {/* ── Modals ── */}
+      {/* ── Modals — every one of these writes, so admin only ── */}
 
-      <CreateSiteModal
-        open={showCreate}
-        onClose={() => setShowCreate(false)}
-      />
+      {canManageSites && (
+        <>
+          <CreateSiteModal
+            open={showCreate}
+            onClose={() => setShowCreate(false)}
+          />
 
-      <BulkUploadSitesModal
-        open={showBulkUpload}
-        onClose={() => setShowBulkUpload(false)}
-        onSuccess={(count) => {
-          setShowBulkUpload(false);
-          showToast(`${count} site${count !== 1 ? 's' : ''} created successfully`, 'success');
-        }}
-      />
+          <BulkUploadSitesModal
+            open={showBulkUpload}
+            onClose={() => setShowBulkUpload(false)}
+            onSuccess={(count) => {
+              setShowBulkUpload(false);
+              showToast(`${count} site${count !== 1 ? 's' : ''} created successfully`, 'success');
+            }}
+          />
 
-      <BulkUploadAssignmentsModal
-        open={showBulkAssign}
-        onClose={() => setShowBulkAssign(false)}
-        onSuccess={(count) => {
-          setShowBulkAssign(false);
-          showToast(`${count} engineer${count !== 1 ? 's' : ''} assigned`, 'success');
-        }}
-      />
+          <BulkUploadAssignmentsModal
+            open={showBulkAssign}
+            onClose={() => setShowBulkAssign(false)}
+            onSuccess={(count) => {
+              setShowBulkAssign(false);
+              showToast(`${count} engineer${count !== 1 ? 's' : ''} assigned`, 'success');
+            }}
+          />
+        </>
+      )}
 
       {selectedSite && (
         <SiteDetailDrawer

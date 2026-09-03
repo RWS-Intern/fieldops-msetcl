@@ -39,6 +39,10 @@ interface ProjectCardProps {
 
 export function ProjectCard({ project, onView, onEdit }: ProjectCardProps) {
   const { currentUser } = useAuthStore();
+  // Admins manage; viewers browse (View only, no Edit); field engineers get
+  // neither — the card stays a summary for them, as before.
+  const canManage      = currentUser?.role === 'admin';
+  const canOpenDetail  = canManage || currentUser?.role === 'viewer';
   const stripe         = STATUS_STRIPE[project.status] ?? '#9CA3AF';
   const templateCount  = (project.taskTemplates ?? []).length;
   const isInactive     = project.active === false;
@@ -126,7 +130,7 @@ export function ProjectCard({ project, onView, onEdit }: ProjectCardProps) {
           )}
 
           {/* Task template count */}
-          {currentUser?.role === 'admin' && (
+          {canOpenDetail && (
             <p className="text-xs text-gray-400 mt-1">
               {templateCount === 0
                 ? 'No task types defined'
@@ -134,10 +138,10 @@ export function ProjectCard({ project, onView, onEdit }: ProjectCardProps) {
             </p>
           )}
 
-          {/* View + Edit buttons — admin only */}
-          {currentUser?.role === 'admin' && (
+          {/* View — admin + viewer. Edit — admin only. */}
+          {canOpenDetail && (
             <div className="flex justify-end gap-2 mt-2">
-              {onEdit && (
+              {canManage && onEdit && (
                 <Button
                   variant="outline"
                   size="sm"

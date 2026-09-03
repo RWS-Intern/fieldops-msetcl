@@ -185,8 +185,9 @@ export function TasksPage() {
   if (!currentUser) return null;
 
   // Admins no longer use /tasks — redirect to the Sites page which is the v3
-  // command centre for all site task management.
-  if (currentUser.role === 'admin') {
+  // command centre for all site task management. A viewer goes the same way:
+  // nothing is assigned to them, so the field list would always be empty.
+  if (currentUser.role === 'admin' || currentUser.role === 'viewer') {
     return <Navigate to="/sites" replace />;
   }
 

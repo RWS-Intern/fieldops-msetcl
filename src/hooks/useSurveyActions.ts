@@ -178,7 +178,10 @@ export function useSurveyActions() {
     input: ReviewSurveyInput,
   ): Promise<void> {
     if (!currentUser) throw new Error('Not authenticated');
-    if (currentUser.uid !== input.approverUid) {
+    // A viewer is never authorised, even when approverUid still points at them
+    // — that happens when an approver is demoted to viewer while surveys are
+    // still in their queue. firestore.rules refuses the write too.
+    if (currentUser.role === 'viewer' || currentUser.uid !== input.approverUid) {
       throw new Error('You are not authorized to review this survey.');
     }
 

@@ -12,6 +12,27 @@ service cloud.firestore {
           .data.role == 'admin';
     }
 
+    // Read-only observer. Sees everything an admin sees (unscoped), and is
+    // admitted to `get`/`list`/`read` branches ONLY — never to a create,
+    // update or delete branch anywhere in this file.
+    //
+    // The exists() guard makes this function TOTAL: for a session whose user
+    // document is missing, get() returns null and `.data.role` would error,
+    // and an error inside an `&&` propagates. Every write branch below is
+    // hardened with `&& !isViewer()`, so a non-total isViewer() would turn
+    // "allowed" into "error → denied" for those sessions and change existing
+    // behaviour. With exists() it returns plain false instead.
+    //
+    // exists() and get() on the SAME document count as one document access,
+    // and isAdmin() reads that same document, so this adds no billed read and
+    // no extra lookup against the 10-access ceiling.
+    function isViewer() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid))
+          .data.role == 'viewer';
+    }
+
     match /tasks/{taskId} {
       // Any authenticated user can read tasks.
       // Write access remains restricted — field engineers can only update
@@ -23,22 +44,33 @@ service cloud.firestore {
       // query may match tasks assigned to other engineers.
       allow read: if isAuthenticated();
       allow create: if isAdmin();
+      // !isViewer() on the assignee branch: a field engineer who is demoted
+      // to viewer keeps assignedTo == their uid on every task they held, so
+      // without this a viewer could still write to that leftover work.
       allow update: if isAdmin()
-                    || resource.data.assignedTo == request.auth.uid;
+                    || (resource.data.assignedTo == request.auth.uid && !isViewer());
 
       match /updates/{updateId} {
         allow read: if isAuthenticated();
-        allow create: if isAuthenticated();
+        allow create: if isAuthenticated() && !isViewer();
         allow update, delete: if false;
       }
     }
 
     match /users/{userId} {
+      // Viewers are covered by isAuthenticated() — they need the full user
+      // list for the Engineers page and the Reports engineer filter.
       allow read: if isAuthenticated() || request.auth.uid == userId;
-      // Admins can write any user document.
-      // A newly signed-up user can write their OWN document (userId == their UID).
-      // This is safe: the role field comes from the invite, not from user input.
-      allow write: if isAdmin() || request.auth.uid == userId;
+      // Admins can create any user document.
+      // A newly signed-up user creates their OWN document (userId == their UID)
+      // as the last step of accepting an invite. This is safe: the role field
+      // comes from the invite, not from user input.
+      allow create: if isAdmin() || request.auth.uid == userId;
+      // Self-UPDATE is admin-only. Nothing in the app updates a user's own
+      // document (see SignupPage.tsx — create only), and leaving the self
+      // branch on update would let a viewer (or any other role) rewrite their
+      // own `role` field and escalate straight past every rule in this file.
+      allow update, delete: if isAdmin();
     }
 
     match /taskMaster/{typeId} {
@@ -47,8 +79,9 @@ service cloud.firestore {
     }
 
     match /auditLog/{logId} {
-      allow read: if isAdmin();
-      allow create: if isAuthenticated();
+      allow read: if isAdmin() || isViewer();
+      // Viewers take no auditable action, so they write no audit entries.
+      allow create: if isAuthenticated() && !isViewer();
       allow update, delete: if false;
     }
 
@@ -60,7 +93,9 @@ service cloud.firestore {
     match /projects/{projectId} {
       allow read: if isAuthenticated();
       allow create: if isAdmin();
-      allow update: if isAdmin() || isAuthenticated();
+      // The authenticated branch exists for updateProjectStatus, which any
+      // field engineer's submission triggers. Viewers submit nothing.
+      allow update: if isAdmin() || (isAuthenticated() && !isViewer());
       allow delete: if false;
     }
 
@@ -70,14 +105,15 @@ service cloud.firestore {
       allow create: if isAdmin();
       // Accepted by the new user (unauthenticated at the moment of acceptance),
       // or revoked/updated by an admin.
-      allow update: if isAdmin() || isAuthenticated();
+      allow update: if isAdmin() || (isAuthenticated() && !isViewer());
       allow delete: if isAdmin();
     }
 
     // ── v3.0 collections ───────────────────────────────────────────────────────
 
     match /sites/{siteId} {
-      // Any authenticated user can read sites (field engineers need site details).
+      // Any authenticated user can read sites (field engineers need site
+      // details; viewers browse every site).
       allow read: if isAuthenticated();
       // Only admins may create or delete site documents.
       allow create: if isAdmin();
@@ -86,8 +122,9 @@ service cloud.firestore {
       // Field engineers may ONLY update the task-status counter fields and
       // site.status — written atomically by submitSiteTaskUpdate's transaction
       // when a task is submitted.  All other site fields remain admin-only.
+      // Viewers never submit a task, so they never reach this branch.
       allow update: if isAdmin() ||
-        (isAuthenticated() &&
+        (isAuthenticated() && !isViewer() &&
          request.resource.data.diff(resource.data)
            .affectedKeys()
            .hasOnly([
@@ -105,18 +142,20 @@ service cloud.firestore {
       // Split get vs list to enforce document-level isolation for field engineers
       // while keeping list queries working for both roles.
       //
-      // get  (single-document read by ID): admin sees all; field engineer sees only
-      //       tasks explicitly assigned to them.  resource.data is safe in get rules.
+      // get  (single-document read by ID): admin and viewer see all; field
+      //       engineer sees only tasks explicitly assigned to them.
+      //       resource.data is safe in get rules.
       //
       // list (collection query): any authenticated user may run a query.
       //       Field-engineer isolation is enforced at the query layer via
       //       where('assignedTo', '==', uid) in useAssignedSiteTasks.ts.
       //       Admin queries (useSiteTasks / useSiteTaskActions) run under admin
-      //       sessions and use their own query filters.
+      //       sessions and use their own query filters. Viewer oversight pages
+      //       reuse those same unfiltered admin queries.
       //
       // This pattern avoids the isAdmin()+resource.data+OR combination that causes
       // Firestore to reject field-engineer list queries with permission-denied.
-      allow get:  if isAdmin() || resource.data.assignedTo == request.auth.uid;
+      allow get:  if isAdmin() || isViewer() || resource.data.assignedTo == request.auth.uid;
       allow list: if isAuthenticated();
       // Write access remains restricted — admins only for create/delete,
       // field engineers can update only tasks explicitly assigned to them.
@@ -127,8 +166,9 @@ service cloud.firestore {
                     // ONLY via the approver branch below. Ownership fields
                     // (assignedTo/approverUid) must be unchanged from this
                     // branch — otherwise an engineer could name themselves
-                    // approver and self-approve.
-                    || (isAuthenticated()
+                    // approver and self-approve. !isViewer() because a demoted
+                    // engineer keeps assignedTo == their uid on old work.
+                    || (isAuthenticated() && !isViewer()
                         && resource.data.assignedTo == request.auth.uid
                         && request.resource.data.status in ['in_progress', 'pending_approval', 'blocked']
                         && request.resource.data.assignedTo == resource.data.assignedTo
@@ -137,7 +177,9 @@ service cloud.firestore {
                     // task has no approver, as a legacy-safety fallback) may update
                     // ONLY the review fields, and only into a review-terminal
                     // status. They must never touch the engineer's answers or photos.
-                    || (isAuthenticated()
+                    // !isViewer() because a demoted approver keeps approverUid ==
+                    // their uid on everything still awaiting their review.
+                    || (isAuthenticated() && !isViewer()
                         && (resource.data.get('approverUid', null) == request.auth.uid
                             || (isAdmin() && resource.data.get('approverUid', null) == null))
                         && request.resource.data.status in ['completed', 'changes_requested']
@@ -159,21 +201,23 @@ service cloud.firestore {
     // unlike siteTasks there is no null-approver admin fallback to preserve —
     // the unconditional isAdmin() branch already covers that case.
     //
-    // Least-privilege list/get: only admin, the assigned engineer, or the
-    // nominated approver may read a document at all (siteTasks still allows
+    // Least-privilege list/get: only admin, viewer, the assigned engineer, or
+    // the nominated approver may read a document at all (siteTasks still allows
     // any authenticated user to `list` — that is NOT repeated here). Firestore
-    // evaluates `list` per returned document, so this forces every caller to
-    // include a matching `where` clause; see the composite indexes added to
-    // firestore.indexes.json for the assignedTo/approverUid + status +
-    // updatedAt queries task 2 will run.
+    // evaluates `list` per returned document, so this forces every caller
+    // without a blanket role to include a matching `where` clause; see the
+    // composite indexes in firestore.indexes.json for the assignedTo/
+    // approverUid + status + updatedAt queries.
     //
     // Field-manager scoping (zone/team) is NOT implemented here — task 5.
 
     match /workOrders/{workOrderId} {
       allow get:  if isAdmin()
+                  || isViewer()
                   || resource.data.assignedTo  == request.auth.uid
                   || resource.data.approverUid == request.auth.uid;
       allow list: if isAdmin()
+                  || isViewer()
                   || resource.data.assignedTo  == request.auth.uid
                   || resource.data.approverUid == request.auth.uid;
       // The admin pre-creates the blank work order (+ paired survey, in the
@@ -188,14 +232,14 @@ service cloud.firestore {
                     // Ownership fields must be unchanged from this branch —
                     // otherwise an engineer could name themselves approver
                     // and self-approve.
-                    || (isAuthenticated()
+                    || (isAuthenticated() && !isViewer()
                         && resource.data.assignedTo == request.auth.uid
                         && request.resource.data.status in ['in_progress', 'pending_approval']
                         && request.resource.data.assignedTo  == resource.data.assignedTo
                         && request.resource.data.approverUid == resource.data.approverUid)
                     // Approver branch — nominated approver may update ONLY the
                     // workflow status, and only into a review-terminal status.
-                    || (isAuthenticated()
+                    || (isAuthenticated() && !isViewer()
                         && resource.data.approverUid == request.auth.uid
                         && request.resource.data.status in ['approved', 'changes_requested']
                         && request.resource.data.diff(resource.data)
@@ -212,23 +256,25 @@ service cloud.firestore {
       // billed read per document evaluated, which multiplies across a list
       // query and can hit the 10-lookup ceiling.
       allow get:  if isAdmin()
+                  || isViewer()
                   || resource.data.assignedTo  == request.auth.uid
                   || resource.data.approverUid == request.auth.uid;
       allow list: if isAdmin()
+                  || isViewer()
                   || resource.data.assignedTo  == request.auth.uid
                   || resource.data.approverUid == request.auth.uid;
       allow create: if isAdmin();
       allow update: if isAdmin()
                     // Engineer branch — same lifecycle + anti-self-reassignment
                     // guard as workOrders above.
-                    || (isAuthenticated()
+                    || (isAuthenticated() && !isViewer()
                         && resource.data.assignedTo == request.auth.uid
                         && request.resource.data.status in ['in_progress', 'pending_approval']
                         && request.resource.data.assignedTo  == resource.data.assignedTo
                         && request.resource.data.approverUid == resource.data.approverUid)
                     // Approver branch — ONLY the review fields, same field list as siteTasks,
                     // and only into a review-terminal status.
-                    || (isAuthenticated()
+                    || (isAuthenticated() && !isViewer()
                         && resource.data.approverUid == request.auth.uid
                         && request.resource.data.status in ['approved', 'changes_requested']
                         && request.resource.data.diff(resource.data)
@@ -247,8 +293,8 @@ service cloud.firestore {
       // useSurveyActions.ts. Parent-ownership check (get() on the PARENT
       // surveyReports/{reportId}, not resource.data of the child) so this
       // subcollection is never more permissive than the document it audits
-      // — admin, the assigned engineer, or the nominated approver, same as
-      // the parent rule above. A denormalised field on the child (the
+      // — admin, viewer, the assigned engineer, or the nominated approver,
+      // same as the parent rule above. A denormalised field on the child (the
       // pattern used on workOrders/surveyReports themselves in task 1b)
       // isn't an option here: the 'submit' snapshot's whole reason for
       // existing is to hold a payload copy, and copying assignedTo/
@@ -256,26 +302,37 @@ service cloud.firestore {
       // for no benefit when the parent already has them. Firestore dedupes
       // identical document reads within one rule evaluation, so listing N
       // updates for one survey costs one extra read, not N.
+      //
+      // read and create are split (they were one `allow read, create` line)
+      // precisely so the viewer can be admitted to the read half only.
       match /updates/{updateId} {
-        allow read, create: if isAdmin()
+        allow read: if isAdmin()
+          || isViewer()
           || get(/databases/$(database)/documents/surveyReports/$(reportId)).data.assignedTo  == request.auth.uid
           || get(/databases/$(database)/documents/surveyReports/$(reportId)).data.approverUid == request.auth.uid;
+        allow create: if !isViewer() && (isAdmin()
+          || get(/databases/$(database)/documents/surveyReports/$(reportId)).data.assignedTo  == request.auth.uid
+          || get(/databases/$(database)/documents/surveyReports/$(reportId)).data.approverUid == request.auth.uid);
         allow update, delete: if false;   // immutable audit trail
       }
     }
 
     match /bulkUploads/{uploadId} {
-      // Bulk-upload documents are admin-only — field engineers never see them.
-      allow read:  if isAdmin();
+      // Bulk-upload documents are admin-readable (+ viewer, for oversight) —
+      // field engineers never see them. Writing one means running an upload,
+      // which stays admin-only.
+      allow read:  if isAdmin() || isViewer();
       allow write: if isAdmin();
     }
 
     // CollectionGroup rule for the Reports page collectionGroup('updates') query.
     // Firestore requires a top-level wildcard match for cross-collection queries —
     // the nested match inside /tasks/{taskId} above only covers direct access.
+    // This is also the only rule covering siteTasks/{id}/updates (the site-task
+    // submission history), so the viewer is admitted here for that too.
     match /{path=**}/updates/{updateId} {
-      allow read: if isAdmin();
-      allow create: if isAuthenticated();
+      allow read: if isAdmin() || isViewer();
+      allow create: if isAuthenticated() && !isViewer();
       allow update, delete: if false;
     }
   }

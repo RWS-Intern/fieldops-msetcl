@@ -3,6 +3,7 @@ import { Plus, RotateCcw } from 'lucide-react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useProjectStore } from '@/store/projectStore';
+import { useAuthStore } from '@/store/authStore';
 import { useRealtimeProjectStats } from '@/hooks/useRealtimeProjectStats';
 import { useToast } from '@/components/ui/toast';
 import { archiveProject } from '@/hooks/useProjectActions';
@@ -69,10 +70,13 @@ function ProjectSkeletons() {
 /** Minimal card shown in the archived view */
 function ArchivedProjectCard({
   project,
+  canRestore,
   onRestore,
 }: {
-  project:   Project;
-  onRestore: () => void;
+  project:    Project;
+  /** False for a read-only viewer — Restore is not rendered. */
+  canRestore: boolean;
+  onRestore:  () => void;
 }) {
   return (
     <Card className="overflow-hidden border-0 shadow-sm opacity-75">
@@ -102,17 +106,19 @@ function ArchivedProjectCard({
               {project.assignedToNames.length > 2 && ` +${project.assignedToNames.length - 2} more`}
             </p>
           )}
-          <div className="flex justify-end mt-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs gap-1.5"
-              onClick={onRestore}
-            >
-              <RotateCcw className="h-3 w-3" />
-              Restore
-            </Button>
-          </div>
+          {canRestore && (
+            <div className="flex justify-end mt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1.5"
+                onClick={onRestore}
+              >
+                <RotateCcw className="h-3 w-3" />
+                Restore
+              </Button>
+            </div>
+          )}
         </div>
       </div>
     </Card>
@@ -127,6 +133,11 @@ export function ProjectsPage() {
   const { projects, lastUpdated } = useProjectStore();
   const stats                     = useRealtimeProjectStats();
   const { showToast }             = useToast();
+  const { currentUser }           = useAuthStore();
+
+  // A viewer gets the same list, stat chips and detail drawer with New Project,
+  // Edit and Restore not rendered.
+  const canManageProjects = currentUser?.role === 'admin';
 
   const [activeFilter, setActiveFilter]       = useState<FilterKey>('all');
   const [showCreate, setShowCreate]           = useState(false);
@@ -214,7 +225,7 @@ export function ProjectsPage() {
             {currentlyLoading ? '…' : displayProjects.length}
           </span>
         </div>
-        {!showArchived && (
+        {!showArchived && canManageProjects && (
           <button
             onClick={() => setShowCreate(true)}
             className="flex items-center gap-1.5 rounded-full bg-brand-blue px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-brand-navy active:scale-95 transition-all"
@@ -300,7 +311,7 @@ export function ProjectsPage() {
               ? 'No projects yet.'
               : 'No projects match this filter.'}
           </p>
-          {!showArchived && projects.length === 0 && (
+          {!showArchived && projects.length === 0 && canManageProjects && (
             <button
               type="button"
               onClick={() => setShowCreate(true)}
@@ -316,6 +327,7 @@ export function ProjectsPage() {
             <ArchivedProjectCard
               key={project.id}
               project={project}
+              canRestore={canManageProjects}
               onRestore={() => handleRestoreProject(project.id)}
             />
           ))}
@@ -330,23 +342,26 @@ export function ProjectsPage() {
                 setSelectedProject(project);
                 setShowDetail(true);
               }}
-              onEdit={() => setEditProject(project)}
+              onEdit={canManageProjects ? () => setEditProject(project) : undefined}
             />
           ))}
         </div>
       )}
 
-      {/* Create project modal */}
-      <CreateProjectModal
-        open={showCreate}
-        onClose={() => setShowCreate(false)}
-      />
+      {/* Create + edit project modals — both write, so admin only */}
+      {canManageProjects && (
+        <>
+          <CreateProjectModal
+            open={showCreate}
+            onClose={() => setShowCreate(false)}
+          />
 
-      {/* Edit project modal */}
-      <EditProjectModal
-        project={editProject}
-        onClose={() => setEditProject(null)}
-      />
+          <EditProjectModal
+            project={editProject}
+            onClose={() => setEditProject(null)}
+          />
+        </>
+      )}
 
       {/* Project detail drawer */}
       {selectedProject && (

@@ -81,10 +81,13 @@ const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
 
 function SiteTaskRow({
   task,
+  canAssign,
   onClick,
 }: {
-  task:    SiteTask;
-  onClick: () => void;
+  task:      SiteTask;
+  /** False for a read-only viewer — the button always reads "View". */
+  canAssign: boolean;
+  onClick:   () => void;
 }) {
   return (
     <div
@@ -135,7 +138,7 @@ function SiteTaskRow({
             onClick={(e) => { e.stopPropagation(); onClick(); }}
             className="text-xs border border-gray-300 rounded px-3 py-1 hover:border-blue-400 hover:text-blue-600 transition-colors"
           >
-            {task.assignedTo ? 'View' : 'Assign'}
+            {task.assignedTo || !canAssign ? 'View' : 'Assign'}
           </button>
         </div>
       </div>
@@ -445,6 +448,7 @@ export function SiteDetailDrawer({
                   <SiteTaskRow
                     key={task.id}
                     task={task}
+                    canAssign={isAdmin}
                     onClick={() => setSelectedTaskId(task.id)}
                   />
                 ))}
@@ -468,25 +472,31 @@ export function SiteDetailDrawer({
                 Create Survey Work Order
               </Button>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5 text-xs text-gray-500 border-gray-200 hover:border-red-200 hover:text-red-500"
-              onClick={handleArchive}
-            >
-              <Archive className="h-3.5 w-3.5" />
-              Archive Site
-            </Button>
+            {isAdmin && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-xs text-gray-500 border-gray-200 hover:border-red-200 hover:text-red-500"
+                onClick={handleArchive}
+              >
+                <Archive className="h-3.5 w-3.5" />
+                Archive Site
+              </Button>
+            )}
           </div>
         </div>
       </SheetContent>
     </Sheet>
 
-    {/* Task detail drawer — stacks on top of this sheet */}
+    {/* Task detail drawer — stacks on top of this sheet.
+        readOnly for a viewer: hides the assignment form, the approver form,
+        Archive Task and Refresh Subtasks, leaving the checklist/photos/GPS/
+        history the viewer is meant to see. */}
     <SiteTaskDetailDrawer
       task={selectedTask}
       open={!!selectedTaskId}
       onClose={() => setSelectedTaskId(null)}
+      readOnly={!isAdmin}
     />
 
     {/* Edit GPS dialog — admin only */}

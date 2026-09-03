@@ -1,4 +1,11 @@
-export type UserRole = 'admin' | 'approver' | 'field';
+/**
+ * `viewer` is a read-only observer: it sees everything an admin sees
+ * (unscoped — no projectIds filtering) and may export, but must never create,
+ * edit, submit, approve, assign or delete anything. That is enforced in
+ * firestore.rules (viewers are admitted to `get`/`list`/`read` only, never to
+ * a single write branch), with the UI simply not rendering the controls.
+ */
+export type UserRole = 'admin' | 'approver' | 'field' | 'viewer';
 
 /** Firestore user document — used by the Team Management feature. */
 export interface User {

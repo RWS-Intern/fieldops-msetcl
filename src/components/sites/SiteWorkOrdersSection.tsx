@@ -17,6 +17,7 @@ import {
 import { Button }   from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast }            from '@/components/ui/toast';
+import { useAuthStore }        from '@/store/authStore';
 import { useSiteWorkOrders }   from '@/hooks/useSiteWorkOrders';
 import { useSurveyReviewInfo } from '@/hooks/useSurveyReviewInfo';
 import { useFieldEngineers }   from '@/hooks/useFieldEngineers';
@@ -60,12 +61,15 @@ function formatDate(d: Date): string {
 
 function WorkOrderHistoryRow({
   workOrder,
+  canReassign,
   onOpen,
   onReassign,
 }: {
-  workOrder:  WorkOrder;
-  onOpen:     () => void;
-  onReassign: () => void;
+  workOrder:   WorkOrder;
+  /** False for a read-only viewer — Reassign is not rendered. */
+  canReassign: boolean;
+  onOpen:      () => void;
+  onReassign:  () => void;
 }) {
   // One-time getDoc, not a listener — this is historical display data on an
   // already-reviewed (or not-yet-reviewed) record, not something the drawer
@@ -113,17 +117,19 @@ function WorkOrderHistoryRow({
         </div>
       )}
 
-      <div className="flex justify-end">
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-xs gap-1.5"
-          onClick={(e) => { e.stopPropagation(); onReassign(); }}
-        >
-          <Pencil className="h-3 w-3" />
-          Reassign
-        </Button>
-      </div>
+      {canReassign && (
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs gap-1.5"
+            onClick={(e) => { e.stopPropagation(); onReassign(); }}
+          >
+            <Pencil className="h-3 w-3" />
+            Reassign
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -276,12 +282,21 @@ interface SiteWorkOrdersSectionProps {
  */
 export function SiteWorkOrdersSection({ siteId, onNavigateAway }: SiteWorkOrdersSectionProps) {
   const navigate = useNavigate();
+  const { currentUser } = useAuthStore();
   const { workOrders, loading } = useSiteWorkOrders(siteId);
   const [reassignTarget, setReassignTarget] = useState<WorkOrder | null>(null);
 
+  // A viewer sees the same history (including the no-approver warning) but
+  // cannot reassign — that writes to workOrders and surveyReports.
+  const canReassign = currentUser?.role === 'admin';
+
   function openReview(workOrder: WorkOrder) {
     onNavigateAway?.();
-    navigate(`/approvals/survey/${workOrder.id}`);
+    // Straight to the real route, not the /approvals/survey/:id compatibility
+    // redirect — that one exists only so external links/bookmarks still
+    // resolve, and routing internal navigation through it means this path
+    // silently inherits whatever role gate the shim happens to have.
+    navigate(`/survey-record/${workOrder.id}`);
   }
 
   return (
@@ -305,6 +320,7 @@ export function SiteWorkOrdersSection({ siteId, onNavigateAway }: SiteWorkOrders
             <WorkOrderHistoryRow
               key={wo.id}
               workOrder={wo}
+              canReassign={canReassign}
               onOpen={() => openReview(wo)}
               onReassign={() => setReassignTarget(wo)}
             />
@@ -312,11 +328,13 @@ export function SiteWorkOrdersSection({ siteId, onNavigateAway }: SiteWorkOrders
         </div>
       )}
 
-      <ReassignDialog
-        workOrder={reassignTarget}
-        open={!!reassignTarget}
-        onClose={() => setReassignTarget(null)}
-      />
+      {canReassign && (
+        <ReassignDialog
+          workOrder={reassignTarget}
+          open={!!reassignTarget}
+          onClose={() => setReassignTarget(null)}
+        />
+      )}
     </div>
   );
 }

@@ -7,6 +7,8 @@ import type { User } from '@/types';
 interface UserCardProps {
   user:           User;
   isSelf:         boolean;
+  /** False for a read-only viewer — Edit / Disable are not rendered at all. */
+  canManage:      boolean;
   onEdit:         (user: User) => void;
   onToggleActive: (user: User) => void;
   onView?:        (user: User) => void;
@@ -16,9 +18,12 @@ interface UserCardProps {
 
 function Avatar({ user }: { user: User }) {
   const initial = user.name.trim().charAt(0).toUpperCase() || '?';
+  // Slate for the read-only viewer — deliberately distinct from the approver's
+  // violet and the admin's navy.
   const bg =
     user.role === 'admin'    ? 'bg-brand-navy' :
     user.role === 'approver' ? 'bg-violet-600' :
+    user.role === 'viewer'   ? 'bg-slate-500' :
     'bg-teal-600';
 
   return (
@@ -36,26 +41,37 @@ function Avatar({ user }: { user: User }) {
 
 // ─── Role badge ───────────────────────────────────────────────────────────────
 
+const ROLE_BADGE_CLASS: Record<User['role'], string> = {
+  admin:    'bg-brand-navy/10 text-brand-navy',
+  approver: 'bg-violet-100 text-violet-700',
+  // Slate reads as "read-only" and shares no colour with approver or admin.
+  viewer:   'bg-slate-100 text-slate-700',
+  field:    'bg-teal-100 text-teal-700',
+};
+
+const ROLE_BADGE_LABEL: Record<User['role'], string> = {
+  admin:    'Admin',
+  approver: 'Approver',
+  viewer:   'Viewer',
+  field:    'Field Engineer',
+};
+
 function RoleBadge({ role }: { role: User['role'] }) {
   return (
     <span
       className={cn(
         'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
-        role === 'admin'
-          ? 'bg-brand-navy/10 text-brand-navy'
-          : role === 'approver'
-          ? 'bg-violet-100 text-violet-700'
-          : 'bg-teal-100 text-teal-700',
+        ROLE_BADGE_CLASS[role] ?? ROLE_BADGE_CLASS.field,
       )}
     >
-      {role === 'admin' ? 'Admin' : role === 'approver' ? 'Approver' : 'Field Engineer'}
+      {ROLE_BADGE_LABEL[role] ?? role}
     </span>
   );
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function UserCard({ user, isSelf, onEdit, onToggleActive, onView }: UserCardProps) {
+export function UserCard({ user, isSelf, canManage, onEdit, onToggleActive, onView }: UserCardProps) {
   // Fetch task stats for field engineers; pass '' for admins → returns [] immediately.
   const { tasks, loading: statsLoading } = useEngineerTasks(
     user.role === 'field' ? user.id : ''
@@ -141,15 +157,17 @@ export function UserCard({ user, isSelf, onEdit, onToggleActive, onView }: UserC
             View
           </Button>
         )}
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 min-h-[44px] sm:min-h-0 text-xs px-2.5"
-          onClick={() => onEdit(user)}
-        >
-          Edit
-        </Button>
-        {!isSelf && (
+        {canManage && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 min-h-[44px] sm:min-h-0 text-xs px-2.5"
+            onClick={() => onEdit(user)}
+          >
+            Edit
+          </Button>
+        )}
+        {canManage && !isSelf && (
           <Button
             size="sm"
             variant="outline"

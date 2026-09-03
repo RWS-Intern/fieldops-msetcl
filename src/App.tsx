@@ -68,9 +68,11 @@ function CatchAll() {
 // Admins land on the survey oversight page (AdminSurveyOversightPage) instead
 // of the field engineer's personal assigned-surveys list — /surveys itself
 // stays the field/admin-allowed route so old links/bookmarks still resolve.
+// Viewers get the same oversight redirect: they have no personal surveys, so
+// the field list would always be empty for them.
 function SurveysRoute() {
   const { currentUser } = useAuthStore();
-  if (currentUser?.role === 'admin') {
+  if (currentUser?.role === 'admin' || currentUser?.role === 'viewer') {
     return <Navigate to="/surveys/all" replace />;
   }
   return <SurveysPage />;
@@ -123,13 +125,16 @@ export default function App() {
               }
             />
 
-            {/* Survey record viewer — shared by ApprovalsPage and
-                AdminSurveyOversightPage, so it lives at a neutral path
-                rather than nested under /approvals. */}
+            {/* Survey record viewer — shared by ApprovalsPage,
+                AdminSurveyOversightPage and the viewer's oversight list, so it
+                lives at a neutral path rather than nested under /approvals.
+                Read-only for a viewer: the page's action buttons render only
+                when the survey's nominated approver is the current user AND
+                the current user is not a viewer (see ApproverSurveyReviewPage). */}
             <Route
               path="/survey-record/:workOrderId"
               element={
-                <ProtectedRoute allowRoles={['approver', 'admin']}>
+                <ProtectedRoute allowRoles={['approver', 'admin', 'viewer']}>
                   <ApproverSurveyReviewPage />
                 </ProtectedRoute>
               }
@@ -140,11 +145,15 @@ export default function App() {
               element={<LegacySurveyRecordRedirect />}
             />
 
-            {/* Field + admin — MSETCL Substation Visibility Project survey wizard */}
+            {/* Field + admin — MSETCL Substation Visibility Project survey wizard.
+                /surveys also admits a viewer purely so old links resolve; the
+                route immediately redirects them to the oversight list. The
+                wizard itself (/survey/:workOrderId) does NOT — it is an
+                editing surface. */}
             <Route
               path="/surveys"
               element={
-                <ProtectedRoute allowRoles={['field', 'admin']}>
+                <ProtectedRoute allowRoles={['field', 'admin', 'viewer']}>
                   <SurveysRoute />
                 </ProtectedRoute>
               }
@@ -158,21 +167,23 @@ export default function App() {
               }
             />
 
-            {/* Admin-only — survey oversight across every site/status */}
+            {/* Survey oversight across every site/status — admin + viewer */}
             <Route
               path="/surveys/all"
               element={
-                <ProtectedRoute allowRoles={['admin']}>
+                <ProtectedRoute allowRoles={['admin', 'viewer']}>
                   <AdminSurveyOversightPage />
                 </ProtectedRoute>
               }
             />
 
-            {/* Admin-only */}
+            {/* Admin + viewer — the viewer gets the same screens with every
+                mutating control unrendered (see each page). /approvals is
+                deliberately NOT in this set: a viewer never reviews anything. */}
             <Route
               path="/projects"
               element={
-                <ProtectedRoute requireAdmin>
+                <ProtectedRoute allowRoles={['admin', 'viewer']}>
                   <ProjectsPage />
                 </ProtectedRoute>
               }
@@ -180,7 +191,7 @@ export default function App() {
             <Route
               path="/sites"
               element={
-                <ProtectedRoute requireAdmin>
+                <ProtectedRoute allowRoles={['admin', 'viewer']}>
                   <SitesPage />
                 </ProtectedRoute>
               }
@@ -188,7 +199,7 @@ export default function App() {
             <Route
               path="/team"
               element={
-                <ProtectedRoute requireAdmin>
+                <ProtectedRoute allowRoles={['admin', 'viewer']}>
                   <TeamPage />
                 </ProtectedRoute>
               }
@@ -199,11 +210,12 @@ export default function App() {
             <Route
               path="/reports"
               element={
-                <ProtectedRoute requireAdmin>
+                <ProtectedRoute allowRoles={['admin', 'viewer']}>
                   <ReportsPage />
                 </ProtectedRoute>
               }
             />
+            {/* Settings edits appConfig — admin only, no viewer. */}
             <Route
               path="/settings"
               element={

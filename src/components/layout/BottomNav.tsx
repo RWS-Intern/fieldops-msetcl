@@ -33,10 +33,15 @@ const adminItems = [
   { to: '/reports',     label: 'Reports',   Icon: BarChart2 },
 ];
 
+// The read-only observer gets the admin screens minus Approvals — a viewer
+// never reviews anything. Derived from adminItems so the two stay in step.
+const viewerItems = adminItems.filter((item) => item.to !== '/approvals');
+
 export function BottomNav() {
   const { currentUser } = useAuthStore();
   const items =
     currentUser?.role === 'admin'    ? adminItems :
+    currentUser?.role === 'viewer'   ? viewerItems :
     currentUser?.role === 'approver' ? approverItems :
     fieldItems;
 

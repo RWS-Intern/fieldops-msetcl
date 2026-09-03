@@ -25,14 +25,14 @@ function ProjectsListener() {
   return null;
 }
 
-// Starts the real-time users listener — admin sessions only.
+// Starts the real-time users listener — admin + viewer sessions only.
 // Field engineers never need the full user list.
 function UsersListener() {
   useUsers();
   return null;
 }
 
-// Starts the real-time sites listener — admin sessions only.
+// Starts the real-time sites listener — admin + viewer sessions only.
 function SitesListener() {
   useSites();
   return null;
@@ -49,6 +49,12 @@ function AssignedSiteTasksListener() {
 
 export function Layout() {
   const { currentUser, loading } = useAuthStore();
+
+  // The read-only observer sees every site/user, unscoped, so it needs the
+  // same two session-wide listeners the admin does — the Sites, Engineers,
+  // Reports and dashboard-overview screens all read from those stores.
+  const needsOrgWideStores =
+    currentUser?.role === 'admin' || currentUser?.role === 'viewer';
 
   if (loading) {
     return (
@@ -68,10 +74,10 @@ export function Layout() {
       <TasksListener />
       {/* One listener wired here; Projects page + Dashboard read from projectStore */}
       <ProjectsListener />
-      {/* Users listener — admin only; Team page reads from userStore */}
-      {currentUser?.role === 'admin' && <UsersListener />}
-      {/* Sites listener — admin only; Sites page reads from siteStore */}
-      {currentUser?.role === 'admin' && <SitesListener />}
+      {/* Users listener — admin + viewer; Team page reads from userStore */}
+      {needsOrgWideStores && <UsersListener />}
+      {/* Sites listener — admin + viewer; Sites page reads from siteStore */}
+      {needsOrgWideStores && <SitesListener />}
       {/*
        * Assigned site-tasks listener — ALL authenticated users.
        * Previously gated on role === 'field', but running for all users is safe:

@@ -92,10 +92,12 @@ export function Header() {
               <span className={`inline-block rounded px-2 py-0.5 text-xs font-medium text-white ${
                 currentUser?.role === 'admin' ? 'bg-brand-blue' :
                 currentUser?.role === 'approver' ? 'bg-violet-500' :
+                currentUser?.role === 'viewer' ? 'bg-slate-500' :
                 'bg-brand-green'
               }`}>
                 {currentUser?.role === 'admin' ? 'Admin' :
                  currentUser?.role === 'approver' ? 'Approver' :
+                 currentUser?.role === 'viewer' ? 'Viewer' :
                  'Field'}
               </span>
             </div>

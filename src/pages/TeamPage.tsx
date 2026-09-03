@@ -46,13 +46,14 @@ function exportEngineersCsv(users: User[]): void {
 
 // ─── Filter tabs ──────────────────────────────────────────────────────────────
 
-type FilterTab = 'all' | 'admin' | 'approver' | 'field' | 'disabled';
+type FilterTab = 'all' | 'admin' | 'approver' | 'field' | 'viewer' | 'disabled';
 
 const TABS: { key: FilterTab; label: string }[] = [
   { key: 'all',      label: 'All'             },
   { key: 'admin',    label: 'Admins'          },
   { key: 'approver', label: 'Approvers'       },
   { key: 'field',    label: 'Field Engineers' },
+  { key: 'viewer',   label: 'Viewers'         },
   { key: 'disabled', label: 'Disabled'        },
 ];
 
@@ -62,6 +63,10 @@ export function TeamPage() {
   const { users, loading } = useUserStore();
   const { currentUser }    = useAuthStore();
   const { setUserActive }  = useUserActions();
+
+  // Only an admin manages accounts. A viewer gets the same list (and the CSV
+  // export) with Add User / Edit / Disable simply not rendered.
+  const canManageUsers = currentUser?.role === 'admin';
 
   const [search,         setSearch]         = useState('');
   const [activeTab,      setActiveTab]      = useState<FilterTab>('all');
@@ -80,6 +85,7 @@ export function TeamPage() {
       if (activeTab === 'admin'    && u.role !== 'admin')    return false;
       if (activeTab === 'approver' && u.role !== 'approver') return false;
       if (activeTab === 'field'    && u.role !== 'field')    return false;
+      if (activeTab === 'viewer'   && u.role !== 'viewer')   return false;
       if (activeTab === 'disabled' && u.active)           return false;
       if (activeTab !== 'disabled' && !u.active)          return false;
 
@@ -99,6 +105,7 @@ export function TeamPage() {
     admin:    users.filter((u) => u.role === 'admin' && u.active).length,
     approver: users.filter((u) => u.role === 'approver' && u.active).length,
     field:    users.filter((u) => u.role === 'field' && u.active).length,
+    viewer:   users.filter((u) => u.role === 'viewer' && u.active).length,
     disabled: users.filter((u) => !u.active).length,
   }), [users]);
 
@@ -139,13 +146,15 @@ export function TeamPage() {
             <Download className="h-4 w-4" />
             Export CSV
           </Button>
-          <Button
-            onClick={() => setShowCreateUser(true)}
-            className="flex items-center gap-1.5"
-          >
-            <UserPlus className="h-4 w-4" />
-            Add User
-          </Button>
+          {canManageUsers && (
+            <Button
+              onClick={() => setShowCreateUser(true)}
+              className="flex items-center gap-1.5"
+            >
+              <UserPlus className="h-4 w-4" />
+              Add User
+            </Button>
+          )}
         </div>
       </div>
 
@@ -204,6 +213,7 @@ export function TeamPage() {
               key={user.id}
               user={user}
               isSelf={user.id === currentUser?.uid}
+              canManage={canManageUsers}
               onEdit={setEditUser}
               onToggleActive={requestToggleActive}
               onView={setViewEngineer}
@@ -212,11 +222,13 @@ export function TeamPage() {
         </div>
       )}
 
-      {/* Add user modal */}
-      <CreateUserModal
-        open={showCreateUser}
-        onClose={() => setShowCreateUser(false)}
-      />
+      {/* Add user modal — admin only */}
+      {canManageUsers && (
+        <CreateUserModal
+          open={showCreateUser}
+          onClose={() => setShowCreateUser(false)}
+        />
+      )}
 
       {/* Edit modal */}
       <EditUserModal

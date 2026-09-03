@@ -232,9 +232,12 @@ export function useSiteTaskActions() {
   ): Promise<void> {
     if (!currentUser) throw new Error('Not authenticated');
 
+    // A viewer is never authorised, even when approverUid still points at them
+    // — that happens when an approver is demoted to viewer while items are
+    // still in their queue. firestore.rules refuses the write too.
     const isAssignedApprover = currentUser.uid === data.approverUid;
     const isAdminFallback    = currentUser.role === 'admin' && data.approverUid == null;
-    if (!isAssignedApprover && !isAdminFallback) {
+    if (currentUser.role === 'viewer' || (!isAssignedApprover && !isAdminFallback)) {
       throw new Error('You are not authorized to review this task.');
     }
 

@@ -254,15 +254,21 @@ export function DashboardPage() {
   const { assignedSiteTasks }    = useAssignedSiteTaskStore();
   const projectStats             = useRealtimeProjectStats();
 
-  // Admin subscribes to all site tasks for stats + recent activity.
-  // Field engineers use their assigned tasks store instead.
+  // Admin (and the read-only viewer) subscribe to all site tasks for stats +
+  // recent activity. Field engineers use their assigned tasks store instead.
+  //
+  // A viewer must get the org-wide overview, NOT the field-engineer branch:
+  // nothing is ever assigned to a viewer, so that branch would render all
+  // zeros — the same bug already fixed for approvers.
   const isAdmin    = currentUser?.role === 'admin';
   const isApprover = currentUser?.role === 'approver';
-  const { tasks: allSiteTasks, loading: allLoading } = useAllSiteTasks(isAdmin);
+  const isViewer   = currentUser?.role === 'viewer';
+  const isOverview = isAdmin || isViewer;
+  const { tasks: allSiteTasks, loading: allLoading } = useAllSiteTasks(isOverview);
 
   // Choose data source based on role
-  const siteTasks = isAdmin ? allSiteTasks : assignedSiteTasks;
-  const isLoading = isAdmin ? allLoading : false;
+  const siteTasks = isOverview ? allSiteTasks : assignedSiteTasks;
+  const isLoading = isOverview ? allLoading : false;
 
   // ── Site task stat counts ────────────────────────────────────────────────────
   const siteTaskStats = useMemo(() => ({
@@ -323,9 +329,9 @@ export function DashboardPage() {
 
   if (!currentUser) return null;
 
-  // Stat card nav: admin → /sites, field → /tasks
+  // Stat card nav: admin/viewer → /sites, field → /tasks
   const statsNav = (filter?: string) =>
-    isAdmin
+    isOverview
       ? () => navigate('/sites')
       : () => navigate(filter ? `/tasks?filter=${filter}` : '/tasks');
 
@@ -345,13 +351,13 @@ export function DashboardPage() {
       {/* Notification banner — field users only */}
       {currentUser.role === 'field' && <NotificationBanner />}
 
-      {/* Admin map */}
-      {currentUser.role === 'admin' && (
+      {/* Org-wide site map — admin + viewer (read-only either way) */}
+      {isOverview && (
         <AdminMap className="h-64" />
       )}
 
-      {/* Project stat cards — admin only */}
-      {currentUser.role === 'admin' && (
+      {/* Project stat cards — admin + viewer */}
+      {isOverview && (
         <>
           <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide -mb-1">
             Projects
@@ -385,11 +391,11 @@ export function DashboardPage() {
         </>
       )}
 
-      {/* Site task stat cards — admin & field only; approver has its own block below */}
+      {/* Site task stat cards — admin, viewer & field; approver has its own block below */}
       {!isApprover && (
         <>
           <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide -mb-1">
-            {isAdmin ? 'All Site Tasks' : 'My Tasks'}
+            {isOverview ? 'All Site Tasks' : 'My Tasks'}
           </p>
           {isLoading ? (
             <StatCardSkeletons />
@@ -479,10 +485,10 @@ export function DashboardPage() {
         </>
       )}
 
-      {/* Site task drawer — admin sees read-only details (no assignment form),
-           field engineers see the update/submission form */}
+      {/* Site task drawer — admin and viewer see read-only details (no
+           assignment form), field engineers see the update/submission form */}
       {selectedSiteTask && (
-        isAdmin ? (
+        isOverview ? (
           <SiteTaskDetailDrawer
             task={selectedSiteTask}
             open={true}

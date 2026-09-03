@@ -26,6 +26,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { db }                     from '@/firebase/config';
 import { useEngineerTasks }       from '@/hooks/useEngineerTasks';
 import { useToast }               from '@/components/ui/toast';
+import { useAuthStore }           from '@/store/authStore';
 import { SiteTaskDetailDrawer }   from '@/components/siteTasks/SiteTaskDetailDrawer';
 import type { User, SiteTask, TaskStatus } from '@/types';
 
@@ -54,6 +55,8 @@ const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
 interface TaskRowProps {
   task:              SiteTask;
   engineerName:      string;
+  /** False for a read-only viewer — Unassign is not rendered. */
+  canUnassign:       boolean;
   isConfirming:      boolean;
   unassigning:       boolean;
   onView:            () => void;
@@ -65,6 +68,7 @@ interface TaskRowProps {
 function TaskRow({
   task,
   engineerName,
+  canUnassign,
   isConfirming,
   unassigning,
   onView,
@@ -109,8 +113,8 @@ function TaskRow({
             </p>
           )}
 
-          {/* Unassign button OR inline confirmation */}
-          {!isConfirming ? (
+          {/* Unassign button OR inline confirmation — admin only */}
+          {!canUnassign ? null : !isConfirming ? (
             <div className="flex justify-end mt-2">
               <Button
                 variant="outline"
@@ -168,7 +172,12 @@ export function EngineerDetailDrawer({
   open,
   onClose,
 }: EngineerDetailDrawerProps) {
-  const { showToast } = useToast();
+  const { showToast }   = useToast();
+  const { currentUser } = useAuthStore();
+
+  // A viewer sees the engineer's full task list but cannot unassign them, and
+  // gets the task drawer read-only.
+  const canManage = currentUser?.role === 'admin';
 
   // Only subscribe when the drawer is open and we have an engineer
   const { tasks, loading } = useEngineerTasks(
@@ -332,6 +341,7 @@ export function EngineerDetailDrawer({
                           key={task.id}
                           task={task}
                           engineerName={engineer?.name ?? ''}
+                          canUnassign={canManage}
                           isConfirming={unassignTaskId === task.id}
                           unassigning={unassigning && unassignTaskId === task.id}
                           onView={() => setSelectedTaskId(task.id)}
@@ -349,11 +359,13 @@ export function EngineerDetailDrawer({
         </SheetContent>
       </Sheet>
 
-      {/* Task detail drawer — stacks on top of this sheet */}
+      {/* Task detail drawer — stacks on top of this sheet.
+          readOnly for a viewer: no assignment / approver / archive controls. */}
       <SiteTaskDetailDrawer
         task={selectedTask}
         open={!!selectedTaskId}
         onClose={() => setSelectedTaskId(null)}
+        readOnly={!canManage}
       />
     </>
   );

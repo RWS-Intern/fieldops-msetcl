@@ -21,11 +21,15 @@ export function useProjects() {
 
     const ref = collection(db, 'projects');
 
-    // Admin sees all projects; field sees only projects they are assigned to.
-    // The field query requires a composite index on (assignedTo ARRAY_CONTAINS,
-    // createdAt DESC) — see firestore.indexes.json.
+    // Admin and viewer see all projects, unscoped; field sees only projects
+    // they are assigned to. The field query requires a composite index on
+    // (assignedTo ARRAY_CONTAINS, createdAt DESC) — see firestore.indexes.json.
+    // The unscoped branch needs no composite index, so adding 'viewer' to it
+    // adds no index requirement.
+    const seesAllProjects =
+      currentUser.role === 'admin' || currentUser.role === 'viewer';
     const q =
-      currentUser.role === 'admin'
+      seesAllProjects
         ? query(ref, orderBy('createdAt', 'desc'))
         : query(
             ref,

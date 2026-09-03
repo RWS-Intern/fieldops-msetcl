@@ -223,7 +223,15 @@ export function ApproverSurveyReviewPage() {
   // renderActions (a nested function declaration) doesn't depend on
   // TypeScript's narrowing surviving into it (it doesn't; see the identical
   // reasoning in SurveyWizardPage.tsx's handleSubmit).
+  //
+  // The viewer exclusion is not redundant with the approverUid test: an
+  // approver demoted to viewer keeps approverUid == their uid on everything
+  // that was already waiting on them, so without it a viewer could still
+  // approve those. (The write would be refused by firestore.rules regardless —
+  // this keeps the button from appearing in the first place.)
+  const isViewer = currentUser?.role === 'viewer';
   const canAct = !!currentUser
+    && !isViewer
     && survey.approverUid === currentUser.uid
     && survey.status === 'pending_approval';
   const surveyStatus = survey.status;
@@ -236,7 +244,9 @@ export function ApproverSurveyReviewPage() {
     if (canAct) {
       return <ReviewActions onApprove={handleApprove} onRequestChanges={handleRequestChanges} />;
     }
-    if (surveyStatus !== 'pending_approval') {
+    // A viewer sees the status, never "Not assigned to you" — nothing is ever
+    // assigned to them, so that wording would imply an action they could have.
+    if (isViewer || surveyStatus !== 'pending_approval') {
       return (
         <span className="text-xs font-medium text-gray-500 px-2">
           {STATUS_LABEL[surveyStatus]}

@@ -1,5 +1,10 @@
 import {
   doc,
+  addDoc,
+  collection,
+  getDocs,
+  query,
+  where,
   setDoc,
   updateDoc,
   serverTimestamp,
@@ -26,6 +31,63 @@ const secondaryApp =
   getApps().find((a) => a.name === 'secondary') ??
   initializeApp(firebaseConfig, 'secondary');
 const secondaryAuth = getAuth(secondaryApp);
+
+// ── Orphaned-work detection ───────────────────────────────────────────────────
+//
+// Changing someone's role can strand work that is still pointing at them.
+// This app has already had a survey work order stuck because it had no
+// approver, so a role change away from `field` or `approver` warns with a
+// count first.
+//
+// Deliberately SINGLE-FIELD EQUALITY queries only (assignedTo / approverUid),
+// with the status test applied client-side afterwards. A `where status not-in
+// [...]` alongside the equality clause would demand a new composite index;
+// these queries need none beyond Firestore's automatic single-field indexes.
+
+/** A piece of work in one of these states needs nothing further from its assignee. */
+const TERMINAL_STATUSES = ['completed', 'approved', 'closed'];
+
+export interface OrphanedWorkCounts {
+  /** Open siteTasks + workOrders still assigned to them as field engineer. */
+  assigned:       number;
+  /** siteTasks + surveyReports sitting in pending_approval waiting on them. */
+  awaitingReview: number;
+}
+
+/**
+ * Counts work that would be stranded by moving `uid` off `fromRole`.
+ * Returns zeros for roles that own no work queue (admin, viewer).
+ */
+export async function countOrphanedWork(
+  uid:      string,
+  fromRole: UserRole,
+): Promise<OrphanedWorkCounts> {
+  if (fromRole === 'field') {
+    const [siteTasks, workOrders] = await Promise.all([
+      getDocs(query(collection(db, 'siteTasks'),  where('assignedTo', '==', uid))),
+      getDocs(query(collection(db, 'workOrders'), where('assignedTo', '==', uid))),
+    ]);
+    const assigned = [...siteTasks.docs, ...workOrders.docs].filter((d) => {
+      const data = d.data();
+      if (data['archived'] === true) return false;
+      return !TERMINAL_STATUSES.includes(data['status'] ?? '');
+    }).length;
+    return { assigned, awaitingReview: 0 };
+  }
+
+  if (fromRole === 'approver') {
+    const [siteTasks, surveys] = await Promise.all([
+      getDocs(query(collection(db, 'siteTasks'),     where('approverUid', '==', uid))),
+      getDocs(query(collection(db, 'surveyReports'), where('approverUid', '==', uid))),
+    ]);
+    const awaitingReview = [...siteTasks.docs, ...surveys.docs].filter(
+      (d) => d.data()['status'] === 'pending_approval',
+    ).length;
+    return { assigned: 0, awaitingReview };
+  }
+
+  return { assigned: 0, awaitingReview: 0 };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -174,5 +236,63 @@ export function useUserActions() {
     }
   }
 
-  return { createUser, updateUserName, setUserActive };
+  /**
+   * Change a user's role. Admin-only, and never the acting admin's own role —
+   * a sole admin demoting themselves would lock every account out of
+   * administration, recoverable only from the Firebase console.
+   *
+   * Callers own the "last admin" and "orphaned work" checks (they need to be
+   * able to show a count and ask for confirmation first) — see EditUserModal.
+   * The two guards repeated here are the ones that must never be bypassed.
+   *
+   * Writes a CHANGE_USER_ROLE auditLog entry recording actor, target and both
+   * roles — the kind of change a government client asks about.
+   */
+  async function changeUserRole(
+    target:  { id: string; name: string; role: UserRole },
+    newRole: UserRole,
+  ): Promise<void> {
+    if (!currentUser) throw new Error('Not signed in');
+    if (currentUser.role !== 'admin') {
+      showToast('Only an admin can change roles', 'error');
+      throw new Error('Only an admin can change roles');
+    }
+    if (target.id === currentUser.uid) {
+      showToast('You cannot change your own role', 'error');
+      throw new Error('You cannot change your own role');
+    }
+    if (target.role === newRole) return;
+
+    try {
+      await updateDoc(doc(db, 'users', target.id), {
+        role:      newRole,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (err) {
+      console.error('[changeUserRole] failed:', err);
+      showToast('Failed to change role. Try again.', 'error');
+      throw err;
+    }
+
+    // Audit log — non-critical, never blocks the success toast.
+    try {
+      await addDoc(collection(db, 'auditLog'), {
+        timestamp:  serverTimestamp(),
+        uid:        currentUser.uid,
+        userName:   currentUser.name,
+        action:     'CHANGE_USER_ROLE',
+        detail:     `Changed ${target.name}'s role from ${target.role} to ${newRole}`,
+        targetUid:  target.id,
+        targetName: target.name,
+        oldRole:    target.role,
+        newRole,
+      });
+    } catch (auditErr) {
+      console.warn('[changeUserRole] auditLog write failed:', auditErr);
+    }
+
+    showToast('Role updated', 'success');
+  }
+
+  return { createUser, updateUserName, setUserActive, changeUserRole };
 }

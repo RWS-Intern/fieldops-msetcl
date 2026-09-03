@@ -88,8 +88,9 @@ interface SiteTaskDetailDrawerProps {
   task:      SiteTask | null;
   open:      boolean;
   onClose:   () => void;
-  /** When true: hides the assignment form and archive button.
-   *  Used when opening from Recent Activity (read-only context). */
+  /** When true: hides the assignment form, the approver form, Archive Task and
+   *  Refresh Subtasks. Used when opening from Recent Activity (read-only
+   *  context). Forced on for a viewer regardless of what the caller passes. */
   readOnly?: boolean;
 }
 
@@ -344,6 +345,10 @@ export function SiteTaskDetailDrawer({
   if (!task) return null;
   if (currentUser?.role === 'field') return null;
 
+  // A viewer is read-only no matter what the caller passed — belt and braces
+  // alongside the callers that already pass readOnly for them.
+  const isReadOnly = readOnly || currentUser?.role === 'viewer';
+
   const subtaskPhotosList = Object.values(task.subtaskPhotos).flat();
 
   return (
@@ -397,7 +402,7 @@ export function SiteTaskDetailDrawer({
 
             {/* ── Assignment ───────────────────────────────────────────── */}
             {/* Hidden in readOnly mode (Recent Activity context) */}
-            {!readOnly && (
+            {!isReadOnly && (
             <section>
               <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
                 Assignment
@@ -488,7 +493,7 @@ export function SiteTaskDetailDrawer({
 
             {/* ── Approver ─────────────────────────────────────────────── */}
             {/* Hidden in readOnly mode (Recent Activity context) */}
-            {!readOnly && (
+            {!isReadOnly && (
             <section>
               <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
                 Approver
@@ -698,7 +703,7 @@ export function SiteTaskDetailDrawer({
             </section>
 
             {/* ── Archive — hidden in readOnly mode ────────────────────── */}
-            {!readOnly && (
+            {!isReadOnly && (
             <div className="flex justify-end pt-1 pb-2">
               {archiveConfirm ? (
                 <div className="flex items-center gap-2">
@@ -736,7 +741,7 @@ export function SiteTaskDetailDrawer({
             )}
 
             {/* ── Refresh subtasks from template — hidden in readOnly mode ── */}
-            {!readOnly && (
+            {!isReadOnly && (
               <button
                 type="button"
                 onClick={handleRefreshSubtasks}
