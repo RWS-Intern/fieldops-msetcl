@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-fieldops-rules \"npm --prefix tests/rules test\"",
     "seed": "npx ts-node --esm scripts/seed.ts",
     "seed:tasks": "npx ts-node --esm scripts/seedTasks.ts",
     "fix:counter": "npx ts-node --esm scripts/fixCounter.ts",

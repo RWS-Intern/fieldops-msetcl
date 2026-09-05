@@ -1,0 +1,14 @@
+{
+  "name": "fieldops-rules-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Firestore security-rule tests for FieldOps. Deliberately a separate package: @firebase/rules-unit-testing is a dev-only tool for one emulator test run and must not enter the app's dependency tree.",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node rules.test.mjs ../../firestore.rules"
+  },
+  "dependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "firebase": "^10.14.1"
+  }
+}
