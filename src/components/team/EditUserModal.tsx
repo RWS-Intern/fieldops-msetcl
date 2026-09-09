@@ -25,7 +25,7 @@ import type { User, UserRole } from '@/types';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const ROLE_LABELS: Record<UserRole, string> = {
-  field:    'Field Engineer',
+  field:    'Field Expert',
   approver: 'Approver',
   viewer:   'Viewer (read-only)',
   admin:    'Admin',

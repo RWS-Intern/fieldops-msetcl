@@ -38,6 +38,9 @@ export function useUsers() {
             fcmToken:           data['fcmToken']           ?? undefined,
             fcmTokenUpdatedAt:  data['fcmTokenUpdatedAt']?.toDate?.() ?? undefined,
             engineerCode:       data['engineerCode']       ?? undefined,
+            // Null on every record created before this field existed — the
+            // approver pickers fall back to name-only display.
+            organization:       data['organization']       ?? null,
           };
         });
         setUsers(users);

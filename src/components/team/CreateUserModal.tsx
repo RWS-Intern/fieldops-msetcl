@@ -30,13 +30,20 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
   const [name,        setName]        = useState('');
   const [email,       setEmail]       = useState('');
   const [role,        setRole]        = useState<UserRole>('field');
+  const [organization, setOrganization] = useState('');
   const [submitting,  setSubmitting]  = useState(false);
   const [createdEmail, setCreatedEmail] = useState<string | null>(null);
+
+  // Organisation only means something for a reviewer — MSETCL staff and our
+  // own staff both hold `approver` accounts, and the stage pickers show this
+  // to tell them apart. Irrelevant for field/admin/viewer.
+  const showOrganization = role === 'approver';
 
   function reset() {
     setName('');
     setEmail('');
     setRole('field');
+    setOrganization('');
     setSubmitting(false);
     setCreatedEmail(null);
   }
@@ -50,7 +57,12 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
     if (!name.trim() || !email.trim()) return;
     setSubmitting(true);
     try {
-      await createUser(name.trim(), email.trim(), role);
+      await createUser(
+        name.trim(),
+        email.trim(),
+        role,
+        showOrganization ? organization.trim() || null : null,
+      );
       // Show in-modal success state (toast is also shown by createUser)
       setCreatedEmail(email.trim());
     } catch {
@@ -106,13 +118,30 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="field">Field Engineer</SelectItem>
+                  <SelectItem value="field">Field Expert</SelectItem>
                   <SelectItem value="approver">Approver</SelectItem>
                   <SelectItem value="viewer">Viewer (read-only)</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Approver only — see showOrganization. */}
+            {showOrganization && (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="cu-organization">Organization (optional)</Label>
+                <Input
+                  id="cu-organization"
+                  value={organization}
+                  onChange={(e) => setOrganization(e.target.value)}
+                  placeholder="e.g. Rite Water Solutions, MSETCL"
+                  autoComplete="off"
+                />
+                <p className="text-xs text-gray-400">
+                  Shown next to this reviewer&apos;s name when picking approvers.
+                </p>
+              </div>
+            )}
 
             <div className="flex gap-3 pt-1">
               <Button

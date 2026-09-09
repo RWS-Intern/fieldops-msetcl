@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/firebase/config';
-import type { SurveyReport, SurveyPreVisit, SurveyBay, SurveyDevice, SurveyCableRun, SurveyBoqChecks, WorkOrderStatus } from '@/types';
+import { AUTO_DERIVED_ITEM_KEYS } from '@/lib/boqDerivation';
+import { SURVEY_APPROVAL_STAGES, findApprovalStage } from '@/lib/approvalStages';
+import type { SurveyReport, SurveyPreVisit, SurveyBay, SurveyDevice, SurveyCableRun, SurveyBoqLine, SurveyBoqChecks, ApprovalStageResult, WorkOrderStatus } from '@/types';
 
 // ─── Mapper ─────────────────────────────────────────────────────────────────────
 
@@ -46,6 +48,73 @@ function mapDevice(raw: Record<string, any>): SurveyDevice {
   };
 }
 
+/**
+ * BOQ lines written before `notApplicable`/`autoDerived` existed have neither
+ * field. `notApplicable` is simply false (nobody could have ticked it yet).
+ *
+ * `autoDerived` has to be inferred: a legacy line already carrying a quantity
+ * must be treated as MANUAL, or entering Section J would silently overwrite a
+ * number a surveyor typed by hand. Only a blank derivable line is handed to
+ * the auto-derivation.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapBoqLine(raw: Record<string, any>): SurveyBoqLine {
+  const surveyedQty = raw['surveyedQty'] ?? null;
+  return {
+    sr:            raw['sr'],
+    itemKey:       raw['itemKey'],
+    surveyedQty,
+    remarks:       raw['remarks'] ?? null,
+    notApplicable: raw['notApplicable'] ?? false,
+    autoDerived:   raw['autoDerived']
+      ?? (AUTO_DERIVED_ITEM_KEYS.has(raw['itemKey']) && surveyedQty === null),
+  };
+}
+
+/**
+ * Rebuilds the approval chain for a document written BEFORE the chain existed:
+ * a full-length pending chain whose stage 0 is owned by the document's single
+ * legacy approver. Callers can then rely on
+ * `approvalStages.length === SURVEY_APPROVAL_STAGES.length` unconditionally
+ * instead of guarding every read, and a legacy survey reads as "waiting on its
+ * one approver at stage 1" — which is exactly what it is.
+ */
+function legacyApprovalStages(
+  approverUid:  string | null,
+  approverName: string | null,
+): ApprovalStageResult[] {
+  return SURVEY_APPROVAL_STAGES.map((stage, i) => ({
+    stageKey:      stage.key,
+    stageLabel:    stage.label,
+    status:        'pending' as const,
+    ownerUid:      i === 0 ? approverUid  : null,
+    ownerName:     i === 0 ? approverName : null,
+    reviewNotes:   null,
+    attachmentUrl: null,
+    actedAt:       null,
+  }));
+}
+
+/**
+ * One approval-stage entry. `stageLabel` falls back to this build's label for
+ * the same key, then to the raw key, so a document written under a different
+ * stage array still renders something meaningful rather than blank.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapApprovalStage(raw: Record<string, any>, index: number): ApprovalStageResult {
+  const stageKey = raw['stageKey'] ?? SURVEY_APPROVAL_STAGES[index]?.key ?? '';
+  return {
+    stageKey,
+    stageLabel:    raw['stageLabel'] ?? findApprovalStage(stageKey)?.label ?? stageKey,
+    status:        (raw['status'] ?? 'pending') as ApprovalStageResult['status'],
+    ownerUid:      raw['ownerUid']      ?? null,
+    ownerName:     raw['ownerName']     ?? null,
+    reviewNotes:   raw['reviewNotes']   ?? null,
+    attachmentUrl: raw['attachmentUrl'] ?? null,
+    actedAt:       raw['actedAt']?.toDate?.() ?? null,
+  };
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapCableRun(raw: Record<string, any>): SurveyCableRun {
   return {
@@ -76,6 +145,13 @@ export function mapSurveyReport(id: string, data: Record<string, any>): SurveyRe
     assignedToName: data['assignedToName'] ?? null,
     approverUid:    data['approverUid']    ?? null,
     approverName:   data['approverName']   ?? null,
+
+    approvalStages: Array.isArray(data['approvalStages']) && data['approvalStages'].length > 0
+      ? data['approvalStages'].map(mapApprovalStage)
+      : legacyApprovalStages(data['approverUid'] ?? null, data['approverName'] ?? null),
+    currentStageIndex: data['currentStageIndex'] ?? 0,
+    approvalStageOwnerUids: data['approvalStageOwnerUids']
+      ?? (data['approverUid'] ? [data['approverUid']] : []),
 
     surveyDate:     data['surveyDate']?.toDate?.() ?? null,
     location:       data['location']
@@ -116,8 +192,8 @@ export function mapSurveyReport(id: string, data: Record<string, any>): SurveyRe
       sldcPathNotes:         data['infrastructure']?.sldcPathNotes         ?? null,
       earthingAvailable:     data['infrastructure']?.earthingAvailable     ?? null,
     },
-    boqSupply:      data['boqSupply']  ?? [],
-    boqService:     data['boqService'] ?? [],
+    boqSupply:      (data['boqSupply']  ?? []).map(mapBoqLine),
+    boqService:     (data['boqService'] ?? []).map(mapBoqLine),
     boqChecks: {
       quantitiesCrossCheckedAgainstAnnexureI: data['boqChecks']?.quantitiesCrossCheckedAgainstAnnexureI ?? false,
       markedUpSldAttached:                    data['boqChecks']?.markedUpSldAttached                    ?? false,

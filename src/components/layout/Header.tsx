@@ -98,7 +98,7 @@ export function Header() {
                 {currentUser?.role === 'admin' ? 'Admin' :
                  currentUser?.role === 'approver' ? 'Approver' :
                  currentUser?.role === 'viewer' ? 'Viewer' :
-                 'Field'}
+                 'Field Expert'}
               </span>
             </div>
             <DropdownMenuSeparator />

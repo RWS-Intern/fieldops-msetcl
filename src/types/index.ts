@@ -22,6 +22,14 @@ export interface User {
   fcmTokenUpdatedAt?: Date;
   /** Auto-assigned on creation via engineerNumCounter. e.g. "ENG-001". */
   engineerCode?: string;
+  /**
+   * Employing organisation, e.g. "Rite Water Solutions" or "MSETCL".
+   * Captured for `approver` accounts only (meaningless for field/admin/viewer)
+   * and shown in approver pickers so an admin can tell two same-named
+   * reviewers from different organisations apart. Null on every record created
+   * before this field existed, which degrades to name-only display.
+   */
+  organization?: string | null;
 }
 
 export interface AppUser {
@@ -377,6 +385,44 @@ export interface SiteTask {
 
 export type WorkOrderStage = 'survey' | 'repair' | 'commissioning' | 'amc';
 
+// ─── Approval chain ────────────────────────────────────────────────────────────
+
+/**
+ * One stage's outcome in the three-level approval chain. Stage count, order and
+ * labels come from SURVEY_APPROVAL_STAGES (src/lib/approvalStages.ts); this is
+ * the per-document record of what each stage's owner actually did.
+ *
+ * `stageLabel` is denormalised at creation so a document always renders with
+ * the wording it was created under, even if the stage array is relabelled later.
+ *
+ * NOTE for writers: `actedAt` is a plain Date, not a serverTimestamp() sentinel
+ * — Firestore rejects FieldValue sentinels inside array elements, so this is
+ * necessarily a client clock value. Document-level timestamps (reviewedAt,
+ * updatedAt) remain server-side.
+ */
+export interface ApprovalStageResult {
+  stageKey:      string;
+  /** Denormalised from SURVEY_APPROVAL_STAGES at creation. */
+  stageLabel:    string;
+  status:        'pending' | 'approved' | 'changes_requested';
+  ownerUid:      string | null;
+  ownerName:     string | null;
+  reviewNotes:   string | null;
+  /** Optional at every stage — no stage requires an attachment. */
+  attachmentUrl: string | null;
+  /**
+   * CLIENT-SUPPLIED wall-clock time, and therefore NOT authoritative for audit
+   * or compliance purposes — it comes from the reviewer's own device and can be
+   * wrong or deliberately set. Firestore forbids serverTimestamp() sentinels
+   * inside array elements, so a server-stamped value is impossible here. The
+   * trustworthy record of when a stage was acted on is the server timestamp on
+   * the matching surveyReports/{id}/updates snapshot (see Phase 4), which
+   * carries stageKey/stageIndex for exactly this reason. Treat this field as a
+   * display convenience only; never cite it as evidence of timing.
+   */
+  actedAt:       Date | null;
+}
+
 export type WorkOrderStatus =
   | 'open' | 'in_progress' | 'pending_approval' | 'changes_requested'
   | 'approved' | 'closed';
@@ -399,8 +445,28 @@ export interface WorkOrder {
   status: WorkOrderStatus;
   assignedTo: string | null;    // field engineer uid
   assignedToName: string | null;
-  approverUid: string | null;   // nominated per work order by admin (same semantics as SiteTask)
+  /**
+   * Whoever must act RIGHT NOW — advances to the next stage's owner on each
+   * approval, and is null once the chain is fully approved. Every existing
+   * query filtering `approverUid == uid` therefore still means "in my queue"
+   * with no structural change.
+   */
+  approverUid: string | null;
   approverName: string | null;
+  // ── Three-level approval chain (see src/lib/approvalStages.ts) ─────────────
+  /** One entry per SURVEY_APPROVAL_STAGES entry, in the same order. */
+  approvalStages: ApprovalStageResult[];
+  /** 0..length-1 while under review; === length once fully approved. */
+  currentStageIndex: number;
+  /**
+   * All stage owners' uids, set at creation and only ever changed by an admin
+   * via reassignApprovalStageOwner. Exists purely so firestore.rules can grant
+   * READ to anyone who is or WAS a stage owner with a cheap `in` check that
+   * works in both `get` and `list` — checking a nested field across array
+   * elements does not. Write access is NOT derived from this: only
+   * `approverUid == uid` (the live stage) may update.
+   */
+  approvalStageOwnerUids: string[];
   createdAt: Date;
   updatedAt: Date;
   archived: boolean;
@@ -496,12 +562,37 @@ export interface SurveyPreVisit {
   substationInchargeContactConfirmed: boolean;
 }
 
-/** One BOQ line item as surveyed at this site (surveyedQty is the field-filled value). */
+/**
+ * One BOQ line item as surveyed at this site (surveyedQty is the field-filled
+ * value).
+ *
+ * This is the quantity that GOVERNS SUPPLY at the site once jointly signed —
+ * the tender's Annexure-I figures are only indicative until survey — so the
+ * two booleans below exist to keep provenance in the stored document rather
+ * than only on screen.
+ */
 export interface SurveyBoqLine {
   sr: number;
   itemKey: string;              // stable key from the BOQ master (see src/lib/boqMaster.ts)
   surveyedQty: number | null;
   remarks: string | null;
+  /**
+   * A CONSIDERED zero: the surveyor asserted this item isn't applicable here
+   * and said why in `remarks`. Distinct from surveyedQty === null (nobody has
+   * answered yet) and from a plain 0 that was typed — all three would
+   * otherwise be indistinguishable to a reviewer vetting the signed BOQ.
+   */
+  notApplicable: boolean;
+  /**
+   * True while `surveyedQty` is still the value computed by
+   * src/lib/boqDerivation.ts and the surveyor has not overridden it. Set false
+   * the moment they edit the quantity or tick `notApplicable`, which freezes
+   * the line against further recomputation. Persisted (not component state)
+   * for two reasons: a draft resumed in a later session must not silently
+   * re-derive over a manual override, and a reviewer needs to see which
+   * numbers were computed and which were entered by hand.
+   */
+  autoDerived: boolean;
 }
 
 /** Section J's three confirmation checkboxes, all default false. */
@@ -557,14 +648,23 @@ export interface SurveyReport {
    * document's field, and a security-rule get() on the parent is a billed
    * read per document evaluated (a list query multiplies this and can hit
    * the 10-lookup ceiling). Kept in sync at write time by
-   * createWorkOrder/reassignWorkOrder/setWorkOrderApprover in
+   * createWorkOrder/reassignWorkOrder/reassignApprovalStageOwner in
    * useWorkOrderActions.ts — never edit these two independently of the
    * parent WorkOrder.
    */
   assignedTo: string | null;
   assignedToName: string | null;
+  /** The live stage owner — see the identical field on WorkOrder. */
   approverUid: string | null;
   approverName: string | null;
+
+  // ── Three-level approval chain — mirrors the parent WorkOrder ─────────────
+  // Denormalised onto the survey for the same reason assignedTo/approverUid
+  // are: the review screen and the approval queue read surveyReports directly
+  // and must not need a parent lookup. Kept in sync by the same batches.
+  approvalStages: ApprovalStageResult[];
+  currentStageIndex: number;
+  approvalStageOwnerUids: string[];
 
   surveyDate: Date | null;
   location: { lat: number; lng: number } | null;   // auto-captured, manual override allowed
@@ -616,6 +716,21 @@ export interface SurveyUpdate {
   createdAt: Date;
   /** Only present for request_changes. */
   reviewNotes?: string;
+  /**
+   * Which stage of the approval chain this action belonged to. Written for
+   * every action — submit, approve and request_changes alike — so the History
+   * section can say which round each entry was part of. Undefined only on
+   * entries written before the chain existed, or for a survey that has no
+   * chain at all.
+   *
+   * Unlike ApprovalStageResult.actedAt, `createdAt` above is a SERVER
+   * timestamp, which makes this subcollection the trustworthy record of when
+   * a stage was acted on.
+   */
+  stageKey?: string;
+  stageIndex?: number;
+  /** Optional reviewer attachment, when one was provided with the decision. */
+  attachmentUrl?: string;
   /** Full survey payload as submitted — only present for the 'submit' action. */
   payload?: Partial<SurveyReport>;
 }

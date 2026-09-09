@@ -1,3 +1,4 @@
+import { SUPPLY_BOQ_MASTER, SERVICE_BOQ_MASTER } from '@/lib/boqMaster';
 import type { SurveyReport, SurveyInfrastructure } from '@/types';
 
 // ─── Step indices ───────────────────────────────────────────────────────────────
@@ -211,9 +212,23 @@ function validatePhotos(survey: SurveyReport): SurveyValidationIssue[] {
  * gate here would either block a legitimate field submission or induce a
  * false attestation on a document going for government vetting.
  *
- * A blank BOQ line is only a warning: most sites won't need all 19 items,
- * and requiring a 0 on every line invites careless filling. One summarising
- * warning, not one per blank line.
+ * Line-level rules are driven by BoqMasterItem.required, NOT by a list kept
+ * here — the master is the single place that decides which items matter.
+ *
+ * A required line must end up with either a quantity or an explicit
+ * notApplicable + reason. This replaces the previous "one summarising warning
+ * for blank lines" behaviour: because the jointly-signed surveyed BOQ governs
+ * supply at the site, a silently blank required line is a supply gap, not a
+ * tidiness issue. Errors are per line (matching how bays report) so the
+ * surveyor can see WHICH item is missing, not just how many.
+ *
+ * notApplicable with an empty remark is an error too — recording *why* is the
+ * entire point of the toggle, and without it a considered zero is
+ * indistinguishable from a careless one.
+ *
+ * The one non-required item (rtuFrtuConfigToolLicense) keeps the old
+ * warning-only treatment for a blank: it is a project-level line, usually 0
+ * per site.
  */
 function validateBoq(survey: SurveyReport): SurveyValidationIssue[] {
   const issues: SurveyValidationIssue[] = [];
@@ -232,11 +247,43 @@ function validateBoq(survey: SurveyReport): SurveyValidationIssue[] {
     ));
   }
 
-  const blankCount =
-    survey.boqSupply.filter((l) => l.surveyedQty == null).length +
-    survey.boqService.filter((l) => l.surveyedQty == null).length;
-  if (blankCount > 0) {
-    issues.push(issue(STEP.boq, `${blankCount} BOQ line${blankCount !== 1 ? 's' : ''} left blank.`, 'warning'));
+  // Matched by itemKey, never array position — same convention as StepBoq.
+  const auditable = [
+    ...SUPPLY_BOQ_MASTER.map((m) => ({ master: m, line: survey.boqSupply.find((l) => l.itemKey === m.itemKey) })),
+    ...SERVICE_BOQ_MASTER.map((m) => ({ master: m, line: survey.boqService.find((l) => l.itemKey === m.itemKey) })),
+  ];
+
+  let optionalBlankCount = 0;
+
+  for (const { master, line } of auditable) {
+    if (!line) continue;
+
+    if (!master.required) {
+      if (line.surveyedQty == null && !line.notApplicable) optionalBlankCount++;
+      continue;
+    }
+
+    if (line.notApplicable) {
+      if (!line.remarks?.trim()) {
+        issues.push(issue(
+          STEP.boq,
+          `${master.item}: marked not applicable — record why in Remarks.`,
+        ));
+      }
+    } else if (line.surveyedQty == null) {
+      issues.push(issue(
+        STEP.boq,
+        `${master.item}: surveyed quantity is required, or mark it not applicable with a reason.`,
+      ));
+    }
+  }
+
+  if (optionalBlankCount > 0) {
+    issues.push(issue(
+      STEP.boq,
+      `${optionalBlankCount} optional BOQ line${optionalBlankCount !== 1 ? 's' : ''} left blank.`,
+      'warning',
+    ));
   }
 
   return issues;
@@ -363,10 +410,10 @@ export function getStepStatuses(survey: SurveyReport): StepStatus[] {
     survey.cableRuns.length > 0 || !!survey.difficultRunsNotes?.trim(),
     // Photos
     survey.sitePhotos.length > 0,
-    // BOQ
+    // BOQ — notApplicable counts as touched: ticking it is an answer.
     Object.values(survey.boqChecks).some(Boolean) ||
-      survey.boqSupply.some((l) => l.surveyedQty != null || !!l.remarks?.trim()) ||
-      survey.boqService.some((l) => l.surveyedQty != null || !!l.remarks?.trim()),
+      survey.boqSupply.some((l) => l.surveyedQty != null || !!l.remarks?.trim() || l.notApplicable) ||
+      survey.boqService.some((l) => l.surveyedQty != null || !!l.remarks?.trim() || l.notApplicable),
     // Sign-off
     !!survey.signOff.msetclEngineerName?.trim() ||
       !!survey.signOff.msetclEngineerDesignation?.trim() ||

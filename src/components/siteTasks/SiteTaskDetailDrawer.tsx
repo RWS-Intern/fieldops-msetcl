@@ -29,7 +29,7 @@ import {
 } from 'firebase/firestore';
 import { db }                  from '@/firebase/config';
 import { useFieldEngineers }   from '@/hooks/useFieldEngineers';
-import { useApprovers }        from '@/hooks/useApprovers';
+import { useApprovers, approverLabel } from '@/hooks/useApprovers';
 import { useAuthStore }        from '@/store/authStore';
 import { useToast }            from '@/components/ui/toast';
 import { formatDate, formatDateTime } from '@/lib/taskUtils';
@@ -515,8 +515,7 @@ export function SiteTaskDetailDrawer({
                         <SelectItem value="none">Unassigned (any admin may approve)</SelectItem>
                         {approvers.map((a) => (
                           <SelectItem key={a.uid} value={a.uid}>
-                            {a.displayName}
-                            {a.engineerCode ? ` (${a.engineerCode})` : ''}
+                            {approverLabel(a)}
                           </SelectItem>
                         ))}
                       </SelectContent>

@@ -33,6 +33,93 @@ service cloud.firestore {
           .data.role == 'viewer';
     }
 
+    // ── Approval-chain write integrity ─────────────────────────────────────────
+    //
+    // The approver branch's hasOnly([...]) fence says WHICH fields may change.
+    // It says nothing about what they may change TO, and that gap is exploitable:
+    // the live stage owner could write approverUid = themselves and then approve
+    // every remaining stage alone, or forge a DIFFERENT stage's entry in
+    // approvalStages[] while legitimately submitting their own.
+    //
+    // Checking "approverUid is one of approvalStageOwnerUids" does NOT close it —
+    // the acting owner is themselves one of those uids. The handover target must
+    // be the specific NEXT stage's nominated owner, read from the PRE-write
+    // document, which the acting owner cannot influence.
+    //
+    // Both collections share these two functions; neither is used anywhere else.
+
+    /**
+     * Every stage entry except the one being acted on must be byte-identical to
+     * its pre-write value (Map == Map is deep equality — verified in the
+     * emulator, not assumed).
+     *
+     * FIXED AT THREE STAGES — see SURVEY_APPROVAL_STAGES in
+     * src/lib/approvalStages.ts. size() == 3 is required on both sides so a
+     * document with an unexpected chain length is refused outright rather than
+     * silently passing a check that skipped indices. If a stage is ever added or
+     * removed, THIS FUNCTION MUST GAIN OR LOSE A LINE — the failure mode is a
+     * loud refusal of all transitions, which is the safe direction.
+     */
+    function chainStagesUnchangedExceptLive(before, after, liveIndex) {
+      let b = before.approvalStages;
+      let a = after.approvalStages;
+      return b.size() == 3 && a.size() == 3
+        && (liveIndex == 0 || b[0] == a[0])
+        && (liveIndex == 1 || b[1] == a[1])
+        && (liveIndex == 2 || b[2] == a[2]);
+    }
+
+    /**
+     * Exactly one of three well-formed transitions, all measured against the
+     * pre-write document. `liveIndex` is resource.data.currentStageIndex.
+     *
+     * The acting owner's OWN stage entry is deliberately unconstrained — it is
+     * theirs to fill in, and policing its contents would risk denying the
+     * legitimate write for no security gain (they cannot reach another stage
+     * through it: the handover target is read from stages[live + 1], which this
+     * function pins, and approvalStageOwnerUids is not in either hasOnly fence).
+     */
+    function isValidStageTransition(before, after) {
+      let stages = before.approvalStages;
+      let live   = before.currentStageIndex;
+      let last   = stages.size() - 1;
+      return live >= 0 && live <= last
+        && chainStagesUnchangedExceptLive(before, after, live)
+        && (
+          // Sending work back: the flagging stage keeps the document, so
+          // neither ownership nor position may move. Resubmission returns to
+          // this same owner rather than restarting the chain.
+          (after.status == 'changes_requested'
+            && after.currentStageIndex == live
+            && after.approverUid == before.approverUid)
+          // Approving the LAST stage: chain complete, nobody owns it now.
+          || (after.status == 'approved'
+            && live == last
+            && after.currentStageIndex == stages.size()
+            && after.approverUid == null)
+          // Approving a NON-final stage: advance by exactly one and hand over
+          // to exactly the next stage's nominated owner. This is the branch
+          // that makes routing-to-self impossible.
+          || (after.status == 'pending_approval'
+            && live < last
+            && after.currentStageIndex == live + 1
+            && after.approverUid == stages[live + 1].ownerUid)
+        );
+    }
+
+    /**
+     * Gate applied to the approver branch on both collections. A write that
+     * touches none of the chain fields is left exactly as permissive as before
+     * (this is what keeps pre-chain documents, which have no approvalStages at
+     * all, writable by their single approver — `true || <error>` absorbs the
+     * missing-field error, verified in the emulator).
+     */
+    function isValidChainWrite(before, after) {
+      return !after.diff(before).affectedKeys()
+                .hasAny(['approvalStages', 'currentStageIndex', 'approverUid', 'approverName'])
+        || isValidStageTransition(before, after);
+    }
+
     match /tasks/{taskId} {
       // Any authenticated user can read tasks.
       // Write access remains restricted — field engineers can only update
@@ -194,6 +281,35 @@ service cloud.firestore {
                                'updatedAt',
                              ]));
       allow delete: if isAdmin();
+
+      // Immutable submission/review snapshots — written by submitSiteTaskUpdate
+      // (the assigned engineer) and reviewSiteTask (the nominated approver, or
+      // an admin when the task has no approver). Both writers must be able to
+      // create, which is why this mirrors the surveyReports/updates rule rather
+      // than checking assignedTo alone.
+      //
+      // This block exists because the recursive /{path=**}/updates rule at the
+      // bottom of the file no longer grants create to anyone: that blanket
+      // grant was what let any authenticated account append a forged entry to
+      // any audit trail. This path had no nested rule of its own and relied on
+      // it entirely, so the create grant is restated here, scoped to the two
+      // parties who legitimately write it.
+      //
+      // .get(field, null) on both ownership fields so a document missing either
+      // one evaluates to false rather than erroring the whole rule.
+      //
+      // read is deliberately IDENTICAL to what the recursive rule already
+      // granted (admin + viewer) — restated here only so this block is
+      // self-describing. Field engineers could not read these before and still
+      // cannot; the Reports page's collectionGroup('updates') query continues
+      // to be served by the recursive rule, which is why its read stays.
+      match /updates/{updateId} {
+        allow read: if isAdmin() || isViewer();
+        allow create: if !isViewer() && (isAdmin()
+          || get(/databases/$(database)/documents/siteTasks/$(taskId)).data.get('assignedTo', null)  == request.auth.uid
+          || get(/databases/$(database)/documents/siteTasks/$(taskId)).data.get('approverUid', null) == request.auth.uid);
+        allow update, delete: if false;   // immutable audit trail
+      }
     }
 
     // ── MSETCL Substation Visibility Project — WorkOrder + Survey ──────────────
@@ -202,12 +318,27 @@ service cloud.firestore {
     // the unconditional isAdmin() branch already covers that case.
     //
     // Least-privilege list/get: only admin, viewer, the assigned engineer, or
-    // the nominated approver may read a document at all (siteTasks still allows
-    // any authenticated user to `list` — that is NOT repeated here). Firestore
-    // evaluates `list` per returned document, so this forces every caller
-    // without a blanket role to include a matching `where` clause; see the
-    // composite indexes in firestore.indexes.json for the assignedTo/
+    // an approval-chain stage owner may read a document at all (siteTasks still
+    // allows any authenticated user to `list` — that is NOT repeated here).
+    // Firestore evaluates `list` per returned document, so this forces every
+    // caller without a blanket role to include a matching `where` clause; see
+    // the composite indexes in firestore.indexes.json for the assignedTo/
     // approverUid + status + updatedAt queries.
+    //
+    // READ is granted to ANY of the three stage owners, present or past, via
+    // the flat approvalStageOwnerUids array — an `in` check against a flat
+    // array costs nothing and works identically in `get` and `list`, which
+    // testing a nested field across array elements does not. A stage owner
+    // therefore keeps read access to a survey after their own stage clears
+    // (they can see what happened to what they approved) while WRITE stays
+    // exactly as tight as before: only approverUid == uid, the live stage.
+    //
+    // `.get('approvalStageOwnerUids', [])` rather than a bare field access:
+    // documents written before the chain existed have no such field, and a
+    // bare access on a missing field is a rule evaluation error, not false.
+    // The pre-existing approverUid branch is KEPT alongside it so those
+    // documents stay readable by their single approver — this is purely
+    // additive, no read that worked before is removed.
     //
     // Field-manager scoping (zone/team) is NOT implemented here — task 5.
 
@@ -215,11 +346,13 @@ service cloud.firestore {
       allow get:  if isAdmin()
                   || isViewer()
                   || resource.data.assignedTo  == request.auth.uid
-                  || resource.data.approverUid == request.auth.uid;
+                  || resource.data.approverUid == request.auth.uid
+                  || request.auth.uid in resource.data.get('approvalStageOwnerUids', []);
       allow list: if isAdmin()
                   || isViewer()
                   || resource.data.assignedTo  == request.auth.uid
-                  || resource.data.approverUid == request.auth.uid;
+                  || resource.data.approverUid == request.auth.uid
+                  || request.auth.uid in resource.data.get('approvalStageOwnerUids', []);
       // The admin pre-creates the blank work order (+ paired survey, in the
       // same batch — see useWorkOrderActions.ts). Engineers never create,
       // only update — this is what makes the offline-draft model work: the
@@ -231,20 +364,59 @@ service cloud.firestore {
                     // are reachable only via the approver/admin branches.
                     // Ownership fields must be unchanged from this branch —
                     // otherwise an engineer could name themselves approver
-                    // and self-approve.
+                    // and self-approve. The two chain fields are pinned the
+                    // same way: an engineer owns the survey's CONTENT, never
+                    // its approval record, and without these they could submit
+                    // a payload marking stages approved that never were.
+                    //
+                    // .get(field, default) rather than a bare access because
+                    // pre-chain documents have neither field, and a bare access
+                    // on a missing field is an evaluation error — which inside
+                    // an && chain would deny an ordinary submit on those
+                    // documents. Verified both ways in the emulator.
+                    //
+                    // Deliberately an equality pin, NOT a hasOnly allowlist of
+                    // survey-content fields: an allowlist would need editing
+                    // every time the survey gains a field. This says nothing
+                    // about what an engineer may write, only that these fields
+                    // may not CHANGE — and a normal wizard payload never
+                    // mentions them, so Firestore leaves them untouched and the
+                    // comparison is trivially satisfied.
                     || (isAuthenticated() && !isViewer()
                         && resource.data.assignedTo == request.auth.uid
                         && request.resource.data.status in ['in_progress', 'pending_approval']
                         && request.resource.data.assignedTo  == resource.data.assignedTo
-                        && request.resource.data.approverUid == resource.data.approverUid)
-                    // Approver branch — nominated approver may update ONLY the
-                    // workflow status, and only into a review-terminal status.
+                        && request.resource.data.approverUid == resource.data.approverUid
+                        && request.resource.data.get('approvalStages', [])
+                           == resource.data.get('approvalStages', [])
+                        && request.resource.data.get('currentStageIndex', 0)
+                           == resource.data.get('currentStageIndex', 0))
+                    // Approver branch — the LIVE stage owner may update only the
+                    // workflow status plus the stage-transition fields.
+                    // approverUid/approverName are in the allowlist because
+                    // approving a non-final stage hands the document to the next
+                    // stage's owner, so they now change on every transition
+                    // rather than once.
+                    //
+                    // 'pending_approval' is a permitted RESULT status because
+                    // approving a non-final stage leaves the document still
+                    // awaiting approval — by the next stage's owner. It is safe
+                    // only in combination with isValidChainWrite below, which
+                    // pins that shape exactly; do not keep one without the other.
                     || (isAuthenticated() && !isViewer()
                         && resource.data.approverUid == request.auth.uid
-                        && request.resource.data.status in ['approved', 'changes_requested']
+                        && request.resource.data.status in ['approved', 'changes_requested', 'pending_approval']
                         && request.resource.data.diff(resource.data)
                              .affectedKeys()
-                             .hasOnly(['status', 'updatedAt']));
+                             .hasOnly([
+                               'status',
+                               'approvalStages',
+                               'currentStageIndex',
+                               'approverUid',
+                               'approverName',
+                               'updatedAt',
+                             ])
+                        && isValidChainWrite(resource.data, request.resource.data));
       allow delete: if isAdmin();
     }
 
@@ -255,28 +427,42 @@ service cloud.firestore {
       // parent document's field, and a rule-level get() on the parent is a
       // billed read per document evaluated, which multiplies across a list
       // query and can hit the 10-lookup ceiling.
+      // Read is granted to any present-or-past stage owner — see the long note
+      // above the workOrders block for why this uses a flat uid array.
       allow get:  if isAdmin()
                   || isViewer()
                   || resource.data.assignedTo  == request.auth.uid
-                  || resource.data.approverUid == request.auth.uid;
+                  || resource.data.approverUid == request.auth.uid
+                  || request.auth.uid in resource.data.get('approvalStageOwnerUids', []);
       allow list: if isAdmin()
                   || isViewer()
                   || resource.data.assignedTo  == request.auth.uid
-                  || resource.data.approverUid == request.auth.uid;
+                  || resource.data.approverUid == request.auth.uid
+                  || request.auth.uid in resource.data.get('approvalStageOwnerUids', []);
       allow create: if isAdmin();
       allow update: if isAdmin()
                     // Engineer branch — same lifecycle + anti-self-reassignment
-                    // guard as workOrders above.
+                    // guard as workOrders above, and the same equality pin on
+                    // the two chain fields (see that branch for the full
+                    // reasoning, including why .get(field, default) is used).
                     || (isAuthenticated() && !isViewer()
                         && resource.data.assignedTo == request.auth.uid
                         && request.resource.data.status in ['in_progress', 'pending_approval']
                         && request.resource.data.assignedTo  == resource.data.assignedTo
-                        && request.resource.data.approverUid == resource.data.approverUid)
-                    // Approver branch — ONLY the review fields, same field list as siteTasks,
-                    // and only into a review-terminal status.
+                        && request.resource.data.approverUid == resource.data.approverUid
+                        && request.resource.data.get('approvalStages', [])
+                           == resource.data.get('approvalStages', [])
+                        && request.resource.data.get('currentStageIndex', 0)
+                           == resource.data.get('currentStageIndex', 0))
+                    // Approver branch — the LIVE stage owner may update ONLY the
+                    // review fields plus the stage-transition fields. They must
+                    // never touch the engineer's answers or photos. See the
+                    // workOrders approver branch for why approverUid/approverName
+                    // are writable and why 'pending_approval' is a permitted
+                    // result status — both hold only alongside isValidChainWrite.
                     || (isAuthenticated() && !isViewer()
                         && resource.data.approverUid == request.auth.uid
-                        && request.resource.data.status in ['approved', 'changes_requested']
+                        && request.resource.data.status in ['approved', 'changes_requested', 'pending_approval']
                         && request.resource.data.diff(resource.data)
                              .affectedKeys()
                              .hasOnly([
@@ -285,8 +471,13 @@ service cloud.firestore {
                                'reviewedBy',
                                'reviewedByName',
                                'reviewedAt',
+                               'approvalStages',
+                               'currentStageIndex',
+                               'approverUid',
+                               'approverName',
                                'updatedAt',
-                             ]));
+                             ])
+                        && isValidChainWrite(resource.data, request.resource.data));
       allow delete: if isAdmin();
 
       // Immutable audit trail — see submitSurvey/reviewSurvey in
@@ -306,10 +497,37 @@ service cloud.firestore {
       // read and create are split (they were one `allow read, create` line)
       // precisely so the viewer can be admitted to the read half only.
       match /updates/{updateId} {
+        // READ must match the PARENT's scope exactly, or a stage owner whose
+        // stage has cleared can still see the survey (granted above via
+        // approvalStageOwnerUids) but not its History — the inconsistency the
+        // flat uid array was introduced to avoid.
+        //
+        // A subcollection cannot read the parent's array off its own
+        // resource.data the way the parent rule does, so it comes via get() on
+        // the parent. Firestore dedupes identical document reads within one
+        // rule evaluation, so this shares the single parent read the branches
+        // below already perform — no extra billed read, no extra lookup
+        // against the 10-access ceiling.
+        //
+        // .get('approvalStageOwnerUids', []) for the same reason as the parent
+        // rule: pre-chain surveys have no such field and a bare access on a
+        // missing field is an evaluation error, not false. The approverUid
+        // branch is KEPT so those documents stay readable by their single
+        // approver — purely additive.
         allow read: if isAdmin()
           || isViewer()
           || get(/databases/$(database)/documents/surveyReports/$(reportId)).data.assignedTo  == request.auth.uid
-          || get(/databases/$(database)/documents/surveyReports/$(reportId)).data.approverUid == request.auth.uid;
+          || get(/databases/$(database)/documents/surveyReports/$(reportId)).data.approverUid == request.auth.uid
+          || request.auth.uid in get(/databases/$(database)/documents/surveyReports/$(reportId))
+                                   .data.get('approvalStageOwnerUids', []);
+        // CREATE is deliberately NOT widened to stage owners generally: a
+        // History entry is written by the ACTIVE transition (the engineer
+        // submitting, or the live stage owner deciding), never by someone who
+        // merely retains read access to a stage they already cleared.
+        //
+        // NOTE: this restriction is currently defeated by the recursive
+        // /{path=**}/updates rule at the bottom of this file, which grants
+        // create to any authenticated non-viewer. See the comment there.
         allow create: if !isViewer() && (isAdmin()
           || get(/databases/$(database)/documents/surveyReports/$(reportId)).data.assignedTo  == request.auth.uid
           || get(/databases/$(database)/documents/surveyReports/$(reportId)).data.approverUid == request.auth.uid);
@@ -330,9 +548,29 @@ service cloud.firestore {
     // the nested match inside /tasks/{taskId} above only covers direct access.
     // This is also the only rule covering siteTasks/{id}/updates (the site-task
     // submission history), so the viewer is admitted here for that too.
+    // CollectionGroup rule for the Reports page collectionGroup('updates') query.
+    // Firestore requires a top-level wildcard match for cross-collection queries —
+    // the nested matches above only cover direct access.
+    //
+    // create is `false` HERE ON PURPOSE. Firestore ORs every matching rule, so
+    // while this granted create to any authenticated non-viewer it silently
+    // overrode the parent-ownership checks in the nested rules — anyone with an
+    // account could append a forged entry to any survey's or site task's audit
+    // trail. (Existing entries were always immutable; this was append-only
+    // forgery, not tampering, but the trail backs a document headed for
+    // government vetting.)
+    //
+    // Every legitimate create is now granted by a nested rule scoped to that
+    // collection's own parties, and there are exactly three writers:
+    //   tasks/{id}/updates         — the nested rule under /tasks
+    //   siteTasks/{id}/updates     — the nested rule under /siteTasks
+    //   surveyReports/{id}/updates — the nested rule under /surveyReports
+    // A NEW /updates subcollection would therefore get no create access until
+    // it is given a nested rule of its own. That is the intended failure mode:
+    // loud and immediate, rather than silently world-writable.
     match /{path=**}/updates/{updateId} {
       allow read: if isAdmin() || isViewer();
-      allow create: if isAuthenticated() && !isViewer();
+      allow create: if false;
       allow update, delete: if false;
     }
   }

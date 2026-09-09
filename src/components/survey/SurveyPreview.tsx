@@ -218,7 +218,15 @@ function BoqTable({ title, master, lines }: { title: string; master: readonly Bo
           >
             <span className="text-gray-400 font-mono">{item.sr}</span>
             <span className="text-gray-800">{item.item}</span>
-            <span className="text-gray-600">{line?.surveyedQty != null ? `${line.surveyedQty} ${item.unit}` : '—'}</span>
+            {/* A considered zero ("not applicable, because…") must not print
+                identically to an unanswered line — that distinction is the
+                whole reason SurveyBoqLine carries notApplicable, and this is
+                the page the approver actually vets. */}
+            <span className="text-gray-600">
+              {line?.notApplicable
+                ? 'Not applicable'
+                : line?.surveyedQty != null ? `${line.surveyedQty} ${item.unit}` : '—'}
+            </span>
             <span className="text-gray-500 italic truncate">{dash(line?.remarks)}</span>
           </div>
         );

@@ -269,7 +269,7 @@ export function EngineerDetailDrawer({
                     </span>
                   )}
                   <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-teal-100 text-teal-700">
-                    Field Engineer
+                    Field Expert
                   </span>
                   {engineer && !engineer.active && (
                     <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-600">

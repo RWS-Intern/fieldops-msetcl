@@ -27,10 +27,11 @@ import { useSiteTasks }             from '@/hooks/useSiteTasks';
 import { useToast }                 from '@/components/ui/toast';
 import { useAuthStore }             from '@/store/authStore';
 import { useFieldEngineers }        from '@/hooks/useFieldEngineers';
-import { useApprovers }             from '@/hooks/useApprovers';
+import { useApprovers, approverLabel } from '@/hooks/useApprovers';
 import { useWorkOrderActions }      from '@/hooks/useWorkOrderActions';
 import { SiteTaskDetailDrawer }     from '@/components/siteTasks/SiteTaskDetailDrawer';
 import { SiteWorkOrdersSection }    from '@/components/sites/SiteWorkOrdersSection';
+import { SURVEY_APPROVAL_STAGES } from '@/lib/approvalStages';
 import { parseCoordinatesInput, isValidLatLng } from '@/lib/coordinates';
 import type { Site, SiteStatus, SiteTask, TaskStatus } from '@/types';
 
@@ -263,28 +264,43 @@ export function SiteDetailDrawer({
   }
 
   // ── Create Survey Work Order — admin only, plain entry point for testing ──
-  // Both engineer and approver are required: a survey with no approver has
-  // no one who can ever review it (unlike siteTasks, there is no
-  // unassigned-approver admin fallback for surveys — see useSurveyActions.ts's
+  // The engineer and ALL THREE approval stages are required: a stage with no
+  // owner is a chain that can never complete, and unlike siteTasks there is no
+  // unassigned-approver admin fallback for surveys (see useSurveyActions.ts's
   // reviewSurvey guard).
+  //
+  // All three pickers draw on the SAME pool — every user with role in
+  // ('approver', 'admin'). No stage is typed differently from another; MSETCL
+  // reviewers hold ordinary `approver` accounts, distinguished only by the
+  // organisation shown next to their name.
   const [surveyDialogOpen,  setSurveyDialogOpen]  = useState(false);
   const [surveyEngineerId,  setSurveyEngineerId]  = useState('');
-  const [surveyApproverId,  setSurveyApproverId]  = useState('');
+  /** stageKey -> chosen owner uid. */
+  const [stageOwnerIds,     setStageOwnerIds]     = useState<Record<string, string>>({});
   const [creatingSurvey,    setCreatingSurvey]    = useState(false);
+
+  const allStagesChosen = SURVEY_APPROVAL_STAGES.every((s) => !!stageOwnerIds[s.key]);
+  const canCreateSurvey = !!surveyEngineerId && allStagesChosen;
 
   function openSurveyDialog() {
     setSurveyEngineerId('');
-    setSurveyApproverId('');
+    setStageOwnerIds({});
     setSurveyDialogOpen(true);
   }
 
   async function handleCreateSurveyWorkOrder() {
-    if (!surveyEngineerId || !surveyApproverId) {
-      showToast('Select a field engineer and an approver', 'error');
+    if (!canCreateSurvey) {
+      showToast('Select a field expert and an owner for all three approval stages', 'error');
       return;
     }
     const engineer = engineers.find((e) => e.uid === surveyEngineerId);
-    const approver = approvers.find((a) => a.uid === surveyApproverId);
+
+    // Ordered to match SURVEY_APPROVAL_STAGES — createWorkOrder zips the two
+    // together by position, and rejects the call if any owner is missing.
+    const stageOwners = SURVEY_APPROVAL_STAGES.map((stage) => {
+      const chosen = approvers.find((a) => a.uid === stageOwnerIds[stage.key]);
+      return { ownerUid: chosen?.uid ?? '', ownerName: chosen?.displayName ?? '' };
+    });
 
     setCreatingSurvey(true);
     try {
@@ -297,14 +313,14 @@ export function SiteDetailDrawer({
         voltageClass: site.voltageClass ?? null,
         assignedTo:      engineer?.uid         ?? null,
         assignedToName:  engineer?.displayName ?? null,
-        approverUid:     approver?.uid         ?? null,
-        approverName:    approver?.displayName ?? null,
+        stageOwners,
       });
       showToast(`Survey work order created: ${workOrderCode}`, 'success');
       setSurveyDialogOpen(false);
     } catch (err) {
       console.error('[SiteDetailDrawer] createWorkOrder failed:', err);
-      showToast('Failed to create survey work order', 'error');
+      const msg = err instanceof Error ? err.message : 'Failed to create survey work order';
+      showToast(msg, 'error');
     } finally {
       setCreatingSurvey(false);
     }
@@ -619,7 +635,7 @@ export function SiteDetailDrawer({
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1.5">
               <label className="text-xs font-medium text-gray-600">
-                Field Engineer <span className="text-brand-red">*</span>
+                Field Expert <span className="text-brand-red">*</span>
               </label>
               {engLoading ? (
                 <Skeleton className="h-9 rounded-md" />
@@ -640,29 +656,42 @@ export function SiteDetailDrawer({
               )}
             </div>
 
-            <div className="flex flex-col gap-1.5">
-              <label className="text-xs font-medium text-gray-600">
-                Approver <span className="text-brand-red">*</span>
-              </label>
-              {apprLoading ? (
-                <Skeleton className="h-9 rounded-md" />
-              ) : (
-                <Select value={surveyApproverId} onValueChange={setSurveyApproverId}>
-                  <SelectTrigger disabled={creatingSurvey}>
-                    <SelectValue placeholder="Select approver…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {approvers.map((a) => (
-                      <SelectItem key={a.uid} value={a.uid}>
-                        {a.displayName}
-                        {a.engineerCode ? ` (${a.engineerCode})` : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
+            {/* One picker per approval stage, in chain order. All required. */}
+            <div className="flex flex-col gap-3 pt-1 border-t border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                Approval Chain
+              </p>
+              {SURVEY_APPROVAL_STAGES.map((stage, i) => (
+                <div key={stage.key} className="flex flex-col gap-1.5">
+                  <label className="text-xs font-medium text-gray-600">
+                    {i + 1}. {stage.label} <span className="text-brand-red">*</span>
+                  </label>
+                  {apprLoading ? (
+                    <Skeleton className="h-9 rounded-md" />
+                  ) : (
+                    <Select
+                      value={stageOwnerIds[stage.key] ?? ''}
+                      onValueChange={(v) =>
+                        setStageOwnerIds((prev) => ({ ...prev, [stage.key]: v }))
+                      }
+                    >
+                      <SelectTrigger disabled={creatingSurvey}>
+                        <SelectValue placeholder="Select approver…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {approvers.map((a) => (
+                          <SelectItem key={a.uid} value={a.uid}>
+                            {approverLabel(a)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              ))}
               <p className="text-xs text-gray-400">
-                A survey with no approver cannot be reviewed by anyone.
+                Reviewed in this order — each stage hands over to the next once
+                approved. A stage with no owner cannot be reviewed by anyone.
               </p>
             </div>
 
@@ -680,7 +709,7 @@ export function SiteDetailDrawer({
                 type="button"
                 size="sm"
                 onClick={handleCreateSurveyWorkOrder}
-                disabled={creatingSurvey || !surveyEngineerId || !surveyApproverId}
+                disabled={creatingSurvey || !canCreateSurvey}
               >
                 {creatingSurvey ? 'Creating…' : 'Create'}
               </Button>

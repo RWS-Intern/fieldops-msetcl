@@ -53,7 +53,7 @@ const ROLE_BADGE_LABEL: Record<User['role'], string> = {
   admin:    'Admin',
   approver: 'Approver',
   viewer:   'Viewer',
-  field:    'Field Engineer',
+  field:    'Field Expert',
 };
 
 function RoleBadge({ role }: { role: User['role'] }) {

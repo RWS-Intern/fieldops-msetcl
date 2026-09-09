@@ -7,7 +7,40 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
-import type { WorkOrder, WorkOrderStage, WorkOrderStatus } from '@/types';
+import { SURVEY_APPROVAL_STAGES, findApprovalStage } from '@/lib/approvalStages';
+import type { WorkOrder, WorkOrderStage, WorkOrderStatus, ApprovalStageResult } from '@/types';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapApprovalStage(raw: Record<string, any>, index: number): ApprovalStageResult {
+  const stageKey = raw['stageKey'] ?? SURVEY_APPROVAL_STAGES[index]?.key ?? '';
+  return {
+    stageKey,
+    stageLabel:    raw['stageLabel'] ?? findApprovalStage(stageKey)?.label ?? stageKey,
+    status:        (raw['status'] ?? 'pending') as ApprovalStageResult['status'],
+    ownerUid:      raw['ownerUid']      ?? null,
+    ownerName:     raw['ownerName']     ?? null,
+    reviewNotes:   raw['reviewNotes']   ?? null,
+    attachmentUrl: raw['attachmentUrl'] ?? null,
+    actedAt:       raw['actedAt']?.toDate?.() ?? null,
+  };
+}
+
+/** See the identical helper in useSurveyReport.ts for why legacy docs get this. */
+function legacyApprovalStages(
+  approverUid:  string | null,
+  approverName: string | null,
+): ApprovalStageResult[] {
+  return SURVEY_APPROVAL_STAGES.map((stage, i) => ({
+    stageKey:      stage.key,
+    stageLabel:    stage.label,
+    status:        'pending' as const,
+    ownerUid:      i === 0 ? approverUid  : null,
+    ownerName:     i === 0 ? approverName : null,
+    reviewNotes:   null,
+    attachmentUrl: null,
+    actedAt:       null,
+  }));
+}
 
 // Exported for reuse by useSiteWorkOrders.ts — every reader of workOrders
 // documents must map them identically.
@@ -27,6 +60,12 @@ export function mapWorkOrder(id: string, data: Record<string, any>): WorkOrder {
     assignedToName: data['assignedToName'] ?? null,
     approverUid:    data['approverUid']    ?? null,
     approverName:   data['approverName']   ?? null,
+    approvalStages: Array.isArray(data['approvalStages']) && data['approvalStages'].length > 0
+      ? data['approvalStages'].map(mapApprovalStage)
+      : legacyApprovalStages(data['approverUid'] ?? null, data['approverName'] ?? null),
+    currentStageIndex: data['currentStageIndex'] ?? 0,
+    approvalStageOwnerUids: data['approvalStageOwnerUids']
+      ?? (data['approverUid'] ? [data['approverUid']] : []),
     createdAt:      data['createdAt']?.toDate?.() ?? new Date(),
     updatedAt:      data['updatedAt']?.toDate?.() ?? new Date(),
     archived:       data['archived'] ?? false,

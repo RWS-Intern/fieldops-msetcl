@@ -52,7 +52,7 @@ const TABS: { key: FilterTab; label: string }[] = [
   { key: 'all',      label: 'All'             },
   { key: 'admin',    label: 'Admins'          },
   { key: 'approver', label: 'Approvers'       },
-  { key: 'field',    label: 'Field Engineers' },
+  { key: 'field',    label: 'Field Experts'  },
   { key: 'viewer',   label: 'Viewers'         },
   { key: 'disabled', label: 'Disabled'        },
 ];

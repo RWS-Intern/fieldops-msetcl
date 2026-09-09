@@ -46,7 +46,37 @@ function formatDate(d: Date): string {
 // type comment) specifically so a list of many rows like this one never
 // needs a per-row getDoc.
 
+/**
+ * Where this survey sits in its approval chain, for the row's stage pill.
+ * Sourced from the document's OWN approvalStages[currentStageIndex] — its
+ * denormalised stageLabel, so a survey renders with the wording it was created
+ * under rather than this build's.
+ *
+ * Returns null once the chain is complete: the status badge already reads
+ * "Approved" then, and a stage pill would be noise. Also null for a document
+ * that predates the chain (empty array), which simply shows no pill.
+ */
+function currentStageSummary(survey: SurveyReport): { label: string; state: string } | null {
+  const stages = survey.approvalStages;
+  const index  = survey.currentStageIndex;
+  if (stages.length === 0 || index < 0 || index >= stages.length) return null;
+
+  const label = stages[index].stageLabel;
+  // Derived from the DOCUMENT's status, not the stage entry's own — after an
+  // engineer resubmits a sent-back survey the entry still reads
+  // 'changes_requested' (they cannot rewrite the approval record) while the
+  // document is back to pending_approval and genuinely awaiting this stage.
+  const state =
+    survey.status === 'changes_requested' ? 'changes requested' :
+    survey.status === 'pending_approval'  ? 'pending' :
+    'not yet submitted';
+
+  return { label, state };
+}
+
 function SurveyOversightRow({ survey, onOpen }: { survey: SurveyReport; onOpen: () => void }) {
+  const stage = currentStageSummary(survey);
+
   return (
     <div
       className="border rounded-lg p-3 flex flex-col gap-1.5 cursor-pointer hover:border-blue-300 hover:shadow-sm transition-all"
@@ -62,14 +92,26 @@ function SurveyOversightRow({ survey, onOpen }: { survey: SurveyReport; onOpen: 
             <p className="text-xs text-gray-400 font-mono">{survey.workOrderCode}</p>
           )}
         </div>
-        <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full shrink-0', STATUS_BADGE[survey.status])}>
-          {STATUS_LABEL[survey.status]}
-        </span>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full', STATUS_BADGE[survey.status])}>
+            {STATUS_LABEL[survey.status]}
+          </span>
+          {/* Which of the three stages the survey is sitting at — the status
+              badge alone can't distinguish "pending approval at stage 1" from
+              "pending approval at stage 3". */}
+          {stage && (
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+              {stage.label} — {stage.state}
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500">
         <span>Engineer: {survey.assignedToName ?? '—'}</span>
-        <span>Approver: {survey.approverName ?? '—'}</span>
+        {/* Names the stage rather than a bare "Approver", so it is clear WHICH
+            reviewer this is — approverName tracks the live stage owner. */}
+        <span>{stage ? stage.label : 'Approver'}: {survey.approverName ?? '—'}</span>
         {survey.submittedAt && <span>Submitted {formatDate(survey.submittedAt)}</span>}
         {survey.status === 'approved' && survey.reviewedAt && (
           <span>Approved {formatDate(survey.reviewedAt)}</span>

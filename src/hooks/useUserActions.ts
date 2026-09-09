@@ -107,6 +107,12 @@ export function useUserActions() {
     name:  string,
     email: string,
     role:  UserRole,
+    /**
+     * Employing organisation — only meaningful for `approver` accounts (the
+     * pickers show it to tell same-named reviewers from different
+     * organisations apart). Stored as null for every other role.
+     */
+    organization?: string | null,
   ): Promise<void> {
     // Random temp password — user will never know or use it.
     // They set their real password via the reset-email link.
@@ -153,6 +159,9 @@ export function useUserActions() {
         role,
         active:            true,
         engineerCode:      role === 'field' ? engineerCode : null,
+        // Only approvers carry an organisation — it is what distinguishes two
+        // same-named reviewers in the stage pickers. Null for every other role.
+        organization:      role === 'approver' ? (organization?.trim() || null) : null,
         createdAt:         serverTimestamp(),
         createdBy:         currentUser?.uid ?? '',
         fcmToken:          null,

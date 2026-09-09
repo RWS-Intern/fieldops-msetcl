@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useProjectActions } from '@/hooks/useProjectActions';
-import { useApprovers }      from '@/hooks/useApprovers';
+import { useApprovers, approverLabel } from '@/hooks/useApprovers';
 import { useToast }          from '@/components/ui/toast';
 import { TaskTemplateEditor } from '@/components/projects/TaskTemplateEditor';
 import type { Project, TaskTemplate } from '@/types';
@@ -254,8 +254,7 @@ export function EditProjectModal({ project, onClose }: EditProjectModalProps) {
                 <SelectItem value="none">Unassigned (any admin may approve)</SelectItem>
                 {approvers.map((a) => (
                   <SelectItem key={a.uid} value={a.uid}>
-                    {a.displayName}
-                    {a.engineerCode ? ` (${a.engineerCode})` : ''}
+                    {approverLabel(a)}
                   </SelectItem>
                 ))}
               </SelectContent>

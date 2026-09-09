@@ -50,7 +50,14 @@ export function useSurveyUpdates(surveyReportId: string | null | undefined) {
               actorName:   data['actorName'] ?? '',
               createdAt:   data['createdAt']?.toDate?.() ?? new Date(),
               reviewNotes: data['reviewNotes'] ?? undefined,
-              payload:     data['payload']     ?? undefined,
+              // Written as null by submitSurvey when the survey has no chain
+              // (pre-chain document, or an offline item queued by an older
+              // build) — normalised to undefined so display code has one
+              // "absent" case to handle, not two.
+              stageKey:      data['stageKey']      ?? undefined,
+              stageIndex:    data['stageIndex']    ?? undefined,
+              attachmentUrl: data['attachmentUrl'] ?? undefined,
+              payload:       data['payload']       ?? undefined,
             } as SurveyUpdate;
           }));
           setLoading(false);
