@@ -1,6 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Search, X, RefreshCw } from 'lucide-react';
 import { useSurveyOversight } from '@/hooks/useSurveyOversight';
+import { useSurveySearch } from '@/hooks/useSurveySearch';
+import { useSurveyStatusCounts } from '@/hooks/useSurveyStatusCounts';
 import { Button }   from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -8,6 +11,8 @@ import type { SurveyStatusFilter } from '@/hooks/useSurveyOversight';
 import type { SurveyReport, WorkOrderStatus } from '@/types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+
+const SEARCH_DEBOUNCE_MS = 250;
 
 const STATUS_FILTERS: { key: SurveyStatusFilter; label: string }[] = [
   { key: 'all',               label: 'All' },
@@ -17,6 +22,18 @@ const STATUS_FILTERS: { key: SurveyStatusFilter; label: string }[] = [
   { key: 'changes_requested',  label: 'Changes Requested' },
   { key: 'approved',           label: 'Approved' },
 ];
+
+/**
+ * The statuses that get their own aggregate count — the pill set minus 'all',
+ * which is counted with an unfiltered query. Derived from STATUS_FILTERS so a
+ * pill can never be added without gaining a count.
+ *
+ * Note 'closed' is deliberately absent from the pills (a survey never reaches
+ * it today), so no count is fetched for it either.
+ */
+const COUNTED_STATUSES: readonly WorkOrderStatus[] = STATUS_FILTERS
+  .map((f) => f.key)
+  .filter((k): k is WorkOrderStatus => k !== 'all');
 
 const STATUS_BADGE: Record<WorkOrderStatus, string> = {
   open:              'bg-gray-100 text-gray-600',
@@ -132,44 +149,162 @@ function SurveyOversightRow({ survey, onOpen }: { survey: SurveyReport; onOpen: 
 export function AdminSurveyOversightPage() {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<SurveyStatusFilter>('all');
+
+  // Browse mode — the existing paginated query, untouched.
   const { surveys, loading, loadingMore, hasMore, loadMore } = useSurveyOversight(filter);
+
+  // Search mode — resolves the term against sites, then queries surveyReports
+  // by site id. Completely separate from the paginated path above; the two
+  // never feed each other, so pagination state can't limit what search finds.
+  const [searchInput, setSearchInput] = useState('');
+  const [searchTerm,  setSearchTerm]  = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setSearchTerm(searchInput), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+  const search = useSurveySearch(searchTerm);
+
+  // True collection-wide counts for the pills.
+  const { counts, loading: countsLoading, refresh: refreshCounts } =
+    useSurveyStatusCounts(COUNTED_STATUSES);
+
+  // The selected pill narrows search results in JS rather than in Firestore —
+  // the set is small (surveys at a few matched sites) and it keeps the search
+  // query to a single `in` filter, needing no composite index.
+  const searchResults = filter === 'all'
+    ? search.results
+    : search.results.filter((s) => s.status === filter);
+
+  // One list, two sources.
+  const rows      = search.active ? searchResults  : surveys;
+  const isLoading = search.active ? search.loading : loading;
+
+  function clearSearch() {
+    setSearchInput('');
+    setSearchTerm('');
+  }
 
   return (
     <div className="flex flex-col gap-4 max-w-2xl mx-auto pb-24">
-      <h2 className="text-xl font-bold text-gray-900">Surveys</h2>
-
-      <div className="flex flex-wrap gap-2">
-        {STATUS_FILTERS.map(({ key, label }) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setFilter(key)}
-            className={cn(
-              'text-sm font-medium px-3 py-1.5 rounded-full border transition-colors',
-              filter === key
-                ? 'bg-brand-blue text-white border-brand-blue'
-                : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50',
-            )}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="text-xl font-bold text-gray-900">Surveys</h2>
+        <button
+          type="button"
+          onClick={refreshCounts}
+          disabled={countsLoading}
+          title="Refresh counts"
+          className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-gray-400 transition-colors hover:text-brand-blue disabled:opacity-50"
+        >
+          <RefreshCw className={cn('h-3.5 w-3.5', countsLoading && 'animate-spin')} />
+          Counts
+        </button>
       </div>
 
-      {loading ? (
+      {/* Substation search. Matches site code / name / city — the same rule as
+          the header's global search (src/lib/siteSearch.ts) — then finds every
+          survey at those sites, regardless of the browse list's page. */}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        <input
+          type="search"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          placeholder="Search by substation code, name or city…"
+          aria-label="Search surveys by substation code, name or city"
+          className="h-10 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-9 text-sm placeholder:text-gray-400 focus:border-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/20"
+        />
+        {searchInput && (
+          <button
+            type="button"
+            onClick={clearSearch}
+            aria-label="Clear search"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {STATUS_FILTERS.map(({ key, label }) => {
+          // In search mode the pill shows how many of THESE results carry that
+          // status; browsing, it shows the true collection-wide total. Showing
+          // the collection total while search is narrowing the list would
+          // contradict the row count right below it.
+          const count = search.active
+            ? (key === 'all'
+                ? search.results.length
+                : search.results.filter((s) => s.status === key).length)
+            : counts[key];
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setFilter(key)}
+              className={cn(
+                'text-sm font-medium px-3 py-1.5 rounded-full border transition-colors',
+                filter === key
+                  ? 'bg-brand-blue text-white border-brand-blue'
+                  : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50',
+              )}
+            >
+              {label}
+              {count !== undefined && (
+                <span className={cn('ml-1.5', filter === key ? 'opacity-80' : 'text-gray-400')}>
+                  ({count})
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Result line — only while searching. */}
+      {search.active && !search.loading && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-500">
+          <span>
+            {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} for
+            {' '}&ldquo;{searchTerm.trim()}&rdquo;
+            {search.matchedSites > 0 && (
+              <span className="text-gray-400">
+                {' '}across {search.matchedSites} substation{search.matchedSites !== 1 ? 's' : ''}
+              </span>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={clearSearch}
+            className="font-medium text-brand-blue hover:underline"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {search.error && (
+        <p className="text-sm text-brand-red">Search failed: {search.error}</p>
+      )}
+
+      {isLoading ? (
         <div className="flex flex-col gap-2">
           {[...Array(4)].map((_, i) => (
             <Skeleton key={i} className="h-24 rounded-lg" />
           ))}
         </div>
-      ) : surveys.length === 0 ? (
+      ) : rows.length === 0 ? (
         <div className="py-16 text-center">
-          <p className="text-sm text-gray-400">No surveys match this filter.</p>
+          <p className="text-sm text-gray-400">
+            {search.active
+              ? search.matchedSites === 0
+                ? `No substation matches “${searchTerm.trim()}”.`
+                : 'No surveys match this filter at the matching substations.'
+              : 'No surveys match this filter.'}
+          </p>
         </div>
       ) : (
         <>
           <div className="flex flex-col gap-2">
-            {surveys.map((survey) => (
+            {rows.map((survey) => (
               <SurveyOversightRow
                 key={survey.id}
                 survey={survey}
@@ -178,7 +313,9 @@ export function AdminSurveyOversightPage() {
             ))}
           </div>
 
-          {hasMore && (
+          {/* Load more belongs to browse mode only — search is unpaginated and
+              already returns everything at the matched sites. */}
+          {!search.active && hasMore && (
             <Button
               type="button"
               variant="outline"

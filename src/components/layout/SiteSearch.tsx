@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, X } from 'lucide-react';
 import { useSiteStore } from '@/store/siteStore';
+import { findMatchingSites, normaliseSearchTerm } from '@/lib/siteSearch';
 import { cn } from '@/lib/utils';
 import type { Site } from '@/types';
 
@@ -46,22 +47,20 @@ export function SiteSearch({
   // change — no separate effect needed to keep it in step.
   useEffect(() => {
     const t = setTimeout(() => {
-      setTerm(input.trim().toLowerCase());
+      setTerm(normaliseSearchTerm(input));
       setActiveIndex(0);
     }, DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [input]);
 
-  // ── Filter — same fields SitesPage matches on ──────────────────────────
-  const results = useMemo<Site[]>(() => {
-    if (!term) return [];
-    return sites
-      .filter((s) =>
-        s.siteCode.toLowerCase().includes(term) ||
-        s.siteName.toLowerCase().includes(term) ||
-        s.city.toLowerCase().includes(term))
-      .slice(0, MAX_RESULTS);
-  }, [sites, term]);
+  // ── Filter ─────────────────────────────────────────────────────────────
+  // matchesSiteSearch is the shared definition (src/lib/siteSearch.ts), also
+  // used by the survey-oversight search — typing the same thing in either
+  // place must match the same sites by the same rule.
+  const results = useMemo<Site[]>(
+    () => findMatchingSites(sites, term).slice(0, MAX_RESULTS),
+    [sites, term],
+  );
 
   // ── Close on outside click ─────────────────────────────────────────────
   useEffect(() => {
