@@ -1,4 +1,4 @@
-import { MapPin } from 'lucide-react';
+import { MapPin, History } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import type { Site, SiteStatus } from '@/types';
 
@@ -36,12 +36,15 @@ function formatDate(date: Date): string {
 
 interface SiteCardProps {
   site:   Site;
+  /** Opens the management drawer — the card body's own click. */
   onView: () => void;
+  /** Opens the read-only Substation Lifecycle page. */
+  onViewLifecycle: () => void;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function SiteCard({ site, onView }: SiteCardProps) {
+export function SiteCard({ site, onView, onViewLifecycle }: SiteCardProps) {
   const stripe     = STATUS_STRIPE[site.status] ?? '#9CA3AF';
   const progressPct =
     site.taskCount > 0
@@ -108,10 +111,22 @@ export function SiteCard({ site, onView }: SiteCardProps) {
             </div>
           </div>
 
-          {/* Created date */}
-          <p className="mt-2 text-xs text-gray-400">
-            Added {formatDate(site.createdAt)}
-          </p>
+          {/* Created date + lifecycle link */}
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <p className="text-xs text-gray-400">
+              Added {formatDate(site.createdAt)}
+            </p>
+            {/* stopPropagation — the whole card already opens the management
+                drawer, and this is the other, read-only destination. */}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onViewLifecycle(); }}
+              className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-brand-blue hover:underline"
+            >
+              <History className="h-3 w-3" />
+              Lifecycle
+            </button>
+          </div>
         </div>
       </div>
     </Card>

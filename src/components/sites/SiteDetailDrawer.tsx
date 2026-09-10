@@ -1,5 +1,6 @@
 import { useState, useMemo }      from 'react';
-import { MapPin, Building2, Archive, RotateCcw, Pencil, Navigation, XCircle, FileText } from 'lucide-react';
+import { useNavigate }            from 'react-router-dom';
+import { MapPin, Building2, Archive, RotateCcw, Pencil, Navigation, XCircle, FileText, History } from 'lucide-react';
 import {
   Sheet,
   SheetContent,
@@ -164,6 +165,7 @@ export function SiteDetailDrawer({
   onClose,
   onArchived,
 }: SiteDetailDrawerProps) {
+  const navigate               = useNavigate();
   const { showToast }          = useToast();
   const { currentUser }        = useAuthStore();
   const { siteTasks, loading: tasksLoading } = useSiteTasks(site.id);
@@ -474,6 +476,19 @@ export function SiteDetailDrawer({
 
           {/* Work Orders section — per-site survey history + reassignment */}
           <SiteWorkOrdersSection siteId={site.id} onNavigateAway={onClose} />
+
+          {/* Read-only companion view: work orders AND site tasks in one
+              timeline. This drawer stays the management surface; that page is
+              the comprehensive read-only one. Closes the sheet first, so the
+              overlay never renders over the page being navigated to. */}
+          <button
+            type="button"
+            onClick={() => { onClose(); navigate(`/sites/${site.id}`); }}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-gray-200 py-2 text-xs font-medium text-brand-blue transition-colors hover:bg-blue-50"
+          >
+            <History className="h-3.5 w-3.5" />
+            View full lifecycle
+          </button>
 
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-1">

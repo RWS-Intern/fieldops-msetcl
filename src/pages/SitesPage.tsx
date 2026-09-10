@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus, Search, RotateCcw, Upload, UserPlus, ChevronDown } from 'lucide-react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/firebase/config';
@@ -119,6 +120,7 @@ interface ProjectGroup {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export function SitesPage() {
+  const navigate               = useNavigate();
   const { sites, lastUpdated } = useSiteStore();
   const { showToast }          = useToast();
   const { currentUser }        = useAuthStore();
@@ -633,6 +635,7 @@ export function SitesPage() {
                                     setSelectedSite(site);
                                     setShowDetail(true);
                                   }}
+                                  onViewLifecycle={() => navigate(`/sites/${site.id}`)}
                                 />
                               ))}
                             </div>

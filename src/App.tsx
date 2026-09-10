@@ -18,6 +18,7 @@ import { ApproverSurveyReviewPage } from '@/pages/ApproverSurveyReviewPage';
 import { SurveysPage } from '@/pages/SurveysPage';
 import { SurveyWizardPage } from '@/pages/SurveyWizardPage';
 import { AdminSurveyOversightPage } from '@/pages/AdminSurveyOversightPage';
+import { SubstationLifecyclePage } from '@/pages/SubstationLifecyclePage';
 import type { UserRole } from '@/types';
 
 // Initialises the Firebase auth listener at the app root
@@ -193,6 +194,18 @@ export default function App() {
               element={
                 <ProtectedRoute allowRoles={['admin', 'viewer']}>
                   <SitesPage />
+                </ProtectedRoute>
+              }
+            />
+            {/* One substation's whole story — work orders + site tasks in a
+                single timeline. Read-only: it links out to SiteDetailDrawer
+                and the survey record screen rather than duplicating them.
+                Distinct path from "/sites", no conflict. */}
+            <Route
+              path="/sites/:siteId"
+              element={
+                <ProtectedRoute allowRoles={['admin', 'viewer']}>
+                  <SubstationLifecyclePage />
                 </ProtectedRoute>
               }
             />
