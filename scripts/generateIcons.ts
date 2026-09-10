@@ -1,13 +1,30 @@
 /**
  * scripts/generateIcons.ts
  *
- * Generates PWA icon PNGs from an inline SVG using Sharp.
+ * Generates the PWA icon set and favicon from the Rite Water brand mark.
  * Run with: npm run generate:icons
  *
- * Output:
- *   public/icons/icon-192.png      — standard icon (rounded square)
- *   public/icons/icon-512.png      — standard icon (rounded square)
- *   public/icons/icon-maskable.png — maskable icon (full-bleed, safe-zone aware)
+ * Source: public/rite-water-logo.png — 420×512, transparent. Because it is
+ * NOT square it is padded onto a square canvas with `fit: 'contain'`, never
+ * stretched or cropped: the logo's longest side is scaled to a percentage of
+ * the canvas and the remainder is margin. Margins are equal on each axis; the
+ * horizontal margin is naturally larger than the vertical one, which is what
+ * preserving a portrait aspect ratio on a square canvas means.
+ *
+ * Output (public/icons/):
+ *   icon-192.png       — standard, logo at 80% of canvas, transparent
+ *   icon-512.png       — standard, logo at 80% of canvas, transparent
+ *   icon-maskable.png  — maskable, logo at 60% of canvas, WHITE background
+ *   favicon-32.png     — browser tab, logo at 90% of canvas, transparent
+ *
+ * Why the maskable icon has an opaque white background while the others are
+ * transparent: Android crops a maskable icon to a circle/squircle and fills
+ * whatever it crops against, so a transparent maskable icon renders on an
+ * undefined backdrop — and this logo's "rite" wordmark and Devanagari subtext
+ * are dark charcoal, which vanishes on a dark one. White is the background the
+ * mark is designed for (it is used on white in the header and login screen).
+ * The 60% coverage keeps every part of the logo inside the ~80% safe zone that
+ * the crop can reach.
  */
 
 import sharp from 'sharp';
@@ -16,91 +33,46 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SRC       = path.resolve(__dirname, '../public/rite-water-logo.png');
 const outDir    = path.resolve(__dirname, '../public/icons');
 
-// Ensure output directory exists
 fs.mkdirSync(outDir, { recursive: true });
 
-// ─── Standard icon SVG ────────────────────────────────────────────────────────
-// Blue rounded square + white "RS" text.
+const TRANSPARENT = { r: 0, g: 0, b: 0, alpha: 0 };
+const WHITE       = { r: 255, g: 255, b: 255, alpha: 1 };
 
-function buildSvg(size: number): Buffer {
-  const r   = Math.round(size * 0.18);   // border radius
-  const fs_ = Math.round(size * 0.36);   // font size
-  const cy  = Math.round(size * 0.565);  // text baseline
-  const svg = `
-<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-  <rect width="${size}" height="${size}" rx="${r}" fill="#0077B6"/>
-  <text
-    x="50%"
-    y="${cy}"
-    font-family="Arial,Helvetica,sans-serif"
-    font-size="${fs_}"
-    font-weight="700"
-    fill="white"
-    text-anchor="middle"
-    dominant-baseline="middle"
-    letter-spacing="-1"
-  >RS</text>
-</svg>`.trim();
-  return Buffer.from(svg);
-}
+/**
+ * @param size      square canvas edge, px
+ * @param coverage  fraction of the canvas the logo's longest side occupies
+ * @param background canvas fill behind the logo
+ */
+async function generate(
+  name: string,
+  size: number,
+  coverage: number,
+  background: { r: number; g: number; b: number; alpha: number },
+) {
+  const inner = Math.round(size * coverage);
 
-// ─── Maskable icon SVG ────────────────────────────────────────────────────────
-// Always 512×512. Full-bleed navy background so Android's adaptive-icon
-// circle crop never shows a white edge. All important content sits within
-// the inner 80% safe zone (≤ 204 px radius from centre).
-//
-//   Canvas: 512×512
-//   Background: #023E6B (navy), no border-radius — full bleed required
-//   White circle: radius 160px — well inside the 204 px safe-zone boundary
-//   "RS" text: 140px, bold, white, centred at (256, 256)
+  // contain → the logo fits inside inner×inner with its aspect ratio intact.
+  const logo = await sharp(SRC)
+    .resize(inner, inner, { fit: 'contain', background: TRANSPARENT })
+    .toBuffer();
 
-function buildMaskableSvg(): Buffer {
-  const size = 512;
-  const cx   = 256;   // circle centre x
-  const cy   = 256;   // circle centre y
-  const r    = 160;   // circle radius  (safe-zone max ≈ 204 px)
-  const fs_  = 140;   // font size
-  // text y: slightly below centre to account for font descender
-  const ty   = Math.round(cy + fs_ * 0.04);
-
-  const svg = `
-<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-  <!-- Full-bleed navy background (no rx — maskable icons must bleed to edges) -->
-  <rect width="${size}" height="${size}" fill="#023E6B"/>
-  <!-- White circle within the 80 % safe zone -->
-  <circle cx="${cx}" cy="${cy}" r="${r}" fill="white"/>
-  <!-- Navy "RS" text centred inside the circle -->
-  <text
-    x="${cx}"
-    y="${ty}"
-    font-family="Arial,Helvetica,sans-serif"
-    font-size="${fs_}"
-    font-weight="700"
-    fill="#023E6B"
-    text-anchor="middle"
-    dominant-baseline="middle"
-    letter-spacing="-2"
-  >RS</text>
-</svg>`.trim();
-  return Buffer.from(svg);
-}
-
-// ─── Generator ────────────────────────────────────────────────────────────────
-
-async function generate(svgBuffer: Buffer, size: number, name: string) {
   const dest = path.join(outDir, name);
-  await sharp(svgBuffer, { density: 300 })
-    .resize(size, size)
+  await sharp({ create: { width: size, height: size, channels: 4, background } })
+    .composite([{ input: logo, gravity: 'centre' }])
     .png()
     .toFile(dest);
-  console.log(`✓  Generated ${dest}`);
+
+  const pct = Math.round(coverage * 100);
+  console.log(`✓  ${name.padEnd(20)} ${size}×${size}  logo ${pct}%  ${background.alpha === 0 ? 'transparent' : 'white'}`);
 }
 
 (async () => {
-  await generate(buildSvg(192), 192, 'icon-192.png');
-  await generate(buildSvg(512), 512, 'icon-512.png');
-  await generate(buildMaskableSvg(), 512, 'icon-maskable.png');
-  console.log('\nPWA icons generated successfully.');
+  await generate('icon-192.png',      192, 0.80, TRANSPARENT);
+  await generate('icon-512.png',      512, 0.80, TRANSPARENT);
+  await generate('icon-maskable.png', 512, 0.60, WHITE);
+  await generate('favicon-32.png',     32, 0.90, TRANSPARENT);
+  console.log('\nPWA icons generated from public/rite-water-logo.png');
 })();

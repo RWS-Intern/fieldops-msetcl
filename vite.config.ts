@@ -11,7 +11,11 @@ export default defineConfig({
       registerType:  'autoUpdate',
       // Use our hand-crafted public/manifest.json
       manifest:      false,
-      includeAssets: ['favicon.ico', 'icons/*.png'],
+      // Generated from public/rite-water-logo.png by `npm run generate:icons`.
+      // The previous 'favicon.ico' entry named a file that has never existed
+      // in public/ — the favicon is now icons/favicon-32.png, already covered
+      // by this glob.
+      includeAssets: ['icons/*.png'],
       workbox: {
         // Allow large chunks (mapbox-gl alone is ~2.5 MB unminified)
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MB
