@@ -42,12 +42,15 @@ function getDB(): Promise<IDBPDatabase> {
 /**
  * Where an offline-captured photo belongs in the survey document, so the
  * processor can splice its uploaded Cloudinary URL into the right spot once
- * uploaded. No photo capture exists yet (that's task 3) — this shape exists
- * now so the queue schema never needs a migration when it lands.
+ * uploaded.
+ *
+ * The uid variants are matched against survey.feeders[].uid /
+ * survey.relays[].uid by SurveyQueueProcessor's appendUploadedPhoto — never
+ * by array position, which a queued payload has no reason to preserve.
  */
 export type PendingSurveyPhotoTarget =
-  | { kind: 'bay'; bayUid: string }
-  | { kind: 'device'; deviceUid: string }
+  | { kind: 'feeder'; feederUid: string }
+  | { kind: 'relay'; relayUid: string }
   | { kind: 'sitePhoto'; caption: string }
   | { kind: 'signOffSignedPage' }
   | { kind: 'signOffSurveyorSignature' }
@@ -90,7 +93,7 @@ export function toSurveyPayload(survey: SurveyReport): SurveyPayload {
 // ─── local:// photo reference helpers ──────────────────────────────────────────
 // A captured-but-not-yet-uploaded photo/signature is referenced as the
 // sentinel string `local://<photoId>` (see surveyPhotoStore.ts) inside
-// bays[].photos / devices[].photos / sitePhotos[] / signOff.signedPagePhotos
+// feeders[].photos / relays[].photos / sitePhotos[] / signOff.signedPagePhotos
 // (arrays) and signOff.surveyorSignatureImage / signOff.msetclSignatureImage
 // (single nullable strings — handled explicitly below, not assumed to be
 // arrays). These three helpers are the single place that knows how to find,
@@ -113,22 +116,17 @@ export interface LocalPhotoRef {
 export function findLocalPhotoRefs(data: PhotoBearingSurvey): LocalPhotoRef[] {
   const found: LocalPhotoRef[] = [];
 
-  // The target discriminants are still 'bay'/'device' while the arrays they
-  // point at are feeders/relays. Deliberate: renaming the discriminants would
-  // ripple into SurveyQueueProcessor's splice logic, which is the dedicated
-  // offline-pipeline phase's work, not this crash fix's. The uid still
-  // identifies the right entry either way.
   for (const feeder of data.feeders) {
     for (const url of feeder.photos) {
       if (url.startsWith(LOCAL_PHOTO_PREFIX)) {
-        found.push({ photoId: url.slice(LOCAL_PHOTO_PREFIX.length), target: { kind: 'bay', bayUid: feeder.uid } });
+        found.push({ photoId: url.slice(LOCAL_PHOTO_PREFIX.length), target: { kind: 'feeder', feederUid: feeder.uid } });
       }
     }
   }
   for (const relay of data.relays) {
     for (const url of relay.photos) {
       if (url.startsWith(LOCAL_PHOTO_PREFIX)) {
-        found.push({ photoId: url.slice(LOCAL_PHOTO_PREFIX.length), target: { kind: 'device', deviceUid: relay.uid } });
+        found.push({ photoId: url.slice(LOCAL_PHOTO_PREFIX.length), target: { kind: 'relay', relayUid: relay.uid } });
       }
     }
   }
@@ -217,7 +215,10 @@ export interface QueuedSurveySubmission {
   submittedBy:     string;
   submittedByName: string;
   data:            SurveyPayload;
-  /** Offline-captured photos awaiting upload — always [] until task 3. */
+  /**
+   * Offline-captured photos awaiting upload, stripped out of `data` above and
+   * carried here with the target that says where each one goes back.
+   */
   pendingPhotos:   PendingSurveyPhoto[];
   /** Date.now() when this entry was queued. */
   queuedAt:  number;

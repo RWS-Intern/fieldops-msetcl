@@ -19,9 +19,14 @@ import type {
 } from '@/lib/surveySubmitQueue';
 
 // ─── Photo helpers ────────────────────────────────────────────────────────────
-// Mirrors SiteTaskQueueProcessor.tsx's base64→File→Cloudinary path. No photo
-// capture exists yet (task 3), so pendingPhotos is always [] today — this
-// exists so the drain logic doesn't need to change when it lands.
+// Mirrors SiteTaskQueueProcessor.tsx's base64→File→Cloudinary path.
+//
+// Where each photo comes from: SurveyWizardPage's queueOffline() reads every
+// `local://` reference out of the survey (findLocalPhotoRefs), converts the
+// stored blob to a base64 data: URI, strips the reference from the payload
+// (stripLocalPhotoRefs) and queues the two side by side. So a queued payload
+// holds NO local:// strings, and every photo that was in one arrives here as
+// a pendingPhoto carrying the target it has to go back into.
 
 function base64ToFile(base64: string, filename: string): File {
   const arr   = base64.split(',');
@@ -53,25 +58,33 @@ async function uploadPendingPhoto(photo: PendingSurveyPhoto, siteCode: string): 
   return result.url;
 }
 
-/** Splices an uploaded photo's final URL into the right spot in the survey payload. */
+/**
+ * Splices an uploaded photo's final URL into the right spot in the survey
+ * payload.
+ *
+ * Entries are matched by `uid`, never by array position: the payload was
+ * frozen at submit time and round-tripped through IndexedDB, so position is
+ * not something this can rely on. A uid that matches nothing leaves the
+ * payload untouched rather than throwing — see the default branch.
+ */
 function appendUploadedPhoto(
   data:   SurveyPayload,
   target: PendingSurveyPhotoTarget,
   url:    string,
 ): SurveyPayload {
   switch (target.kind) {
-    case 'bay':
+    case 'feeder':
       return {
         ...data,
-        bays: data.bays.map((b) =>
-          b.uid === target.bayUid ? { ...b, photos: [...b.photos, url] } : b
+        feeders: data.feeders.map((f) =>
+          f.uid === target.feederUid ? { ...f, photos: [...f.photos, url] } : f
         ),
       };
-    case 'device':
+    case 'relay':
       return {
         ...data,
-        devices: data.devices.map((d) =>
-          d.uid === target.deviceUid ? { ...d, photos: [...d.photos, url] } : d
+        relays: data.relays.map((r) =>
+          r.uid === target.relayUid ? { ...r, photos: [...r.photos, url] } : r
         ),
       };
     case 'sitePhoto':
@@ -94,6 +107,16 @@ function appendUploadedPhoto(
         ...data,
         signOff: { ...data.signOff, msetclSignatureImage: url },
       };
+    default:
+      // Unreachable for any target this build produces — `target` is `never`
+      // here. It exists because queue items are read back from IndexedDB and
+      // may have been written by an EARLIER build: an item queued before the
+      // 'bay'/'device' discriminants were renamed to 'feeder'/'relay' would
+      // match no case, and without this the function would return undefined
+      // and corrupt the payload on the next loop iteration. Dropping one
+      // stale photo reference is far better than that.
+      console.warn('[SurveyQueue] Unrecognised photo target — dropping this photo:', target);
+      return data;
   }
 }
 
