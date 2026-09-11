@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, MapPin, ClipboardCheck, ClipboardList, ChevronRight } from 'lucide-react';
-import { useSiteLifecycle, summariseStages } from '@/hooks/useSiteLifecycle';
+import { useSiteLifecycle, summariseLifecycle } from '@/hooks/useSiteLifecycle';
 import { useSiteTasks } from '@/hooks/useSiteTasks';
+import { useProjectStore } from '@/store/projectStore';
 import { SiteTaskDetailDrawer } from '@/components/siteTasks/SiteTaskDetailDrawer';
 import { Button }   from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -143,8 +144,22 @@ function SiteHeader({ site }: { site: Site }) {
 
 // ─── Stage summary ────────────────────────────────────────────────────────────
 
-function StageSummaryGrid({ entries }: { entries: LifecycleEntry[] }) {
-  const stages = summariseStages(entries);
+/**
+ * Survey, then one tile per task type configured on this site's project.
+ *
+ * Task types come from projectStore, which useProjects() (mounted once in
+ * Layout.tsx) keeps up to date through a live onSnapshot listener — so an
+ * admin adding a task type in another tab makes a new "Not started" tile
+ * appear here without a refresh. No extra read, listener or index is added by
+ * this component.
+ *
+ * A project missing from the store (archived — useProjects filters those out)
+ * degrades to the Survey tile alone rather than erroring.
+ */
+function StageSummaryGrid({ entries, projectId }: { entries: LifecycleEntry[]; projectId: string }) {
+  const { projects } = useProjectStore();
+  const project = projects.find((p) => p.id === projectId) ?? null;
+  const tiles = summariseLifecycle(entries, project?.taskTemplates ?? []);
 
   return (
     <div>
@@ -152,32 +167,46 @@ function StageSummaryGrid({ entries }: { entries: LifecycleEntry[] }) {
         Contract Lifecycle
       </h3>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {stages.map((s) => (
-          <div
-            key={s.stage}
-            className={cn(
-              'flex flex-col gap-1 rounded-lg border p-3',
-              s.status ? 'border-gray-200 bg-white' : 'border-dashed border-gray-200 bg-gray-50',
-            )}
-          >
-            <span className="text-xs font-semibold text-gray-700">{s.label}</span>
-            {s.status ? (
-              <>
-                <span className={cn(
-                  'w-fit rounded-full px-2 py-0.5 text-[10px] font-medium',
-                  WORK_ORDER_STATUS_BADGE[s.status],
-                )}>
-                  {WORK_ORDER_STATUS_LABEL[s.status]}
-                </span>
-                {s.count > 1 && (
-                  <span className="text-[10px] text-gray-400">{s.count} work orders</span>
-                )}
-              </>
-            ) : (
-              <span className="text-[10px] text-gray-400">Not started</span>
-            )}
-          </div>
-        ))}
+        {tiles.map((t) => {
+          // Each tile speaks its own status vocabulary — same `kind` split the
+          // timeline rows below already use, so a task tile can't render a
+          // work-order label or vice versa.
+          const badge = t.status === null
+            ? ''
+            : t.kind === 'workOrder'
+            ? WORK_ORDER_STATUS_BADGE[t.status as WorkOrderStatus] ?? 'bg-gray-100 text-gray-600'
+            : TASK_STATUS_BADGE[t.status as TaskStatus] ?? 'bg-gray-100 text-gray-600';
+          const statusLabel = t.status === null
+            ? ''
+            : t.kind === 'workOrder'
+            ? WORK_ORDER_STATUS_LABEL[t.status as WorkOrderStatus] ?? t.status
+            : TASK_STATUS_LABEL[t.status as TaskStatus] ?? t.status;
+          const noun = t.kind === 'workOrder' ? 'work order' : 'task';
+
+          return (
+            <div
+              key={t.key}
+              className={cn(
+                'flex flex-col gap-1 rounded-lg border p-3',
+                t.status ? 'border-gray-200 bg-white' : 'border-dashed border-gray-200 bg-gray-50',
+              )}
+            >
+              <span className="text-xs font-semibold text-gray-700">{t.label}</span>
+              {t.status !== null ? (
+                <>
+                  <span className={cn('w-fit rounded-full px-2 py-0.5 text-[10px] font-medium', badge)}>
+                    {statusLabel}
+                  </span>
+                  {t.count > 1 && (
+                    <span className="text-[10px] text-gray-400">{t.count} {noun}s</span>
+                  )}
+                </>
+              ) : (
+                <span className="text-[10px] text-gray-400">Not started</span>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -319,7 +348,7 @@ export function SubstationLifecyclePage() {
 
         <SiteHeader site={site} />
 
-        <StageSummaryGrid entries={entries} />
+        <StageSummaryGrid entries={entries} projectId={site.projectId} />
 
         <div>
           <div className="mb-2 flex items-center gap-2">

@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { doc, collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { mapWorkOrder } from '@/hooks/useAssignedWorkOrders';
-import type { Site, SiteStatus, TaskStatus, WorkOrderStage, WorkOrderStatus } from '@/types';
+import type {
+  Site, SiteStatus, TaskStatus, TaskTemplate, WorkOrderStage, WorkOrderStatus,
+} from '@/types';
 
 /**
  * One row of a substation's lifecycle — a work order or a site task,
@@ -26,9 +28,18 @@ export interface LifecycleEntry {
   updatedAt: Date;
   /**
    * Lifecycle stage, for the quick-glance summary. Null for site tasks, which
-   * are not part of the four-stage contract lifecycle.
+   * are not work-order stages.
    */
   stage: WorkOrderStage | null;
+  /**
+   * The site task's template key (e.g. 'matdel'), matching
+   * TaskTemplate.taskKey on the parent project. Null for work orders.
+   *
+   * This is what lets the summary row line a task type up with its instance at
+   * this site — by KEY, never by label, since a template's label can be edited
+   * after its site tasks were created (SiteTask.taskLabel is a snapshot).
+   */
+  taskKey: string | null;
   /**
    * Route to the existing detail surface, or null when there isn't one.
    *
@@ -159,6 +170,7 @@ export function useSiteLifecycle(siteId: string | undefined): SiteLifecycle {
               assignedToName: w.assignedToName,
               updatedAt: w.updatedAt,
               stage:  w.stage,
+              taskKey: null,
               // The survey record page keys off the WORK ORDER id (the paired
               // survey shares it — see createWorkOrder). Later stages have no
               // screen yet, so their rows are informational only.
@@ -203,6 +215,7 @@ export function useSiteLifecycle(siteId: string | undefined): SiteLifecycle {
                 assignedToName: data['assignedToName'] ?? null,
                 updatedAt: data['updatedAt']?.toDate?.() ?? new Date(),
                 stage:  null,
+                taskKey: data['taskKey'] ?? null,
                 // No route exists for a site task — the page opens the
                 // existing SiteTaskDetailDrawer read-only instead.
                 linkTo: null,
@@ -237,37 +250,75 @@ export const WORK_ORDER_STAGE_LABEL: Record<WorkOrderStage, string> = {
   amc:           'AMC',
 };
 
-/** The contract lifecycle, in order. Only 'survey' is implemented today. */
-export const WORK_ORDER_STAGES: readonly WorkOrderStage[] = [
-  'survey', 'repair', 'commissioning', 'amc',
-];
-
-export interface StageSummary {
-  stage:  WorkOrderStage;
+/**
+ * One tile in the lifecycle summary row.
+ *
+ * `kind` tells the renderer which status vocabulary this tile speaks — a
+ * work-order tile carries a WorkOrderStatus, a task-type tile a TaskStatus,
+ * and the two unions don't fully overlap. Same discriminator LifecycleEntry
+ * already uses, for the same reason.
+ */
+export interface LifecycleTile {
+  /** 'survey' for the work-order tile; the template's taskKey otherwise. */
+  key:    string;
   label:  string;
-  /** null when no work order exists for this stage yet — "Not started". */
-  status: WorkOrderStatus | null;
-  /** How many work orders this site has had at this stage. */
+  kind:   'workOrder' | 'siteTask';
+  /** null when nothing exists for this tile at this site yet — "Not started". */
+  status: string | null;
+  /** How many records of this kind the site has. */
   count:  number;
 }
 
 /**
- * Current state of each of the four lifecycle stages at this site, derived
- * from the timeline.
+ * The lifecycle summary row: the Survey work order, then one tile per task
+ * type configured on the site's project.
  *
- * A stage with no work order reads "Not started" rather than being hidden:
- * only the survey stage is built today, and showing all four makes it visible
- * that repair/commissioning/AMC are coming rather than missing. Status comes
- * from the MOST RECENT work order at that stage (entries arrive newest-first).
+ * WHY THE TASK TYPES COME FROM THE PROJECT, not from the site's own tasks:
+ * adding a template to a project does NOT retroactively create a SiteTask on
+ * existing sites (updateProject writes the project document only; SiteTasks
+ * are spawned at site-creation time). So a task type added after a site was
+ * created has no instance there, and deriving tiles from the site's tasks
+ * alone would silently omit it. "This task type exists for the project but
+ * hasn't started here" is exactly what this row is for, so it renders as
+ * "Not started" instead.
+ *
+ * Repair / Commissioning / AMC tiles are GONE. Nothing in this app creates a
+ * work order at those stages, so they were permanent dead placeholders; real
+ * post-survey work happens through task types. WorkOrderStage itself is
+ * deliberately left intact for if stage-based work orders are ever built.
+ *
+ * Status for every tile comes from the MOST RECENT matching entry — `entries`
+ * arrives newest-first — matching by taskKey, never by label, since a
+ * template's label can be edited after its site tasks snapshotted it.
  */
-export function summariseStages(entries: LifecycleEntry[]): StageSummary[] {
-  return WORK_ORDER_STAGES.map((stage) => {
-    const forStage = entries.filter((e) => e.kind === 'workOrder' && e.stage === stage);
-    return {
-      stage,
-      label:  WORK_ORDER_STAGE_LABEL[stage],
-      status: forStage.length > 0 ? (forStage[0].status as WorkOrderStatus) : null,
-      count:  forStage.length,
-    };
-  });
+export function summariseLifecycle(
+  entries:       LifecycleEntry[],
+  taskTemplates: readonly TaskTemplate[],
+): LifecycleTile[] {
+  const surveys = entries.filter((e) => e.kind === 'workOrder' && e.stage === 'survey');
+
+  const surveyTile: LifecycleTile = {
+    key:    'survey',
+    label:  WORK_ORDER_STAGE_LABEL.survey,
+    kind:   'workOrder',
+    status: surveys.length > 0 ? (surveys[0].status as WorkOrderStatus) : null,
+    count:  surveys.length,
+  };
+
+  const taskTiles = [...taskTemplates]
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((template): LifecycleTile => {
+      const forKey = entries.filter(
+        (e) => e.kind === 'siteTask' && e.taskKey === template.taskKey,
+      );
+      return {
+        key:    template.taskKey,
+        label:  template.label,
+        kind:   'siteTask',
+        status: forKey.length > 0 ? (forKey[0].status as TaskStatus) : null,
+        count:  forKey.length,
+      };
+    });
+
+  return [surveyTile, ...taskTiles];
 }
