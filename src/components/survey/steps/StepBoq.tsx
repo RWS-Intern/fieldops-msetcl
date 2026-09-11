@@ -4,7 +4,6 @@ import {
   deriveSupplyQuantities,
   applyDerivedQuantities,
 } from '@/lib/boqDerivation';
-import { formatMetresAsKm } from '@/lib/units';
 import { BOQ_CHECK_LABELS } from '@/lib/surveyLabels';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,13 +12,15 @@ import type { SurveyStepProps } from './StepProps';
 import type { BoqMasterItem } from '@/lib/boqMaster';
 import type { SurveyBoqLine, SurveyReport } from '@/types';
 
-// ─── Cable-length hint — 4 items in Km correspond to Section H cable runs ──────
+// ─── Cable-length hint — sourced from the Cable Runs step, in METRES ──────────
+// No km conversion anywhere: the master's unit for these lines is 'm' (Phase 1
+// decision), so the recorded run total is already the figure to enter.
 
 const CABLE_HINT_BY_ITEM_KEY: Record<string, 'cat6' | 'power'> = {
-  cat6Cable:                  'cat6',   // supply, sr 9
-  powerSupplyCable:           'power',  // supply, sr 12
-  cat6CableLayingTermination: 'cat6',   // service, sr 6
-  powerCableLayingTermination: 'power', // service, sr 5
+  cat6Cable:                   'cat6',   // supply
+  powerSupplyCable:            'power',  // supply
+  cat6CableLayingTermination:  'cat6',   // service
+  powerCableLayingTermination: 'power',  // service
 };
 
 function cableRunTotalMetres(cableRuns: SurveyReport['cableRuns'], cableType: 'cat6' | 'power'): number {
@@ -28,12 +29,18 @@ function cableRunTotalMetres(cableRuns: SurveyReport['cableRuns'], cableType: 'c
     .reduce((sum, r) => sum + (r.lengthM ?? 0), 0);
 }
 
+/** Blank clears to null, never 0 — an unanswered column is not a considered zero. */
+function toQty(raw: string): number | null {
+  return raw === '' ? null : Math.max(0, Number(raw));
+}
+
 // ─── One BOQ section (Supply or Service) — stacked cards, matched by itemKey ───
 
 function BoqSection({
-  title, master, lines, onChangeLines, cableRuns, readOnly,
+  title, subtitle, master, lines, onChangeLines, cableRuns, readOnly,
 }: {
   title:         string;
+  subtitle:      string;
   master:        readonly BoqMasterItem[];
   lines:         SurveyBoqLine[];
   onChangeLines: (lines: SurveyBoqLine[]) => void;
@@ -46,7 +53,11 @@ function BoqSection({
 
   return (
     <div className="flex flex-col gap-2">
-      <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">{title}</h4>
+      <div>
+        <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">{title}</h4>
+        <p className="text-xs text-gray-400">{subtitle}</p>
+      </div>
+
       {master.map((item) => {
         // Matched by itemKey, never array position — createEmptyBoqLines()
         // seeds exactly one line per master item, but the master (not the
@@ -56,15 +67,15 @@ function BoqSection({
 
         const cableType  = CABLE_HINT_BY_ITEM_KEY[item.itemKey];
         const hintMetres = cableType ? cableRunTotalMetres(cableRuns, cableType) : null;
-        // Narrow directly off hintMetres (not the separate showHint flag) so
-        // TS can prove it's non-null at the formatMetresAsKm call site.
-        const hintKmStr  = hintMetres !== null ? formatMetresAsKm(hintMetres) : null;
         const showHint   = hintMetres !== null && hintMetres > 0;
 
         // A not-applicable line without a reason is the one thing this toggle
         // exists to prevent, so it is surfaced inline as well as in the
         // step's validation summary.
         const missingReason = line.notApplicable && !line.remarks?.trim();
+
+        // Metres can legitimately be fractional; counts cannot.
+        const qtyInputMode = item.unit === 'm' ? 'decimal' : 'numeric';
 
         return (
           <div key={item.itemKey} className="flex flex-col gap-2 p-3 rounded-lg border border-gray-100">
@@ -81,52 +92,75 @@ function BoqSection({
               <span className="text-xs text-gray-400 shrink-0">{item.unit}</span>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            {/* The official table's two quantity columns. Service/ITC items
+                carry hasExistingUsable:false — "already on site" is
+                meaningless for an installation activity — so those render
+                the supply column alone rather than a dead input. */}
+            <div className={cn('grid gap-2', item.hasExistingUsable ? 'grid-cols-2' : 'grid-cols-1')}>
+              {item.hasExistingUsable && (
+                <div className="flex flex-col gap-1">
+                  <Label className="text-xs">Existing Usable (at site)</Label>
+                  <Input
+                    type="number"
+                    inputMode={qtyInputMode}
+                    // Never disabled by notApplicable: what is already
+                    // installed is the surveyor's own observation, and it
+                    // stays true whether or not we supply more. Never
+                    // auto-derived either.
+                    disabled={readOnly}
+                    value={line.existingUsable ?? ''}
+                    onChange={(e) => updateLine(item.itemKey, { existingUsable: toQty(e.target.value) })}
+                  />
+                </div>
+              )}
+
               <div className="flex flex-col gap-1">
-                <Label className="text-xs">Surveyed Qty</Label>
+                <Label className="text-xs">Required to Supply</Label>
                 <Input
                   type="number"
-                  inputMode={item.unit === 'Km' ? 'decimal' : 'numeric'}
+                  inputMode={qtyInputMode}
                   // Locked at 0 while marked not applicable — unticking the
                   // toggle makes it editable again without clearing it.
                   disabled={readOnly || line.notApplicable}
-                  value={line.surveyedQty ?? ''}
+                  value={line.requiredToSupply ?? ''}
                   onChange={(e) =>
                     updateLine(item.itemKey, {
-                      surveyedQty: e.target.value === '' ? null : Math.max(0, Number(e.target.value)),
+                      requiredToSupply: toQty(e.target.value),
                       // Any manual edit takes the line out of auto control for
                       // good — recomputes must never overwrite it after this.
                       autoDerived: false,
                     })
                   }
                 />
-                {line.autoDerived && line.surveyedQty !== null && (
+                {line.autoDerived && line.requiredToSupply !== null && (
                   <span className="text-[10px] leading-snug text-brand-blue">
                     Auto-calculated — adjust if needed
                   </span>
                 )}
               </div>
-              <div className="flex flex-col gap-1">
-                <Label className="text-xs">
-                  Remarks
-                  {line.notApplicable && <span className="text-brand-red ml-0.5">*</span>}
-                </Label>
-                <Input
-                  disabled={readOnly}
-                  value={line.remarks ?? ''}
-                  placeholder={line.notApplicable ? 'Why is this not applicable?' : item.remarksHint}
-                  className={missingReason ? 'border-brand-red focus-visible:ring-brand-red' : ''}
-                  onChange={(e) => updateLine(item.itemKey, { remarks: e.target.value || null })}
-                />
-              </div>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <Label className="text-xs">
+                Remarks
+                {line.notApplicable && <span className="text-brand-red ml-0.5">*</span>}
+              </Label>
+              <Input
+                disabled={readOnly}
+                value={line.remarks ?? ''}
+                placeholder={line.notApplicable ? 'Why is this not applicable?' : item.remarksHint}
+                className={missingReason ? 'border-brand-red focus-visible:ring-brand-red' : ''}
+                onChange={(e) => updateLine(item.itemKey, { remarks: e.target.value || null })}
+              />
             </div>
 
             {item.guidance && (
               <p className="text-xs leading-snug text-gray-500">{item.guidance}</p>
             )}
 
-            {/* Not-applicable toggle — required items only. Item 13 is
-                optional by design, so a blank there needs no justification. */}
+            {/* Not-applicable toggle — required items only. An optional line's
+                blank needs no justification (none are optional today, but the
+                master, not this component, decides that). */}
             {item.required && (
               <label
                 className={cn(
@@ -141,7 +175,9 @@ function BoqSection({
                   onChange={(e) =>
                     updateLine(item.itemKey, e.target.checked
                       // A considered zero, stored distinctly from a blank.
-                      ? { notApplicable: true, surveyedQty: 0, autoDerived: false }
+                      // existingUsable is deliberately left alone — zeroing it
+                      // would assert an observation nobody made.
+                      ? { notApplicable: true, requiredToSupply: 0, autoDerived: false }
                       // Deliberately keeps the quantity — the surveyor may have
                       // ticked this by mistake after entering a real number.
                       : { notApplicable: false })
@@ -161,15 +197,20 @@ function BoqSection({
             {showHint && (
               <div className="flex items-center justify-between gap-2 px-2 py-1.5 rounded bg-blue-50 border border-blue-200">
                 <span className="text-xs text-brand-blue">
-                  Cable runs recorded: {hintMetres} m = {hintKmStr} km
+                  Cable runs recorded: {hintMetres} m
                 </span>
                 {!readOnly && !line.notApplicable && (
                   <button
                     type="button"
+                    // Sets the supply column only, and takes the line out of
+                    // auto control like any other manual entry. Remarks are
+                    // NOT touched: the old version wrote the metre figure
+                    // there because the field itself was in km, and doing that
+                    // now would overwrite whatever the surveyor had written.
                     onClick={() =>
                       updateLine(item.itemKey, {
-                        surveyedQty: Number(hintKmStr),
-                        remarks: `${hintMetres} m`,
+                        requiredToSupply: hintMetres,
+                        autoDerived: false,
                       })
                     }
                     className="text-xs font-medium text-brand-blue hover:underline shrink-0"
@@ -186,23 +227,24 @@ function BoqSection({
   );
 }
 
-/** Bill of Quantity — Section J. */
+/** Bill of Quantity — the official two-column table plus the service lines. */
 export function StepBoq({ survey, onChange, readOnly }: SurveyStepProps) {
-  // Auto-derivation from Sections C/D. Runs on entry to this step and again
-  // whenever its inputs change, so revisiting the BOQ after adding a bay picks
-  // the new bay up. applyDerivedQuantities returns the SAME array reference
-  // when nothing changed, so this settles after one pass instead of looping,
-  // and it skips every line the surveyor has already taken control of.
+  // Auto-derivation of the four derived supply lines: MFM / CMR / F-RTU summed
+  // from the Feeder List, and the tap-position transducer counted from
+  // Transformer Details. Runs on entry to this step and again whenever its
+  // inputs change, so revisiting the BOQ after adding a feeder or transformer
+  // picks it up.
   //
-  // Service quantities are derived from `nextSupply`, not `survey.boqSupply`,
-  // because they must mirror the supply line's FINAL value — including a
-  // supply figure derived in this very pass.
+  // applyDerivedQuantities returns the SAME array reference when nothing
+  // changed, so this settles after one pass instead of looping, and it skips
+  // every line the surveyor has already taken control of.
+  //
+  // Service lines do NOT auto-mirror their supply counterparts: every service
+  // master item carries autoDerived:false, so a recompute over them is a
+  // guaranteed no-op. Both of their columns are direct entry.
   useEffect(() => {
     if (readOnly) return;
 
-    // Service lines no longer auto-mirror their supply counterparts: every
-    // service master item now carries autoDerived:false, so a recompute over
-    // them was a guaranteed no-op. Only the supply side derives.
     const nextSupply = applyDerivedQuantities(survey.boqSupply, deriveSupplyQuantities(survey));
     if (nextSupply === survey.boqSupply) return;
 
@@ -215,16 +257,18 @@ export function StepBoq({ survey, onChange, readOnly }: SurveyStepProps) {
 
       <div className="p-3 rounded-lg bg-gray-50 border border-gray-100">
         <p className="text-xs text-gray-600">
-          1 Km = 1000 m. Where surveyed quantity differs from the tender Annexure-I
+          Record what is already installed and usable at the site, and what we must supply.
+          Cable lines are in metres. Where a quantity differs from the tender Annexure-I
           indicative figure, record the reason in Remarks. Items marked{' '}
-          <span className="text-brand-red">*</span> need a quantity, or an explicit
-          &quot;not applicable at this site&quot; with a reason — this BOQ, once
+          <span className="text-brand-red">*</span> need a required-to-supply quantity, or an
+          explicit &quot;not applicable at this site&quot; with a reason — this BOQ, once
           jointly signed, governs supply at this site.
         </p>
       </div>
 
       <BoqSection
         title="Supply"
+        subtitle="Both columns apply — existing usable, and required to supply."
         master={SUPPLY_BOQ_MASTER}
         lines={survey.boqSupply}
         onChangeLines={(boqSupply) => onChange({ boqSupply })}
@@ -234,6 +278,7 @@ export function StepBoq({ survey, onChange, readOnly }: SurveyStepProps) {
 
       <BoqSection
         title="Service"
+        subtitle="Installation, testing & commissioning — required quantity only."
         master={SERVICE_BOQ_MASTER}
         lines={survey.boqService}
         onChangeLines={(boqService) => onChange({ boqService })}

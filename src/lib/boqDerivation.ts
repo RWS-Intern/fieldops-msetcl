@@ -37,35 +37,55 @@ export const DERIVED_ITEM_KEYS: ReadonlySet<string> = new Set(
 );
 
 /**
- * Sums each derived line's feeder field across the Feeder List.
+ * Computes every derived line's suggested quantity.
  *
  * Returns a plain itemKey -> quantity map; keys absent from the map are not
  * derived at all.
  *
- * A total is `null`, not 0, when NO feeder has answered that column (including
- * when there are no feeders yet). 0 would assert "none needed at this site",
- * which is a claim nobody has made — the line must stay blank so validation
- * flags it. A feeder that explicitly answered 0 IS an answer and makes the
- * total a real number; feeders that left the column blank contribute nothing
- * to a total that other feeders have started.
+ * TWO SOURCES, per the master's two mutually-exclusive source fields:
+ *   - derivedFromFeederField     — SUMS a numeric column across survey.feeders
+ *                                  (MFM / CMR / F-RTU)
+ *   - derivedFromTransformerFlag — COUNTS survey.transformers whose named
+ *                                  boolean is true (tap position transducer)
+ *
+ * In both cases a total is `null`, not 0, when NOTHING has been answered
+ * (including when the source array is empty). 0 would assert "none needed at
+ * this site", which is a claim nobody has made — the line must stay blank so
+ * validation flags it. An entry that explicitly answered (0, or false) IS an
+ * answer and makes the total a real number; entries left blank contribute
+ * nothing to a total that other entries have started.
  */
 export function deriveSupplyQuantities(survey: SurveyReport): Record<string, number | null> {
   const derived: Record<string, number | null> = {};
 
   for (const item of BOQ_DERIVED_ITEMS) {
-    const field = item.derivedFromFeederField;
-    // An autoDerived master item with no source field has nothing to sum —
+    if (item.derivedFromFeederField) {
+      const field = item.derivedFromFeederField;
+      let total: number | null = null;
+      for (const feeder of survey.feeders) {
+        const value = feeder[field];
+        if (value === null || value === undefined) continue;
+        total = (total ?? 0) + value;
+      }
+      derived[item.itemKey] = total;
+      continue;
+    }
+
+    if (item.derivedFromTransformerFlag) {
+      const flag = item.derivedFromTransformerFlag;
+      let count: number | null = null;
+      for (const transformer of survey.transformers) {
+        const value = transformer[flag];
+        if (value === null || value === undefined) continue;
+        count = (count ?? 0) + (value ? 1 : 0);
+      }
+      derived[item.itemKey] = count;
+      continue;
+    }
+
+    // An autoDerived master item with no source field has nothing to compute —
     // leave it out of the map entirely so applyDerivedQuantities skips it
     // rather than blanking a line the surveyor may have filled.
-    if (!field) continue;
-
-    let total: number | null = null;
-    for (const feeder of survey.feeders) {
-      const value = feeder[field];
-      if (value === null || value === undefined) continue;
-      total = (total ?? 0) + value;
-    }
-    derived[item.itemKey] = total;
   }
 
   return derived;

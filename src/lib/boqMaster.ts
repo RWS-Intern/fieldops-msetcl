@@ -63,6 +63,13 @@ export interface BoqMasterItem {
    * autoDerived is true; names a numeric field on SurveyFeederEntry.
    */
   derivedFromFeederField?: 'mfmRequired' | 'cmrRequired' | 'frtuModulesRequired';
+  /**
+   * COUNTS the transformers whose named boolean is true into requiredToSupply
+   * — a different operation from derivedFromFeederField's sum, and over a
+   * different array, which is why it is a separate field rather than a
+   * widened union. Exactly one of the two may be set on an item.
+   */
+  derivedFromTransformerFlag?: 'tptRequired';
 }
 
 // ---- Supply Part: the official two-column BOQ table (12 items) --------------
@@ -107,8 +114,12 @@ export const SUPPLY_BOQ_MASTER: readonly BoqMasterItem[] = [
   { sr: 11, itemKey: 'powerSupplyCable',      item: 'Power Supply cable (2C, Cu, Ar, 2.5 sq.mm)', unit: 'm',    required: true, hasExistingUsable: true, autoDerived: false, remarksHint: 'route notes',
     guidance: 'Measure DC/AC supply cable route length in metres. A running total from the cable-run entries is offered as a suggestion.' },
 
-  { sr: 12, itemKey: 'tapPositionTransducer', item: 'Transformer Tap position transducer',        unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: false,
-    guidance: 'Count power transformers needing a transducer — cross-check against the Transformer Details section.' },
+  // Derived from a different array than the three above: Transformer Details,
+  // not the Feeder List. Its source only started existing in Phase 2c
+  // (survey.transformers[].tptRequired) — before that this line had no
+  // derivable input at all and was direct entry.
+  { sr: 12, itemKey: 'tapPositionTransducer', item: 'Transformer Tap position transducer',        unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: true, derivedFromTransformerFlag: 'tptRequired',
+    guidance: 'Suggested from Transformer Details — the number of transformers marked "Tap Position Transducer (TPT) required". Adjust if needed.' },
 ] as const;
 
 // ---- Service Part (6 items) -------------------------------------------------

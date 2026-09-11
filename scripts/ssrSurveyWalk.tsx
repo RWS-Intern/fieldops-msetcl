@@ -28,6 +28,7 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createEmptySurveyReport } from '@/lib/boqMaster';
+import { deriveSupplyQuantities, applyDerivedQuantities } from '@/lib/boqDerivation';
 import { validateSurvey, getStepStatuses } from '@/lib/surveyValidation';
 import { StepSiteVisit } from '@/components/survey/steps/StepSiteVisit';
 import { StepFeederList } from '@/components/survey/steps/StepFeederList';
@@ -98,8 +99,24 @@ function buildPopulatedSurvey(): SurveyReport {
   survey.sitePhotos.push({
     url: 'https://example.test/a.jpg', caption: 'Substation nameplate / entrance',
   });
+  // BOQ lines in three distinct states, so the step renders every branch:
+  // a plain two-column entry, an existing-usable-only observation, and a
+  // not-applicable line with its reason.
   survey.boqSupply[0].requiredToSupply = 1;
   survey.boqSupply[1].existingUsable   = 1;
+  survey.boqSupply[3].notApplicable    = true;
+  survey.boqSupply[3].requiredToSupply = 0;
+  survey.boqSupply[3].autoDerived      = false;
+  survey.boqSupply[3].remarks          = 'Existing switch has spare ports.';
+  survey.boqService[0].requiredToSupply = 1;
+
+  // Apply the REAL derivation to the four auto-derived lines (MFM / CMR /
+  // F-RTU summed from the feeders above, tap-position transducer counted from
+  // the transformers above). StepBoq does this in an effect, and
+  // renderToStaticMarkup never runs effects — so doing it here is what makes
+  // the step's "Auto-calculated — adjust if needed" branch render at all, and
+  // it exercises deriveSupplyQuantities/applyDerivedQuantities themselves.
+  survey.boqSupply = applyDerivedQuantities(survey.boqSupply, deriveSupplyQuantities(survey));
 
   return survey;
 }
@@ -132,7 +149,18 @@ export function runSurveyWalk(): number {
 
   let failures = 0;
 
-  console.log('── wizard render-body calls (run on EVERY render) ──');
+  console.log('── BOQ auto-derivation (from the feeder / transformer fixtures) ──');
+  try {
+    const derived = deriveSupplyQuantities(survey);
+    for (const [itemKey, value] of Object.entries(derived)) {
+      console.log(`  ok   ${itemKey} -> ${value === null ? 'null (nothing answered)' : value}`);
+    }
+  } catch (err) {
+    failures++;
+    console.log(`  FAIL deriveSupplyQuantities: ${(err as Error).message}`);
+  }
+
+  console.log('\n── wizard render-body calls (run on EVERY render) ──');
   try {
     const issues   = validateSurvey(survey);
     const statuses = getStepStatuses(survey);
