@@ -25,6 +25,8 @@ import { cn }      from '@/lib/utils';
 import { StepSiteVisit }      from '@/components/survey/steps/StepSiteVisit';
 import { StepFeederList }     from '@/components/survey/steps/StepFeederList';
 import { StepRelayDetails }   from '@/components/survey/steps/StepRelayDetails';
+import { StepCapacitorBanks } from '@/components/survey/steps/StepCapacitorBanks';
+import { StepTransformerDetails } from '@/components/survey/steps/StepTransformerDetails';
 import { StepInfrastructure } from '@/components/survey/steps/StepInfrastructure';
 import { StepCableRuns }      from '@/components/survey/steps/StepCableRuns';
 import { StepPhotos }         from '@/components/survey/steps/StepPhotos';
@@ -55,37 +57,19 @@ interface WizardStep {
 }
 
 /**
- * The confirmed 10-step structure.
+ * The confirmed 10-step structure. Every step now has a real form — the
+ * Capacitor Banks and Transformer Details placeholders are gone.
  *
- * Steps 4 and 5 are placeholders — their shapes exist (survey.capacitorBanks /
- * survey.transformers) but their forms land in a later phase. Steps 6, 9 and
- * 10 keep their EXISTING components mounted: those are being revised later,
- * not built from nothing, and replacing working UI with a placeholder would
- * lose function for no gain.
+ * Steps 6, 9 and 10 keep the components they already had: those are being
+ * REVISED against the official checklist in a later phase, not built from
+ * nothing, so they stay mounted and working in the meantime.
  */
-function placeholderStep(section: string): React.ComponentType<SurveyStepProps> {
-  return function StepPlaceholder() {
-    return (
-      <div className="flex flex-col gap-3">
-        <h3 className="text-base font-semibold text-gray-900">{section}</h3>
-        <div className="flex items-start gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-          <Clock className="h-5 w-5 text-brand-blue shrink-0 mt-0.5" />
-          <p className="text-xs text-brand-blue">
-            This section is part of the survey rebuild — its fields are added in a later phase.
-            Nothing needs to be entered here yet, and leaving it empty will not block Submit.
-          </p>
-        </div>
-      </div>
-    );
-  };
-}
-
 const STEPS: WizardStep[] = [
   { key: 'site_visit',      label: 'Site & Visit',                    Component: StepSiteVisit,                             validationIndex: 0 },
   { key: 'feeders',         label: 'Feeder List',                     Component: StepFeederList,                            validationIndex: 1 },
   { key: 'relays',          label: 'CRP Relay Details',               Component: StepRelayDetails,                          validationIndex: 2 },
-  { key: 'capacitor_banks', label: 'Capacitor Banks',                 Component: placeholderStep('Capacitor Bank Details'), validationIndex: null },
-  { key: 'transformers',    label: 'Transformer Details',             Component: placeholderStep('Transformer Details'),    validationIndex: null },
+  { key: 'capacitor_banks', label: 'Capacitor Banks',                 Component: StepCapacitorBanks,                        validationIndex: null },
+  { key: 'transformers',    label: 'Transformer Details',             Component: StepTransformerDetails,                    validationIndex: null },
   { key: 'infrastructure',  label: 'Site Infrastructure & Checklist', Component: StepInfrastructure,                        validationIndex: 3 },
   { key: 'cable_runs',      label: 'Cable Runs',                      Component: StepCableRuns,                             validationIndex: 4 },
   { key: 'photos',          label: 'Photos',                          Component: StepPhotos,                                validationIndex: 5 },

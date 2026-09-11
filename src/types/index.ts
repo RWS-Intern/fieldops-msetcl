@@ -597,7 +597,13 @@ export interface SurveyCapacitorBank {
   controlType: 'auto' | 'manual' | null;
   /** Nameplate rating as transcribed, e.g. "5 MVAR" — text, not a number. */
   ratingPerBank: string | null;
+  /**
+   * Free text, not a boolean: one entry can cover several banks
+   * (`numberOfBanks`), so "2 of 3 in service" is a real and common answer
+   * that a yes/no could only record as a lie in one direction.
+   */
   workingStatus: string | null;
+  remarks: string | null;
 }
 
 // ─── Transformer Details (new repeatable group) ───────────────────────────────

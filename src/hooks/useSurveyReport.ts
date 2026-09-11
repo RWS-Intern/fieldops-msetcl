@@ -125,6 +125,7 @@ function mapCapacitorBank(raw: Record<string, any>): SurveyCapacitorBank {
     controlType:   raw['controlType']   ?? null,
     ratingPerBank: raw['ratingPerBank'] ?? null,
     workingStatus: raw['workingStatus'] ?? null,
+    remarks:       raw['remarks']       ?? null,
   };
 }
 
