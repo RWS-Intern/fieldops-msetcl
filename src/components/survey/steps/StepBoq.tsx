@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import { SUPPLY_BOQ_MASTER, SERVICE_BOQ_MASTER } from '@/lib/boqMaster';
 import {
   deriveSupplyQuantities,
-  deriveServiceQuantities,
   applyDerivedQuantities,
 } from '@/lib/boqDerivation';
 import { formatMetresAsKm } from '@/lib/units';
@@ -201,17 +200,13 @@ export function StepBoq({ survey, onChange, readOnly }: SurveyStepProps) {
   useEffect(() => {
     if (readOnly) return;
 
-    const nextSupply  = applyDerivedQuantities(survey.boqSupply, deriveSupplyQuantities(survey));
-    const nextService = applyDerivedQuantities(survey.boqService, deriveServiceQuantities(nextSupply));
+    // Service lines no longer auto-mirror their supply counterparts: every
+    // service master item now carries autoDerived:false, so a recompute over
+    // them was a guaranteed no-op. Only the supply side derives.
+    const nextSupply = applyDerivedQuantities(survey.boqSupply, deriveSupplyQuantities(survey));
+    if (nextSupply === survey.boqSupply) return;
 
-    const supplyChanged  = nextSupply  !== survey.boqSupply;
-    const serviceChanged = nextService !== survey.boqService;
-    if (!supplyChanged && !serviceChanged) return;
-
-    onChange({
-      ...(supplyChanged  ? { boqSupply:  nextSupply  } : {}),
-      ...(serviceChanged ? { boqService: nextService } : {}),
-    });
+    onChange({ boqSupply: nextSupply });
   }, [survey, onChange, readOnly]);
 
   return (

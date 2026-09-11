@@ -52,13 +52,16 @@ export function StepSignOff({
 
   const totalPhotos =
     survey.sitePhotos.length +
-    survey.bays.reduce((n, b) => n + b.photos.length, 0) +
-    survey.devices.reduce((n, d) => n + d.photos.length, 0) +
+    survey.feeders.reduce((n, f) => n + f.photos.length, 0) +
+    survey.relays.reduce((n, r) => n + r.photos.length, 0) +
     signOff.signedPagePhotos.length;
   const boqTotalLines = survey.boqSupply.length + survey.boqService.length;
+  // "Filled" counts the required-to-supply column, matching validateBoq's
+  // remap — that is the column that governs supply. existingUsable is not
+  // counted here for the same reason it carries no validation rule.
   const boqFilledLines =
-    survey.boqSupply.filter((l) => l.surveyedQty != null).length +
-    survey.boqService.filter((l) => l.surveyedQty != null).length;
+    survey.boqSupply.filter((l) => l.requiredToSupply != null).length +
+    survey.boqService.filter((l) => l.requiredToSupply != null).length;
 
   return (
     <div className="flex flex-col gap-5">
@@ -154,8 +157,8 @@ export function StepSignOff({
           This is the last screen before a contractual submission for approval.
         </p>
         <div className="grid grid-cols-3 gap-3 p-3 rounded-lg bg-gray-50 border border-gray-100">
-          <SummaryStat label="Bays" value={survey.bays.length} />
-          <SummaryStat label="Devices" value={survey.devices.length} />
+          <SummaryStat label="Feeders" value={survey.feeders.length} />
+          <SummaryStat label="Relays" value={survey.relays.length} />
           <SummaryStat label="Cable Runs" value={survey.cableRuns.length} />
           <SummaryStat label="BOQ Lines Filled" value={`${boqFilledLines}/${boqTotalLines}`} />
           <SummaryStat label="Total Photos" value={totalPhotos} />

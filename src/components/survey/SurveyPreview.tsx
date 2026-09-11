@@ -7,25 +7,34 @@ import { SUPPLY_BOQ_MASTER, SERVICE_BOQ_MASTER } from '@/lib/boqMaster';
 import { SURVEY_PHOTO_SLOTS, validateSurvey } from '@/lib/surveyValidation';
 import { formatMetresAsKm } from '@/lib/units';
 import {
-  BAY_TYPE_LABELS, DEVICE_TYPE_LABELS, PROTOCOL_LABELS, PORT_LABELS,
-  CABLE_TYPE_LABELS, TRAYS_LABELS, CIVIL_WORK_LABELS, DC_VOLTAGE_LABELS,
-  PRE_VISIT_LABELS, BOQ_CHECK_LABELS,
+  VOLTAGE_LEVEL_LABELS, BAY_COUNT_LABELS, RELAY_TYPE_LABELS, PROTOCOL_LABELS,
+  CAPACITOR_CONTROL_TYPE_LABELS, CABLE_TYPE_LABELS, TRAYS_LABELS,
+  CIVIL_WORK_LABELS, DC_VOLTAGE_LABELS, PRE_VISIT_LABELS, BOQ_CHECK_LABELS,
 } from '@/lib/surveyLabels';
 import { SurveyPhotoThumb } from './SurveyPhotoThumb';
 import { SignaturePad } from './SignaturePad';
+import { SURVEY_VOLTAGE_LEVELS } from '@/types';
 import type { BoqMasterItem } from '@/lib/boqMaster';
 import type {
-  SurveyReport, SurveyBay, SurveyDevice, SurveyCableRun, SurveyInfrastructure,
-  SurveyBoqLine, SurveySignOff,
+  SurveyReport, SurveyFeederEntry, SurveyRelayEntry, SurveyTransformerEntry,
+  SurveyCapacitorBank, SurveyCableRun, SurveyInfrastructure, SurveyBoqLine,
+  SurveySignOff, SurveyContactDetails, SurveyControlRoom, SurveyAssetCounts,
 } from '@/types';
 
-// Enum display labels and checklist wording (bay type, device type, protocol,
-// port, cable type, trays, civil work, DC voltage, pre-visit checklist, BOQ
-// confirmation checklist) all come from src/lib/surveyLabels.ts — the single
-// source shared with StepSiteVisit.tsx / StepBays.tsx / StepDevices.tsx /
-// StepCableRuns.tsx / StepInfrastructure.tsx / StepBoq.tsx. BOQ item names and
-// photo slot names come from their own existing shared sources (boqMaster.ts /
-// surveyValidation.ts, imported above). None of these are redefined here.
+// Every enum label and checklist wording comes from src/lib/surveyLabels.ts —
+// the single source shared with the step components. Nothing is redefined
+// here: a preview whose wording differs from the form it previews is a
+// correctness problem on a document an MSETCL engineer signs. BOQ item names
+// and photo slot names come from their own shared homes (boqMaster.ts /
+// surveyValidation.ts), imported above.
+//
+// SECTIONS STILL ON THE PRE-REBUILD SHAPE — deliberately, until their own
+// phases land, so this file matches what those steps actually produce today:
+//   - Infrastructure  (renders SurveyInfrastructure; survey.siteChecklist is
+//                      NOT rendered, because StepInfrastructure doesn't write
+//                      it yet)
+//   - BOQ confirmation checks and Sign-Off (unchanged shapes)
+// Every other section below matches the rebuilt Phase 1–2c shapes.
 
 // ─── Small presentational primitives ───────────────────────────────────────────
 
@@ -80,6 +89,10 @@ function SectionHeading({ children }: { children: ReactNode }) {
   );
 }
 
+function SubHeading({ children }: { children: ReactNode }) {
+  return <h4 className="text-xs font-bold text-gray-500 uppercase">{children}</h4>;
+}
+
 function PhotoGrid({ refs }: { refs: string[] }) {
   if (refs.length === 0) {
     return <p className="text-xs text-gray-400 italic">No photos.</p>;
@@ -95,57 +108,208 @@ function PhotoGrid({ refs }: { refs: string[] }) {
   );
 }
 
-// ─── Section renderers ─────────────────────────────────────────────────────────
-
-function BayBlock({ bay, index }: { bay: SurveyBay; index: number }) {
+/** Shared shell for one entry of a repeatable group. */
+function EntryCard({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-2 p-3 rounded-lg border border-gray-200 break-inside-avoid">
-      <p className="text-sm font-bold text-gray-900">{bay.bayNumber.trim() || `Bay #${index + 1}`}</p>
+      <p className="text-sm font-bold text-gray-900">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+function voltageLabel(level: SurveyFeederEntry['nominalVoltage']): string {
+  return level ? VOLTAGE_LEVEL_LABELS[level] : '—';
+}
+
+// ─── Site & Visit ──────────────────────────────────────────────────────────────
+
+function ContactDetailsBlock({ contact }: { contact: SurveyContactDetails }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <SubHeading>Contact Details</SubHeading>
       <div className="grid grid-cols-2 gap-2">
-        <Field label="Bay Type" value={bay.bayType ? BAY_TYPE_LABELS[bay.bayType] : '—'} />
-        <Field label="Voltage Level" value={bay.voltageLevel ? `${bay.voltageLevel} kV` : '—'} />
-        <Field label="Status (DI) Points" value={dash(bay.diPoints)} />
-        <Field label="Control (DO) Points" value={dash(bay.doPoints)} />
-        <Field label="Analog (AI) Points" value={dash(bay.aiPoints)} />
-        <Field label="CT Ratio" value={dash(bay.ctRatio)} />
-        <Field label="PT Ratio" value={dash(bay.ptRatio)} />
+        <Field label="Name of the Substation In-charge" value={dash(contact.substationInchargeName)} />
+        <Field label="Substation In-charge Contact Details" value={dash(contact.substationInchargePhone)} />
+        <Field label="Substation Telephone — Landline" value={dash(contact.substationLandline)} />
+        <Field label="Substation Telephone — VOIP" value={dash(contact.substationVoip)} />
+        <Field label="Circle" value={dash(contact.circle)} />
+        <Field label="Division" value={dash(contact.division)} />
+        <Field
+          label="Commissioned Date"
+          value={contact.commissionedDate ? contact.commissionedDate.toLocaleDateString() : '—'}
+        />
+        <Field label="Nearest Railway Station / Landmark" value={dash(contact.nearestRailwayStationOrLandmark)} />
       </div>
-      {bay.bayType === 'transformer' && (
-        <div className="grid grid-cols-2 gap-2">
-          <TriField label="Tap Changer Present" value={bay.tapChangerPresent} />
-          {bay.tapChangerPresent === true && <Field label="Tap Positions" value={dash(bay.tapPositions)} />}
-        </div>
+      <Field label="Contact Details of Shift Operators" value={dash(contact.shiftOperatorContacts)} />
+      <Field label="Address" value={dash(contact.address)} />
+    </div>
+  );
+}
+
+function ControlRoomBlock({ controlRoom }: { controlRoom: SurveyControlRoom }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <SubHeading>Control Room Details</SubHeading>
+      <Field label="Control room layout notes" value={dash(controlRoom.layoutNotes)} />
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Room Temperature" value={dash(controlRoom.roomTemperature)} />
+        <Field
+          label="Mounting Structure / Existing RTU Panel Dimensions"
+          value={dash(controlRoom.mountingStructureOrRtuPanelDimensions)}
+        />
+      </div>
+      <TriField label="AC available" value={controlRoom.acAvailable} />
+      {controlRoom.acAvailable === true && (
+        <Field label="AC Condition" value={dash(controlRoom.acCondition)} />
       )}
-      <Field label="Remarks" value={dash(bay.remarks)} />
-      <PhotoGrid refs={bay.photos} />
+      <TriField label="Cable trench available" value={controlRoom.cableTrenchAvailable} />
+      {controlRoom.cableTrenchAvailable === true && (
+        <Field
+          label="Cable Trench Length"
+          value={controlRoom.cableTrenchLengthM != null ? `${controlRoom.cableTrenchLengthM} m` : '—'}
+        />
+      )}
+      <TriField label="Trench extension needed" value={controlRoom.trenchExtensionNeeded} />
     </div>
   );
 }
 
-function DeviceBlock({ device, index }: { device: SurveyDevice; index: number }) {
+function AssetCountsBlock({
+  counts, siteMaster,
+}: {
+  counts: SurveyAssetCounts;
+  siteMaster?: { totalBays: number | null; numPowerTransformers: number | null } | null;
+}) {
+  // Sum of the levels actually answered — null until at least one is, so a
+  // half-filled group never flags a misleadingly large discrepancy against
+  // the site master. Same rule as the Site & Visit step's own hint.
+  const answered = SURVEY_VOLTAGE_LEVELS
+    .map((level) => counts.baysByVoltage[level])
+    .filter((n): n is number => n != null);
+  const totalBays = answered.length > 0 ? answered.reduce((sum, n) => sum + n, 0) : null;
+
+  const bayFlag =
+    siteMaster?.totalBays != null && totalBays != null && siteMaster.totalBays !== totalBays
+      ? `Site master says ${siteMaster.totalBays}`
+      : null;
+  const transformerFlag =
+    siteMaster?.numPowerTransformers != null &&
+    counts.transformerCount != null &&
+    siteMaster.numPowerTransformers !== counts.transformerCount
+      ? `Site master says ${siteMaster.numPowerTransformers}`
+      : null;
+
   return (
-    <div className="flex flex-col gap-2 p-3 rounded-lg border border-gray-200 break-inside-avoid">
-      <p className="text-sm font-bold text-gray-900">Device #{index + 1}</p>
+    <div className="flex flex-col gap-1">
+      <SubHeading>Asset Counts</SubHeading>
       <div className="grid grid-cols-2 gap-2">
-        <Field label="Device Type" value={device.deviceType ? DEVICE_TYPE_LABELS[device.deviceType] : '—'} />
-        <Field label="Make" value={dash(device.make)} />
-        <Field label="Model" value={dash(device.model)} />
-        <Field label="Protocol" value={device.protocol ? PROTOCOL_LABELS[device.protocol] : '—'} />
-        <Field label="Port" value={device.port ? PORT_LABELS[device.port] : '—'} />
-        <Field label="Quantity" value={dash(device.quantity)} />
+        {SURVEY_VOLTAGE_LEVELS.map((level) => (
+          <Field key={level} label={BAY_COUNT_LABELS[level]} value={dash(counts.baysByVoltage[level])} />
+        ))}
+        <Field label="Total Bays (sum of answered levels)" value={dash(totalBays)} flag={bayFlag} />
+        <Field label="Number of Transformers" value={dash(counts.transformerCount)} flag={transformerFlag} />
+        <Field label="Number of Buses" value={dash(counts.busCount)} />
+        <Field label="Number of Capacitor Banks" value={dash(counts.capacitorBankCount)} />
       </div>
-      <TriField label="Reusable / suitable for integration" value={device.reusable} />
-      <Field label="Remarks" value={dash(device.remarks)} />
-      <PhotoGrid refs={device.photos} />
     </div>
   );
 }
+
+// ─── Repeatable groups ─────────────────────────────────────────────────────────
+
+function FeederBlock({ feeder, index }: { feeder: SurveyFeederEntry; index: number }) {
+  return (
+    <EntryCard title={feeder.bayName.trim() || `Feeder #${index + 1}`}>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Nominal Voltage" value={voltageLabel(feeder.nominalVoltage)} />
+        <Field label="Feeder / Transformer Description" value={dash(feeder.feederOrTransformerDescription)} />
+        <Field
+          label="Cable Trench Length"
+          value={feeder.cableTrenchLengthM != null ? `${feeder.cableTrenchLengthM} m` : '—'}
+        />
+        <Field label="CT / PT Ratio" value={dash(feeder.ctPtRatio)} />
+        <Field label="No. of DI Status Points" value={dash(feeder.diStatusPoints)} />
+        <Field label="MFM required" value={dash(feeder.mfmRequired)} />
+        <Field label="CMR required" value={dash(feeder.cmrRequired)} />
+        <Field label="No. of F-RTU / Remote-IO Modules Required" value={dash(feeder.frtuModulesRequired)} />
+      </div>
+      <TriField label="Panel space available" value={feeder.panelSpaceAvailable} />
+      <TriField label="Existing MFM available & working" value={feeder.existingMfmAvailableWorking} />
+      {feeder.existingMfmAvailableWorking === true && (
+        <TriField label="Existing MFM RS485 available" value={feeder.existingMfmRs485Available} />
+      )}
+      <TriField label="Shutdown required" value={feeder.shutdownRequired} />
+      <Field label="Remarks" value={dash(feeder.remarks)} />
+      <PhotoGrid refs={feeder.photos} />
+    </EntryCard>
+  );
+}
+
+function RelayBlock({ relay, index }: { relay: SurveyRelayEntry; index: number }) {
+  return (
+    <EntryCard title={relay.bayName.trim() || `Relay #${index + 1}`}>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Nominal Voltage" value={voltageLabel(relay.nominalVoltage)} />
+        <Field label="Relay Make / Model" value={dash(relay.relayMakeModel)} />
+        <Field label="Relay Type" value={relay.relayType ? RELAY_TYPE_LABELS[relay.relayType] : '—'} />
+        <Field label="Protocol" value={relay.protocol ? PROTOCOL_LABELS[relay.protocol] : '—'} />
+        <Field label="IP Address" value={dash(relay.ipAddress)} />
+        <Field label="Optical" value={dash(relay.optical)} />
+        <Field label="CT Ratio" value={dash(relay.ctRatio)} />
+      </div>
+      <Field label="Remarks" value={dash(relay.remarks)} />
+      <PhotoGrid refs={relay.photos} />
+    </EntryCard>
+  );
+}
+
+function CapacitorBankBlock({ bank, index }: { bank: SurveyCapacitorBank; index: number }) {
+  return (
+    <EntryCard title={bank.bankNumber.trim() || `Capacitor bank #${index + 1}`}>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Voltage Level" value={voltageLabel(bank.voltageLevel)} />
+        <Field label="Number of Banks" value={dash(bank.numberOfBanks)} />
+        <Field
+          label="Control Type"
+          value={bank.controlType ? CAPACITOR_CONTROL_TYPE_LABELS[bank.controlType] : '—'}
+        />
+        <Field label="Rating per Bank" value={dash(bank.ratingPerBank)} />
+        <Field label="Working Status" value={dash(bank.workingStatus)} />
+      </div>
+      <Field label="Remarks" value={dash(bank.remarks)} />
+    </EntryCard>
+  );
+}
+
+function TransformerBlock({ tx, index }: { tx: SurveyTransformerEntry; index: number }) {
+  return (
+    <EntryCard title={tx.transformerNumber.trim() || `Transformer #${index + 1}`}>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Voltage Level" value={voltageLabel(tx.voltageLevel)} />
+        <Field label="MVA Rating" value={dash(tx.mvaRating)} />
+        <Field label="RTCC High Step" value={dash(tx.rtccHighStep)} />
+        <Field label="RTCC Low Step" value={dash(tx.rtccLowStep)} />
+        <Field label="Tap Position Connection Type" value={dash(tx.tapPositionConnectionType)} />
+      </div>
+      <TriField label="RTCC panel working" value={tx.rtccPanelWorking} />
+      <TriField label="Existing TPI working" value={tx.existingTpiWorking} />
+      {tx.existingTpiWorking === true && (
+        <TriField label="Existing TPI 4-20 mA output available" value={tx.existingTpi4to20mAAvailable} />
+      )}
+      <TriField label="Tap Position Transducer (TPT) required" value={tx.tptRequired} />
+      <Field label="Remarks" value={dash(tx.remarks)} />
+    </EntryCard>
+  );
+}
+
+// ─── Infrastructure (PRE-REBUILD SHAPE — see the note at the top) ──────────────
 
 function InfrastructureSection({ infra }: { infra: SurveyInfrastructure }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
-        <h4 className="text-xs font-bold text-gray-500 uppercase">Panel Space &amp; Mounting</h4>
+        <SubHeading>Panel Space &amp; Mounting</SubHeading>
         <TriField label="Panel space available" value={infra.panelSpaceAvailable} />
         <Field label="Space measurement" value={dash(infra.panelSpaceMeasurement)} />
         <TriField label="New panel required" value={infra.newPanelRequired} />
@@ -156,7 +320,7 @@ function InfrastructureSection({ infra }: { infra: SurveyInfrastructure }) {
         />
       </div>
       <div className="flex flex-col gap-1">
-        <h4 className="text-xs font-bold text-gray-500 uppercase">Power Supply</h4>
+        <SubHeading>Power Supply</SubHeading>
         <TriField label="DC supply available" value={infra.dcSupplyAvailable} />
         <Field
           label="DC voltages present"
@@ -167,7 +331,7 @@ function InfrastructureSection({ infra }: { infra: SurveyInfrastructure }) {
         <Field label="DCDB / distribution location" value={dash(infra.dcdbLocation)} />
       </div>
       <div className="flex flex-col gap-1">
-        <h4 className="text-xs font-bold text-gray-500 uppercase">Communication &amp; Networking</h4>
+        <SubHeading>Communication &amp; Networking</SubHeading>
         <TriField label="OFC / Ethernet availability" value={infra.ofcAvailable} />
         <TriField label="Router available" value={infra.routerAvailable} />
         <TriField label="MPLS available" value={infra.mplsAvailable} />
@@ -204,28 +368,56 @@ function CableRunsSection({ cableRuns, difficultRunsNotes }: { cableRuns: Survey
   );
 }
 
+// ─── BOQ ───────────────────────────────────────────────────────────────────────
+
+/**
+ * Two quantity columns, matching the official table and the rebuilt
+ * SurveyBoqLine: what is already on site and reusable, and what we must
+ * supply. Service/ITC lines carry hasExistingUsable:false — their
+ * "existing" cell reads n/a rather than an em-dash, so a reviewer can tell
+ * "question doesn't apply" from "nobody answered".
+ */
 function BoqTable({ title, master, lines }: { title: string; master: readonly BoqMasterItem[]; lines: SurveyBoqLine[] }) {
   return (
     <div className="flex flex-col gap-1">
-      <h4 className="text-xs font-bold text-gray-500 uppercase">{title}</h4>
+      <SubHeading>{title}</SubHeading>
+      <div className="grid grid-cols-[1.5rem_1fr_5rem_5rem_1fr] gap-2 items-baseline py-1 border-b border-gray-300 text-[10px] uppercase tracking-wide text-gray-400">
+        <span>Sr</span>
+        <span>Item</span>
+        <span>Existing &amp; usable</span>
+        <span>Required to supply</span>
+        <span>Remarks</span>
+      </div>
       {master.map((item) => {
         // Matched by itemKey, never array position — same rule as StepBoq.tsx.
         const line = lines.find((l) => l.itemKey === item.itemKey);
+
+        // A considered zero ("not applicable, because…") must not print
+        // identically to an unanswered line — that distinction is the whole
+        // reason SurveyBoqLine carries notApplicable, and this is the page
+        // the approver actually vets.
+        const existing = !item.hasExistingUsable
+          ? 'n/a'
+          : line?.existingUsable != null ? `${line.existingUsable} ${item.unit}` : '—';
+        const required = line?.notApplicable
+          ? 'Not applicable'
+          : line?.requiredToSupply != null ? `${line.requiredToSupply} ${item.unit}` : '—';
+
         return (
           <div
             key={item.itemKey}
-            className="grid grid-cols-[2rem_1fr_6rem_8rem] gap-2 items-baseline py-1 border-b border-gray-100 break-inside-avoid text-xs"
+            className="grid grid-cols-[1.5rem_1fr_5rem_5rem_1fr] gap-2 items-baseline py-1 border-b border-gray-100 break-inside-avoid text-xs"
           >
             <span className="text-gray-400 font-mono">{item.sr}</span>
             <span className="text-gray-800">{item.item}</span>
-            {/* A considered zero ("not applicable, because…") must not print
-                identically to an unanswered line — that distinction is the
-                whole reason SurveyBoqLine carries notApplicable, and this is
-                the page the approver actually vets. */}
-            <span className="text-gray-600">
-              {line?.notApplicable
-                ? 'Not applicable'
-                : line?.surveyedQty != null ? `${line.surveyedQty} ${item.unit}` : '—'}
+            <span className={cn('text-gray-600', !item.hasExistingUsable && 'text-gray-300 italic')}>
+              {existing}
+            </span>
+            <span className="text-gray-800 font-medium">
+              {required}
+              {line?.autoDerived && line.requiredToSupply != null && !line.notApplicable && (
+                <span className="ml-1 text-[10px] font-normal text-gray-400">(derived)</span>
+              )}
             </span>
             <span className="text-gray-500 italic truncate">{dash(line?.remarks)}</span>
           </div>
@@ -266,7 +458,7 @@ export interface SurveyPreviewProps {
 // ─── Print styling ──────────────────────────────────────────────────────────────
 // Rendered as a <style> tag inside the portal, so it's scoped to exist only
 // while the preview is mounted, with zero global CSS file to edit — fully
-// self-contained and portable to task 4's approver review screen.
+// self-contained and portable to the approver review screen.
 
 const PRINT_CSS = `
 @media print {
@@ -287,9 +479,13 @@ const PRINT_CSS = `
 /**
  * Full read-only preview of everything recorded in the survey, printable to
  * PDF via window.print() (no jsPDF/html2canvas — see the task note on why).
- * Shared verbatim by the wizard's Step 8 "Preview & Sign" and (per the
- * design) the approver's review screen — no wizard-specific coupling here
- * beyond the optional onChange/workOrderId used by the signature pads.
+ * Shared verbatim by the wizard's Sign-Off step and the approver's review
+ * screen — no wizard-specific coupling here beyond the optional
+ * onChange/workOrderId used by the signature pads.
+ *
+ * Section order follows the 10-step wizard exactly, so a reviewer reading the
+ * preview and a surveyor walking the form are looking at the same document in
+ * the same order.
  */
 export function SurveyPreview({
   survey, siteName, siteMaster, workOrderCode, onChange, workOrderId, readOnly = false, onClose,
@@ -349,9 +545,9 @@ export function SurveyPreview({
           </div>
         )}
 
-        {/* A. Site & Visit */}
-        <div className="flex flex-col gap-2">
-          <SectionHeading>A. Site &amp; Visit</SectionHeading>
+        {/* 1. Site & Visit */}
+        <div className="flex flex-col gap-3">
+          <SectionHeading>1. Site &amp; Visit</SectionHeading>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Substation" value={dash(siteName || survey.siteCode)} />
             <Field label="Site Code" value={dash(survey.siteCode)} />
@@ -361,72 +557,77 @@ export function SurveyPreview({
             <Field label="Survey Date" value={survey.surveyDate ? survey.surveyDate.toLocaleDateString() : '—'} />
             <Field label="GPS" value={survey.location ? `${survey.location.lat.toFixed(6)}, ${survey.location.lng.toFixed(6)}` : '—'} />
             <Field label="Surveyor" value={dash(survey.surveyorName)} />
-            <Field
-              label="Surveyed Total Bays"
-              value={dash(survey.surveyedTotalBays)}
-              flag={
-                siteMaster?.totalBays != null && survey.surveyedTotalBays != null && siteMaster.totalBays !== survey.surveyedTotalBays
-                  ? `Site master says ${siteMaster.totalBays}`
-                  : null
-              }
-            />
-            <Field
-              label="Surveyed Power Transformers"
-              value={dash(survey.surveyedNumPowerTransformers)}
-              flag={
-                siteMaster?.numPowerTransformers != null &&
-                survey.surveyedNumPowerTransformers != null &&
-                siteMaster.numPowerTransformers !== survey.surveyedNumPowerTransformers
-                  ? `Site master says ${siteMaster.numPowerTransformers}`
-                  : null
-              }
-            />
+          </div>
+          <ContactDetailsBlock contact={survey.contactDetails} />
+          <ControlRoomBlock controlRoom={survey.controlRoom} />
+          <AssetCountsBlock counts={survey.assetCounts} siteMaster={siteMaster} />
+          <div className="flex flex-col gap-1">
+            <SubHeading>Pre-Visit Checklist</SubHeading>
+            {PRE_VISIT_LABELS.map((item) => (
+              <TickField key={item.key} label={item.label} checked={survey.preVisit[item.key]} />
+            ))}
           </div>
         </div>
 
-        {/* B. Pre-visit checklist */}
-        <div className="flex flex-col gap-1">
-          <SectionHeading>B. Pre-Visit Checklist</SectionHeading>
-          {PRE_VISIT_LABELS.map((item) => (
-            <TickField key={item.key} label={item.label} checked={survey.preVisit[item.key]} />
-          ))}
-        </div>
-
-        {/* C. Bays */}
+        {/* 2. Feeder List */}
         <div className="flex flex-col gap-2">
-          <SectionHeading>C. Bays</SectionHeading>
-          {survey.bays.length === 0 ? (
-            <p className="text-xs text-gray-400 italic">No bays recorded.</p>
+          <SectionHeading>2. Feeder List</SectionHeading>
+          {survey.feeders.length === 0 ? (
+            <p className="text-xs text-gray-400 italic">No feeders recorded.</p>
           ) : (
-            survey.bays.map((bay, i) => <BayBlock key={bay.uid} bay={bay} index={i} />)
+            survey.feeders.map((feeder, i) => <FeederBlock key={feeder.uid} feeder={feeder} index={i} />)
           )}
         </div>
 
-        {/* D. Devices */}
+        {/* 3. CRP Relay Details */}
         <div className="flex flex-col gap-2">
-          <SectionHeading>D. Devices</SectionHeading>
-          {survey.devices.length === 0 ? (
-            <p className="text-xs text-gray-400 italic">No existing devices recorded.</p>
+          <SectionHeading>3. CRP Relay Details</SectionHeading>
+          {survey.relays.length === 0 ? (
+            <p className="text-xs text-gray-400 italic">No relays recorded.</p>
           ) : (
-            survey.devices.map((device, i) => <DeviceBlock key={device.uid} device={device} index={i} />)
+            survey.relays.map((relay, i) => <RelayBlock key={relay.uid} relay={relay} index={i} />)
           )}
         </div>
 
-        {/* E-G. Infrastructure */}
+        {/* 4. Capacitor Bank Details */}
         <div className="flex flex-col gap-2">
-          <SectionHeading>E–G. Infrastructure</SectionHeading>
+          <SectionHeading>4. Capacitor Bank Details</SectionHeading>
+          {survey.capacitorBanks.length === 0 ? (
+            <p className="text-xs text-gray-400 italic">No capacitor banks recorded.</p>
+          ) : (
+            survey.capacitorBanks.map((bank, i) => <CapacitorBankBlock key={bank.uid} bank={bank} index={i} />)
+          )}
+        </div>
+
+        {/* 5. Transformer Details */}
+        <div className="flex flex-col gap-2">
+          <SectionHeading>5. Transformer Details</SectionHeading>
+          {survey.transformers.length === 0 ? (
+            <p className="text-xs text-gray-400 italic">No transformers recorded.</p>
+          ) : (
+            survey.transformers.map((tx, i) => <TransformerBlock key={tx.uid} tx={tx} index={i} />)
+          )}
+        </div>
+
+        {/* 6. Infrastructure — still the pre-rebuild shape (see note at top of file) */}
+        <div className="flex flex-col gap-2">
+          <SectionHeading>6. Site Infrastructure</SectionHeading>
+          <p className="text-[10px] text-amber-600 italic print:hidden">
+            Not yet rebuilt against the official checklist — mirrors what the Infrastructure step
+            currently records. The site-checklist tables land with that step&apos;s own phase.
+          </p>
           <InfrastructureSection infra={survey.infrastructure} />
         </div>
 
-        {/* H. Cable Runs */}
+        {/* 7. Cable Runs */}
         <div className="flex flex-col gap-2">
-          <SectionHeading>H. Cable Runs</SectionHeading>
+          <SectionHeading>7. Cable Runs</SectionHeading>
           <CableRunsSection cableRuns={survey.cableRuns} difficultRunsNotes={survey.difficultRunsNotes} />
         </div>
 
-        {/* I. Site Photographs — grouped by slot, in SURVEY_PHOTO_SLOTS order (not array order) */}
+        {/* 8. Site Photographs — grouped by slot, in SURVEY_PHOTO_SLOTS order (not array order) */}
         <div className="flex flex-col gap-3">
-          <SectionHeading>I. Site Photographs</SectionHeading>
+          <SectionHeading>8. Site Photographs</SectionHeading>
           {SURVEY_PHOTO_SLOTS.map((slot) => (
             <div key={slot} className="flex flex-col gap-1 break-inside-avoid">
               <span className="text-xs font-medium text-gray-600">{slot}</span>
@@ -435,14 +636,14 @@ export function SurveyPreview({
           ))}
         </div>
 
-        {/* J. BOQ */}
+        {/* 9. BOQ */}
         <div className="flex flex-col gap-3">
-          <SectionHeading>J. Bill of Quantity</SectionHeading>
+          <SectionHeading>9. Bill of Quantity</SectionHeading>
           <BoqTable title="Supply" master={SUPPLY_BOQ_MASTER} lines={survey.boqSupply} />
           <BoqTable title="Service" master={SERVICE_BOQ_MASTER} lines={survey.boqService} />
         </div>
 
-        {/* Confirmation */}
+        {/* Confirmation — unchanged shape */}
         <div className="flex flex-col gap-1">
           <SectionHeading>Confirmation</SectionHeading>
           {BOQ_CHECK_LABELS.map((item) => (
@@ -450,9 +651,9 @@ export function SurveyPreview({
           ))}
         </div>
 
-        {/* Sign-off */}
+        {/* 10. Sign-off — unchanged shape */}
         <div className="flex flex-col gap-2">
-          <SectionHeading>Sign-Off</SectionHeading>
+          <SectionHeading>10. Sign-Off</SectionHeading>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Surveyor" value={dash(survey.surveyorName)} />
             <Field label="MSETCL Engineer Name" value={dash(survey.signOff.msetclEngineerName)} />

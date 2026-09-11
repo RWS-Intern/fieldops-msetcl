@@ -1,5 +1,7 @@
 import { SUPPLY_BOQ_MASTER, SERVICE_BOQ_MASTER } from '@/lib/boqMaster';
-import type { SurveyReport, SurveyInfrastructure } from '@/types';
+import type {
+  SurveyReport, SurveyInfrastructure, SurveyAssetCounts, SurveyBoqLine,
+} from '@/types';
 
 // ─── Step indices ───────────────────────────────────────────────────────────────
 // Mirrors the STEPS array in SurveyWizardPage.tsx — kept as plain constants here
@@ -7,10 +9,19 @@ import type { SurveyReport, SurveyInfrastructure } from '@/types';
 // dependency on the page/React. If the wizard's step order ever changes, both
 // places must move together.
 
+// The wizard is now TEN steps, but this array is still the EIGHT-entry
+// positional space the wizard's `validationIndex` maps onto — see the
+// WizardStep type in SurveyWizardPage.tsx. Deliberately not changed here:
+// realigning the two is the job of the proper validation rewrite, not of this
+// crash fix. Only the two renamed labels changed, so the validation summary
+// says "Feeder List", not "Bays".
+//
+// Capacitor Banks and Transformer Details have NO entry here at all: both
+// carry validationIndex: null in the wizard and therefore no rules yet.
 export const SURVEY_STEP_LABELS = [
   'Site & Visit',
-  'Bays',
-  'Devices',
+  'Feeder List',
+  'CRP Relay Details',
   'Infrastructure',
   'Cable Runs',
   'Photos',
@@ -20,8 +31,8 @@ export const SURVEY_STEP_LABELS = [
 
 const STEP = {
   siteVisit:      0,
-  bays:           1,
-  devices:        2,
+  feeders:        1,
+  relays:         2,
   infrastructure: 3,
   cableRuns:      4,
   photos:         5,
@@ -72,71 +83,106 @@ function validateSiteVisit(survey: SurveyReport): SurveyValidationIssue[] {
   return issues;
 }
 
-// ─── Section C — Bays ────────────────────────────────────────────────────────────
+// ─── Feeder List (was Section C — Bays) ─────────────────────────────────────────
 
-function validateBays(survey: SurveyReport): SurveyValidationIssue[] {
+/**
+ * Remapped from validateBays. What carried over and what did NOT:
+ *
+ *   bayNumber        -> bayName              (1:1, error kept)
+ *   voltageLevel     -> nominalVoltage       (1:1, error kept)
+ *   diPoints         -> diStatusPoints       (1:1, error kept)
+ *   photos empty     -> photos empty         (1:1, warning kept)
+ *   "at least one"   -> "at least one"       (1:1, error kept)
+ *
+ *   bayType          -> DROPPED. The Feeder List has no bay-type column.
+ *   doPoints/aiPoints-> DROPPED. The checklist asks only for DI status points;
+ *                       nothing in the new shape holds DO or AI counts.
+ *   tapChangerPresent/
+ *   tapPositions     -> MOVED OUT, not dropped: tap data now lives on
+ *                       survey.transformers (rtccHighStep/rtccLowStep/
+ *                       tptRequired). Transformer Details has no rules yet
+ *                       (validationIndex: null), so these are UNVALIDATED for
+ *                       now — flagged in the phase report, not silently lost.
+ *
+ * The three BOQ-driving counts are WARNINGS, not errors — see the note below.
+ */
+function validateFeeders(survey: SurveyReport): SurveyValidationIssue[] {
   const issues: SurveyValidationIssue[] = [];
 
-  if (survey.bays.length === 0) {
-    issues.push(issue(STEP.bays, 'At least one bay is required.'));
+  if (survey.feeders.length === 0) {
+    issues.push(issue(STEP.feeders, 'At least one feeder is required.'));
     return issues;
   }
 
-  survey.bays.forEach((bay, i) => {
-    const label = bay.bayNumber?.trim() ? `Bay ${bay.bayNumber}` : `Bay #${i + 1}`;
-    if (!bay.bayNumber || !bay.bayNumber.trim()) {
-      issues.push(issue(STEP.bays, `${label}: bay number is required.`));
+  survey.feeders.forEach((feeder, i) => {
+    const label = feeder.bayName?.trim() ? `Feeder ${feeder.bayName}` : `Feeder #${i + 1}`;
+    if (!feeder.bayName || !feeder.bayName.trim()) {
+      issues.push(issue(STEP.feeders, `${label}: bay name is required.`));
     }
-    if (!bay.bayType) {
-      issues.push(issue(STEP.bays, `${label}: bay type is required.`));
+    if (!feeder.nominalVoltage) {
+      issues.push(issue(STEP.feeders, `${label}: nominal voltage is required.`));
     }
-    if (!bay.voltageLevel) {
-      issues.push(issue(STEP.bays, `${label}: voltage level is required.`));
+    if (feeder.diStatusPoints == null || feeder.diStatusPoints < 0) {
+      issues.push(issue(STEP.feeders, `${label}: number of DI status points is required.`));
     }
-    if (bay.diPoints == null || bay.diPoints < 0) {
-      issues.push(issue(STEP.bays, `${label}: status (DI) points is required.`));
+
+    // These three sum straight into the BOQ's F-RTU / MFM / CMR lines. The
+    // old DI/DO/AI rules were hard errors precisely because derivation
+    // consumed them, and these are what derivation consumes now — but making
+    // them errors would be a NEW hard gate on Submit that this crash fix was
+    // not asked to introduce. Warnings keep a feeder that silently
+    // contributes nothing to the BOQ visible without changing what blocks
+    // Submit. One-line change to promote them if that's wanted.
+    if (feeder.mfmRequired == null) {
+      issues.push(issue(STEP.feeders, `${label}: MFM required not answered — it feeds the BOQ.`, 'warning'));
     }
-    if (bay.doPoints == null || bay.doPoints < 0) {
-      issues.push(issue(STEP.bays, `${label}: control (DO) points is required.`));
+    if (feeder.cmrRequired == null) {
+      issues.push(issue(STEP.feeders, `${label}: CMR required not answered — it feeds the BOQ.`, 'warning'));
     }
-    if (bay.aiPoints == null || bay.aiPoints < 0) {
-      issues.push(issue(STEP.bays, `${label}: analog (AI) points is required.`));
+    if (feeder.frtuModulesRequired == null) {
+      issues.push(issue(STEP.feeders, `${label}: F-RTU / Remote-IO modules required not answered — it feeds the BOQ.`, 'warning'));
     }
-    if (bay.bayType === 'transformer') {
-      if (bay.tapChangerPresent === null || bay.tapChangerPresent === undefined) {
-        issues.push(issue(STEP.bays, `${label}: tap changer present must be answered.`));
-      } else if (bay.tapChangerPresent === true && bay.tapPositions == null) {
-        issues.push(issue(STEP.bays, `${label}: number of tap positions is required.`));
-      }
-    }
+
     // Warning, not an error — a relay panel may genuinely be
     // un-photographable in a live substation, so this must never block Submit.
-    if (bay.photos.length === 0) {
-      issues.push(issue(STEP.bays, `${label}: no photo attached.`, 'warning'));
+    if (feeder.photos.length === 0) {
+      issues.push(issue(STEP.feeders, `${label}: no photo attached.`, 'warning'));
     }
   });
 
   return issues;
 }
 
-// ─── Section D — Devices (optional to have any; each present one must be filled) ─
+// ─── CRP Relay Details (was Section D — Devices) ────────────────────────────────
 
-function validateDevices(survey: SurveyReport): SurveyValidationIssue[] {
+/**
+ * Remapped from validateDevices. Still optional to have any; each present one
+ * must be filled.
+ *
+ *   deviceType -> relayType  (1:1, error kept — both answer "what kind is it")
+ *   protocol   -> protocol   (1:1, error kept)
+ *
+ *   quantity   -> DROPPED. A device row could stand for several units; a relay
+ *                 row is exactly one relay, so there is nothing to count.
+ *   reusable   -> DROPPED. No equivalent column on the relay table.
+ *
+ * bayName is a warning rather than an error: the step marks it required, but
+ * the old Device shape had no name field at all, so an error here would be a
+ * new hard gate rather than a remap.
+ */
+function validateRelays(survey: SurveyReport): SurveyValidationIssue[] {
   const issues: SurveyValidationIssue[] = [];
 
-  survey.devices.forEach((device, i) => {
-    const label = `Device #${i + 1}`;
-    if (!device.deviceType) {
-      issues.push(issue(STEP.devices, `${label}: device type is required.`));
+  survey.relays.forEach((relay, i) => {
+    const label = relay.bayName?.trim() ? `Relay ${relay.bayName}` : `Relay #${i + 1}`;
+    if (!relay.bayName || !relay.bayName.trim()) {
+      issues.push(issue(STEP.relays, `${label}: bay name not filled in.`, 'warning'));
     }
-    if (!device.protocol) {
-      issues.push(issue(STEP.devices, `${label}: protocol is required.`));
+    if (!relay.relayType) {
+      issues.push(issue(STEP.relays, `${label}: relay type is required.`));
     }
-    if (!device.quantity || device.quantity < 1) {
-      issues.push(issue(STEP.devices, `${label}: quantity must be at least 1.`));
-    }
-    if (device.reusable === null || device.reusable === undefined) {
-      issues.push(issue(STEP.devices, `${label}: reusable / suitable for integration must be answered.`));
+    if (!relay.protocol) {
+      issues.push(issue(STEP.relays, `${label}: protocol is required.`));
     }
   });
 
@@ -171,8 +217,8 @@ function validatePhotos(survey: SurveyReport): SurveyValidationIssue[] {
 
   const totalPhotoCount =
     survey.sitePhotos.length +
-    survey.bays.reduce((n, b) => n + b.photos.length, 0) +
-    survey.devices.reduce((n, d) => n + d.photos.length, 0);
+    survey.feeders.reduce((n, f) => n + f.photos.length, 0) +
+    survey.relays.reduce((n, r) => n + r.photos.length, 0);
 
   if (totalPhotoCount === 0) {
     issues.push(issue(STEP.photos, 'At least one photo is required.'));
@@ -226,9 +272,17 @@ function validatePhotos(survey: SurveyReport): SurveyValidationIssue[] {
  * entire point of the toggle, and without it a considered zero is
  * indistinguishable from a careless one.
  *
- * The one non-required item (rtuFrtuConfigToolLicense) keeps the old
- * warning-only treatment for a blank: it is a project-level line, usually 0
- * per site.
+ * TWO-COLUMN REMAP: the single `surveyedQty` became `existingUsable` +
+ * `requiredToSupply`. The old rule maps onto `requiredToSupply` — that is the
+ * column that governs what gets supplied, which is what the rule was always
+ * protecting. `existingUsable` is deliberately NOT required: nobody was ever
+ * asked it before, and a blank there is "not surveyed", not a supply gap.
+ * Flagged for the proper validation rewrite to decide.
+ *
+ * The `!master.required` branch below is currently unreachable — every item
+ * in both masters is required:true since rtuFrtuConfigToolLicense was dropped
+ * in Phase 1. It is kept because `required` is master-driven and a future
+ * optional line must not silently become a hard gate.
  */
 function validateBoq(survey: SurveyReport): SurveyValidationIssue[] {
   const issues: SurveyValidationIssue[] = [];
@@ -259,7 +313,7 @@ function validateBoq(survey: SurveyReport): SurveyValidationIssue[] {
     if (!line) continue;
 
     if (!master.required) {
-      if (line.surveyedQty == null && !line.notApplicable) optionalBlankCount++;
+      if (line.requiredToSupply == null && !line.notApplicable) optionalBlankCount++;
       continue;
     }
 
@@ -270,10 +324,10 @@ function validateBoq(survey: SurveyReport): SurveyValidationIssue[] {
           `${master.item}: marked not applicable — record why in Remarks.`,
         ));
       }
-    } else if (line.surveyedQty == null) {
+    } else if (line.requiredToSupply == null) {
       issues.push(issue(
         STEP.boq,
-        `${master.item}: surveyed quantity is required, or mark it not applicable with a reason.`,
+        `${master.item}: required-to-supply quantity is required, or mark it not applicable with a reason.`,
       ));
     }
   }
@@ -343,8 +397,8 @@ function validateSignOff(survey: SurveyReport): SurveyValidationIssue[] {
 export function validateSurvey(survey: SurveyReport): SurveyValidationIssue[] {
   return [
     ...validateSiteVisit(survey),
-    ...validateBays(survey),
-    ...validateDevices(survey),
+    ...validateFeeders(survey),
+    ...validateRelays(survey),
     ...validateCableRuns(survey),
     ...validatePhotos(survey),
     ...validateBoq(survey),
@@ -376,6 +430,36 @@ function isInfrastructureTouched(infra: SurveyInfrastructure): boolean {
 }
 
 /**
+ * True if any field of a flat all-nullable group has been answered. Used for
+ * the Site & Visit groups that are pure touch-detection — they carry no
+ * validation rules yet, so this only decides "untouched" vs "complete".
+ */
+// Takes `object`, not Record<string, unknown> — a TS interface has no index
+// signature, so the nominal group types don't satisfy Record.
+function isAnyValueSet(group: object): boolean {
+  return Object.values(group).some((v) => v !== null && v !== undefined && v !== '');
+}
+
+function isAssetCountsTouched(counts: SurveyAssetCounts): boolean {
+  return (
+    Object.values(counts.baysByVoltage).some((n) => n != null) ||
+    counts.transformerCount   != null ||
+    counts.busCount           != null ||
+    counts.capacitorBankCount != null
+  );
+}
+
+/** Either quantity column, a remark, or an explicit not-applicable. */
+function isBoqLineTouched(line: SurveyBoqLine): boolean {
+  return (
+    line.existingUsable   != null ||
+    line.requiredToSupply != null ||
+    !!line.remarks?.trim() ||
+    line.notApplicable
+  );
+}
+
+/**
  * Per-step soft-validation status for the wizard's step pills. "untouched"
  * only applies to steps where an empty/default state is a legitimate,
  * deliberate outcome (Devices and Cable Runs may have none; Infrastructure
@@ -393,27 +477,33 @@ export function getStepStatuses(survey: SurveyReport): StepStatus[] {
     issues.filter((i) => i.stepIndex === stepIndex).length;
 
   const touched: boolean[] = [
-    // Site & Visit
+    // Site & Visit — the two flat counts became assetCounts, and the step now
+    // also carries contactDetails / controlRoom, so all three count as touch.
+    // No RULES are added for the new groups (this pass invents none); they
+    // only affect whether the pill reads "untouched".
     !!survey.surveyorName?.trim() ||
       !!survey.location ||
       !!survey.surveyDate ||
-      survey.surveyedTotalBays != null ||
-      survey.surveyedNumPowerTransformers != null ||
+      isAssetCountsTouched(survey.assetCounts) ||
+      isAnyValueSet(survey.contactDetails) ||
+      isAnyValueSet(survey.controlRoom) ||
       Object.values(survey.preVisit).some(Boolean),
-    // Bays
-    survey.bays.length > 0,
-    // Devices
-    survey.devices.length > 0,
+    // Feeder List
+    survey.feeders.length > 0,
+    // CRP Relay Details
+    survey.relays.length > 0,
     // Infrastructure
     isInfrastructureTouched(survey.infrastructure),
     // Cable Runs
     survey.cableRuns.length > 0 || !!survey.difficultRunsNotes?.trim(),
     // Photos
     survey.sitePhotos.length > 0,
-    // BOQ — notApplicable counts as touched: ticking it is an answer.
+    // BOQ — notApplicable counts as touched: ticking it is an answer. Either
+    // quantity column counts; an answered "existing & usable" is a real
+    // survey observation even with the supply column still blank.
     Object.values(survey.boqChecks).some(Boolean) ||
-      survey.boqSupply.some((l) => l.surveyedQty != null || !!l.remarks?.trim() || l.notApplicable) ||
-      survey.boqService.some((l) => l.surveyedQty != null || !!l.remarks?.trim() || l.notApplicable),
+      survey.boqSupply.some(isBoqLineTouched) ||
+      survey.boqService.some(isBoqLineTouched),
     // Sign-off
     !!survey.signOff.msetclEngineerName?.trim() ||
       !!survey.signOff.msetclEngineerDesignation?.trim() ||

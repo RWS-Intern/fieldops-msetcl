@@ -102,7 +102,7 @@ export function toSurveyPayload(survey: SurveyReport): SurveyPayload {
 export const LOCAL_PHOTO_PREFIX = 'local://';
 
 /** The subset of SurveyReport/SurveyPayload that can hold photo references. */
-type PhotoBearingSurvey = Pick<SurveyReport, 'bays' | 'devices' | 'sitePhotos' | 'signOff'>;
+type PhotoBearingSurvey = Pick<SurveyReport, 'feeders' | 'relays' | 'sitePhotos' | 'signOff'>;
 
 export interface LocalPhotoRef {
   photoId: string;
@@ -113,17 +113,22 @@ export interface LocalPhotoRef {
 export function findLocalPhotoRefs(data: PhotoBearingSurvey): LocalPhotoRef[] {
   const found: LocalPhotoRef[] = [];
 
-  for (const bay of data.bays) {
-    for (const url of bay.photos) {
+  // The target discriminants are still 'bay'/'device' while the arrays they
+  // point at are feeders/relays. Deliberate: renaming the discriminants would
+  // ripple into SurveyQueueProcessor's splice logic, which is the dedicated
+  // offline-pipeline phase's work, not this crash fix's. The uid still
+  // identifies the right entry either way.
+  for (const feeder of data.feeders) {
+    for (const url of feeder.photos) {
       if (url.startsWith(LOCAL_PHOTO_PREFIX)) {
-        found.push({ photoId: url.slice(LOCAL_PHOTO_PREFIX.length), target: { kind: 'bay', bayUid: bay.uid } });
+        found.push({ photoId: url.slice(LOCAL_PHOTO_PREFIX.length), target: { kind: 'bay', bayUid: feeder.uid } });
       }
     }
   }
-  for (const device of data.devices) {
-    for (const url of device.photos) {
+  for (const relay of data.relays) {
+    for (const url of relay.photos) {
       if (url.startsWith(LOCAL_PHOTO_PREFIX)) {
-        found.push({ photoId: url.slice(LOCAL_PHOTO_PREFIX.length), target: { kind: 'device', deviceUid: device.uid } });
+        found.push({ photoId: url.slice(LOCAL_PHOTO_PREFIX.length), target: { kind: 'device', deviceUid: relay.uid } });
       }
     }
   }
@@ -163,8 +168,8 @@ export function findLocalPhotoRefs(data: PhotoBearingSurvey): LocalPhotoRef[] {
 export function stripLocalPhotoRefs(data: SurveyReport): SurveyReport {
   return {
     ...data,
-    bays: data.bays.map((b) => ({ ...b, photos: b.photos.filter((p) => !p.startsWith(LOCAL_PHOTO_PREFIX)) })),
-    devices: data.devices.map((d) => ({ ...d, photos: d.photos.filter((p) => !p.startsWith(LOCAL_PHOTO_PREFIX)) })),
+    feeders: data.feeders.map((f) => ({ ...f, photos: f.photos.filter((p) => !p.startsWith(LOCAL_PHOTO_PREFIX)) })),
+    relays: data.relays.map((r) => ({ ...r, photos: r.photos.filter((p) => !p.startsWith(LOCAL_PHOTO_PREFIX)) })),
     sitePhotos: data.sitePhotos.filter((p) => !p.url.startsWith(LOCAL_PHOTO_PREFIX)),
     signOff: {
       ...data.signOff,
@@ -186,8 +191,8 @@ export function stripLocalPhotoRefs(data: SurveyReport): SurveyReport {
 export function replaceLocalPhotoRef(data: SurveyReport, oldRef: string, newUrl: string): SurveyReport {
   return {
     ...data,
-    bays: data.bays.map((b) => ({ ...b, photos: b.photos.map((p) => (p === oldRef ? newUrl : p)) })),
-    devices: data.devices.map((d) => ({ ...d, photos: d.photos.map((p) => (p === oldRef ? newUrl : p)) })),
+    feeders: data.feeders.map((f) => ({ ...f, photos: f.photos.map((p) => (p === oldRef ? newUrl : p)) })),
+    relays: data.relays.map((r) => ({ ...r, photos: r.photos.map((p) => (p === oldRef ? newUrl : p)) })),
     sitePhotos: data.sitePhotos.map((p) => (p.url === oldRef ? { ...p, url: newUrl } : p)),
     signOff: {
       ...data.signOff,

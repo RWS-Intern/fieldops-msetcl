@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:rules": "firebase emulators:exec --only firestore --project demo-fieldops-rules \"npm --prefix tests/rules test\"",
+    "test:survey-render": "node scripts/runSsrSurveyWalk.mjs",
     "seed": "npx ts-node --esm scripts/seed.ts",
     "seed:tasks": "npx ts-node --esm scripts/seedTasks.ts",
     "fix:counter": "npx ts-node --esm scripts/fixCounter.ts",
