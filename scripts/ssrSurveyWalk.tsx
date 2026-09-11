@@ -96,6 +96,39 @@ function buildPopulatedSurvey(): SurveyReport {
     uid: 'cr1', cableType: 'cat6', fromTo: 'RTU to Bay-01',
     lengthM: 55, trays: 'available',
   });
+
+  // Site checklist (the official table 2) and the retained infrastructure
+  // fields the Infrastructure step still renders alongside it.
+  survey.siteChecklist.outdoorCivilWorkStatus              = 'Cable entry to be cut.';
+  survey.siteChecklist.communication.distanceToProposedRtuLocationM = 25;
+  survey.siteChecklist.communication.channelType           = 'OFC';
+  survey.siteChecklist.communication.channelMake           = 'Sterlite';
+  survey.siteChecklist.communication.cableRouteExists      = true;
+  survey.siteChecklist.acDcSupply.ac230vAvailable          = true;
+  survey.siteChecklist.acDcSupply.dcBreakerVoltageByLevel['132'] = '110';
+  survey.siteChecklist.acDcSupply.dcBreakerVoltageByLevel['66_33'] = '48';
+  survey.siteChecklist.acDcSupply.distanceToAcdbM          = 12;
+  survey.siteChecklist.acDcSupply.distanceToDcdbM          = 18;
+  survey.siteChecklist.sld.sldDrawnAndConfirmed            = true;
+  survey.siteChecklist.sld.allEquipmentTypesShownOnSld     = false;
+  survey.siteChecklist.earthing.matExtendedToControlRoom   = true;
+  survey.siteChecklist.earthing.matIntact                  = true;
+  survey.siteChecklist.lightningProtectionToControlRoom    = true;
+  survey.siteChecklist.storage.siteAccessAvailable         = true;
+  survey.siteChecklist.storage.storageSpaceForRtuPanel     = true;
+  survey.siteChecklist.storage.spaceForUnloading           = false;
+  survey.siteChecklist.storage.installSpaceForFrtuSwitchMfmCmr = true;
+
+  survey.infrastructure.panelSpaceAvailable   = true;
+  survey.infrastructure.panelSpaceMeasurement = '1200 x 800 mm free';
+  survey.infrastructure.newPanelRequired      = true;
+  survey.infrastructure.mountingNotes         = 'Floor-mounted, north wall.';
+  survey.infrastructure.spareMcbs             = true;
+  survey.infrastructure.dcdbLocation          = 'Control room, east side';
+  survey.infrastructure.ofcAvailable          = true;
+  survey.infrastructure.routerAvailable       = false;
+  survey.infrastructure.mplsAvailable         = false;
+  survey.infrastructure.sldcPathNotes         = 'Existing OFC to SLDC via Nashik.';
   survey.sitePhotos.push({
     url: 'https://example.test/a.jpg', caption: 'Substation nameplate / entrance',
   });
