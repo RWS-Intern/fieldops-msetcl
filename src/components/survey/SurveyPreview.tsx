@@ -9,7 +9,7 @@ import { formatMetresAsKm } from '@/lib/units';
 import {
   VOLTAGE_LEVEL_LABELS, BAY_COUNT_LABELS, RELAY_TYPE_LABELS, PROTOCOL_LABELS,
   CAPACITOR_CONTROL_TYPE_LABELS, CABLE_TYPE_LABELS, TRAYS_LABELS,
-  CIVIL_WORK_LABELS, DC_VOLTAGE_LABELS, PRE_VISIT_LABELS, BOQ_CHECK_LABELS,
+  DC_VOLTAGE_LABELS, PRE_VISIT_LABELS, BOQ_CHECK_LABELS,
 } from '@/lib/surveyLabels';
 import { SurveyPhotoThumb } from './SurveyPhotoThumb';
 import { SignaturePad } from './SignaturePad';
@@ -19,6 +19,7 @@ import type {
   SurveyReport, SurveyFeederEntry, SurveyRelayEntry, SurveyTransformerEntry,
   SurveyCapacitorBank, SurveyCableRun, SurveyInfrastructure, SurveyBoqLine,
   SurveySignOff, SurveyContactDetails, SurveyControlRoom, SurveyAssetCounts,
+  SurveySiteChecklist,
 } from '@/types';
 
 // Every enum label and checklist wording comes from src/lib/surveyLabels.ts —
@@ -28,13 +29,10 @@ import type {
 // and photo slot names come from their own shared homes (boqMaster.ts /
 // surveyValidation.ts), imported above.
 //
-// SECTIONS STILL ON THE PRE-REBUILD SHAPE — deliberately, until their own
-// phases land, so this file matches what those steps actually produce today:
-//   - Infrastructure  (renders SurveyInfrastructure; survey.siteChecklist is
-//                      NOT rendered, because StepInfrastructure doesn't write
-//                      it yet)
-//   - BOQ confirmation checks and Sign-Off (unchanged shapes)
-// Every other section below matches the rebuilt Phase 1–2c shapes.
+// Every section below now matches the rebuilt shapes and, section for section,
+// what the wizard step actually writes. The BOQ confirmation checks and
+// Sign-Off render unchanged types (SurveyBoqChecks / SurveySignOff), which the
+// rebuild never altered — those are current, not pending.
 
 // ─── Small presentational primitives ───────────────────────────────────────────
 
@@ -303,40 +301,118 @@ function TransformerBlock({ tx, index }: { tx: SurveyTransformerEntry; index: nu
   );
 }
 
-// ─── Infrastructure (PRE-REBUILD SHAPE — see the note at the top) ──────────────
+// ─── Site infrastructure & checklist ──────────────────────────────────────────
+//
+// Mirrors StepInfrastructure.tsx's six sub-sections and reading split exactly —
+// see the supersede/keep comment block at the top of that file. It renders TWO
+// type structures as one section, because the step does.
+//
+// SUPERSEDED — the new field is previewed; the old one is NOT rendered at all,
+// because the step no longer writes it, so it can only ever be stale:
+//   infrastructure.civilWork[]                  -> siteChecklist.outdoorCivilWorkStatus
+//   infrastructure.earthingAvailable            -> siteChecklist.earthing.*
+//   infrastructure.dcVoltages/dcSupplyAvailable -> siteChecklist.acDcSupply.dcBreakerVoltageByLevel
+//   infrastructure.acSupplyAvailable            -> siteChecklist.acDcSupply.ac230vAvailable
+//
+// KEPT from infrastructure, because the step still writes them and nothing in
+// the checklist replaces them: spareMcbs, dcdbLocation, ofc/router/mpls/
+// sldcPathNotes, panelSpace*.
 
-function InfrastructureSection({ infra }: { infra: SurveyInfrastructure }) {
+function InfrastructureSection({
+  infra, checklist,
+}: {
+  infra:     SurveyInfrastructure;
+  checklist: SurveySiteChecklist;
+}) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
-        <SubHeading>Panel Space &amp; Mounting</SubHeading>
-        <TriField label="Panel space available" value={infra.panelSpaceAvailable} />
-        <Field label="Space measurement" value={dash(infra.panelSpaceMeasurement)} />
-        <TriField label="New panel required" value={infra.newPanelRequired} />
-        <Field label="Mounting notes" value={dash(infra.mountingNotes)} />
-        <Field
-          label="Civil work"
-          value={infra.civilWork.length ? infra.civilWork.map((c) => CIVIL_WORK_LABELS[c]).join(', ') : '—'}
+        <SubHeading>Outdoor Civil Work &amp; Communication</SubHeading>
+        <Field label="Outdoor civil work status" value={dash(checklist.outdoorCivilWorkStatus)} />
+        <div className="grid grid-cols-2 gap-2">
+          <Field
+            label="Distance to proposed RTU location"
+            value={checklist.communication.distanceToProposedRtuLocationM != null
+              ? `${checklist.communication.distanceToProposedRtuLocationM} m`
+              : '—'}
+          />
+          <Field label="Channel type" value={dash(checklist.communication.channelType)} />
+          <Field label="Channel make" value={dash(checklist.communication.channelMake)} />
+        </div>
+        <TriField
+          label="Cable route already exists for the communication cable"
+          value={checklist.communication.cableRouteExists}
         />
       </div>
+
       <div className="flex flex-col gap-1">
-        <SubHeading>Power Supply</SubHeading>
-        <TriField label="DC supply available" value={infra.dcSupplyAvailable} />
-        <Field
-          label="DC voltages present"
-          value={infra.dcVoltages.length ? infra.dcVoltages.map((v) => DC_VOLTAGE_LABELS[v]).join(', ') : '—'}
-        />
-        <TriField label="AC supply available" value={infra.acSupplyAvailable} />
+        <SubHeading>AC / DC Supply</SubHeading>
+        <TriField label="230V AC supply available" value={checklist.acDcSupply.ac230vAvailable} />
+        {/* Per voltage level, replacing the old single shared multi-select. */}
+        <div className="grid grid-cols-2 gap-2">
+          {SURVEY_VOLTAGE_LEVELS.map((level) => {
+            const dc = checklist.acDcSupply.dcBreakerVoltageByLevel[level];
+            return (
+              <Field
+                key={level}
+                label={`DC breaker voltage — ${VOLTAGE_LEVEL_LABELS[level]}`}
+                value={dc ? DC_VOLTAGE_LABELS[dc] : '—'}
+              />
+            );
+          })}
+          <Field
+            label="Distance to ACDB"
+            value={checklist.acDcSupply.distanceToAcdbM != null ? `${checklist.acDcSupply.distanceToAcdbM} m` : '—'}
+          />
+          <Field
+            label="Distance to DCDB"
+            value={checklist.acDcSupply.distanceToDcdbM != null ? `${checklist.acDcSupply.distanceToDcdbM} m` : '—'}
+          />
+        </div>
         <TriField label="Spare MCBs / feeders" value={infra.spareMcbs} />
         <Field label="DCDB / distribution location" value={dash(infra.dcdbLocation)} />
       </div>
+
       <div className="flex flex-col gap-1">
-        <SubHeading>Communication &amp; Networking</SubHeading>
+        <SubHeading>Existing Network Readiness</SubHeading>
         <TriField label="OFC / Ethernet availability" value={infra.ofcAvailable} />
         <TriField label="Router available" value={infra.routerAvailable} />
         <TriField label="MPLS available" value={infra.mplsAvailable} />
         <Field label="SLDC / ALDC path notes" value={dash(infra.sldcPathNotes)} />
-        <TriField label="Earthing available" value={infra.earthingAvailable} />
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <SubHeading>SLD, Earthing &amp; Lightning Protection</SubHeading>
+        <TriField label="SLD drawn and confirmed" value={checklist.sld.sldDrawnAndConfirmed} />
+        <TriField label="All equipment types shown on the SLD" value={checklist.sld.allEquipmentTypesShownOnSld} />
+        <TriField label="Earthing mat extended to the control room" value={checklist.earthing.matExtendedToControlRoom} />
+        <TriField label="Earthing mat intact" value={checklist.earthing.matIntact} />
+        <TriField
+          label="Lightning protection extended to the control room"
+          value={checklist.lightningProtectionToControlRoom}
+        />
+      </div>
+
+      {/* Two DIFFERENT physical spaces — the permanent install location and a
+          temporary holding area. Kept visibly distinct here for the same
+          reason the step does: a reviewer must not read them as duplicates. */}
+      <div className="flex flex-col gap-1">
+        <SubHeading>Install Location for New Equipment</SubHeading>
+        <TriField label="Panel space available" value={infra.panelSpaceAvailable} />
+        <Field label="Space available for new networking panel and RTU" value={dash(infra.panelSpaceMeasurement)} />
+        <TriField label="New panel required" value={infra.newPanelRequired} />
+        <Field label="Mounting arrangement / rack space" value={dash(infra.mountingNotes)} />
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <SubHeading>Temporary Storage / Holding Area</SubHeading>
+        <TriField label="Site access available" value={checklist.storage.siteAccessAvailable} />
+        <TriField label="Storage space available for the RTU panel" value={checklist.storage.storageSpaceForRtuPanel} />
+        <TriField label="Space available for unloading" value={checklist.storage.spaceForUnloading} />
+        <TriField
+          label="Install space available for F-RTU / switch / MFM + CMR"
+          value={checklist.storage.installSpaceForFrtuSwitchMfmCmr}
+        />
       </div>
     </div>
   );
@@ -611,12 +687,8 @@ export function SurveyPreview({
 
         {/* 6. Infrastructure — still the pre-rebuild shape (see note at top of file) */}
         <div className="flex flex-col gap-2">
-          <SectionHeading>6. Site Infrastructure</SectionHeading>
-          <p className="text-[10px] text-amber-600 italic print:hidden">
-            Not yet rebuilt against the official checklist — mirrors what the Infrastructure step
-            currently records. The site-checklist tables land with that step&apos;s own phase.
-          </p>
-          <InfrastructureSection infra={survey.infrastructure} />
+          <SectionHeading>6. Site Infrastructure &amp; Checklist</SectionHeading>
+          <InfrastructureSection infra={survey.infrastructure} checklist={survey.siteChecklist} />
         </div>
 
         {/* 7. Cable Runs */}

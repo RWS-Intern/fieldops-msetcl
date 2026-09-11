@@ -495,18 +495,10 @@ export const SURVEY_VOLTAGE_LEVELS: readonly SurveyVoltageLevel[] =
 /** DC breaker voltage options — the same domain the old shared multi-select used. */
 export type SurveyDcVoltage = '110' | '48' | '24';
 
-/**
- * @deprecated Superseded by SurveyFeederEntry. Retained only until the step
- * components and src/lib/boqDerivation.ts are rewritten (Phase 2) — nothing
- * new should reference it.
- */
-export type BayType = 'line' | 'transformer' | 'bus_coupler' | 'bus_section' | 'capacitor' | 'reactor';
-
-/**
- * @deprecated Superseded by SurveyRelayEntry / the two-column BOQ. Retained
- * only until Phase 2 rewrites its remaining callers.
- */
-export type DeviceType = 'mfm' | 'cmr' | 'tpi' | 'gps' | 'numerical_relay' | 'legacy_rtu';
+// BayType and DeviceType are GONE. They described the pre-rebuild bay/device
+// shapes, were superseded by SurveyFeederEntry / SurveyRelayEntry, and their
+// last consumers (StepBays, StepDevices, SurveyPreview's old sections and
+// surveyLabels' two label maps) are all deleted.
 
 /** Still current — reused by SurveyRelayEntry.protocol. */
 export type DeviceProtocol = 'modbus' | 'iec_61850' | 'iec_103' | 'serial' | 'none';

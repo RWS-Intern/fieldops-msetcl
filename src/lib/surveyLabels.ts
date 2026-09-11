@@ -1,16 +1,17 @@
 import type {
-  BayType, DeviceType, DeviceProtocol, SurveyCableRun,
-  SurveyInfrastructure, SurveyPreVisit, SurveyBoqChecks,
+  DeviceProtocol, SurveyCableRun,
+  SurveyPreVisit, SurveyBoqChecks,
   SurveyVoltageLevel, SurveyDcVoltage, SurveyRelayType, SurveyCapacitorBank,
 } from '@/types';
 
 /**
  * Enum display labels and checklist wording for the survey form — the single
- * source of truth shared by the step components (StepBays.tsx, StepDevices.tsx,
- * StepCableRuns.tsx, StepInfrastructure.tsx, StepSiteVisit.tsx, StepBoq.tsx)
- * and the read-only SurveyPreview.tsx. No map may be defined in more than one
- * of those files — a preview whose wording differs from the form it's
- * previewing is a correctness problem on a document an MSETCL engineer signs.
+ * source of truth shared by the wizard step components (StepSiteVisit,
+ * StepFeederList, StepRelayDetails, StepCapacitorBanks,
+ * StepTransformerDetails, StepInfrastructure, StepCableRuns, StepBoq) and the
+ * read-only SurveyPreview.tsx. No map may be defined in more than one of
+ * those files — a preview whose wording differs from the form it's previewing
+ * is a correctness problem on a document an MSETCL engineer signs.
  *
  * BOQ item names (SUPPLY_BOQ_MASTER/SERVICE_BOQ_MASTER in boqMaster.ts) and
  * photo slot names (SURVEY_PHOTO_SLOTS in surveyValidation.ts) are NOT here —
@@ -52,38 +53,14 @@ export const BAY_COUNT_LABELS: Record<SurveyVoltageLevel, string> = {
   '66_33': 'Number of Bays on 66 or 33kV (If any)',
 };
 
-// ─── Feeder List (replaces Section C — Bays) ────────────────────────────────────
+// ─── CRP Relay Details ──────────────────────────────────────────────────────────
+//
+// BAY_TYPE_LABELS and DEVICE_TYPE_LABELS are GONE, along with the BayType and
+// DeviceType unions they labelled. The Feeder List has no bay-type column and
+// the relay table records a make/model plus a relay TYPE, so neither enum
+// exists any more.
 
-/**
- * @deprecated Retained only for StepBays.tsx / SurveyPreview.tsx, which still
- * read the old `bays` shape and are rewritten in a later phase. The Feeder
- * List has no bay-type column — delete this map with its last consumer.
- */
-export const BAY_TYPE_LABELS: Record<BayType, string> = {
-  line:         'Line',
-  transformer:  'Transformer',
-  bus_coupler:  'Bus Coupler',
-  bus_section:  'Bus Section',
-  capacitor:    'Capacitor',
-  reactor:      'Reactor',
-};
-
-// ─── CRP Relay Details (replaces Section D — Devices) ───────────────────────────
-
-/**
- * @deprecated Same reasoning as BAY_TYPE_LABELS — the relay table records a
- * make/model and a relay TYPE, not a device-type enum.
- */
-export const DEVICE_TYPE_LABELS: Record<DeviceType, string> = {
-  mfm:             'MFM',
-  cmr:             'CMR',
-  tpi:             'TPI',
-  gps:             'GPS',
-  numerical_relay: 'Numerical Relay',
-  legacy_rtu:      'Legacy RTU',
-};
-
-/** NOT deprecated — SurveyRelayEntry.protocol reuses this union unchanged. */
+/** Reused by SurveyRelayEntry.protocol — still current. */
 export const PROTOCOL_LABELS: Record<DeviceProtocol, string> = {
   modbus:    'Modbus',
   iec_61850: 'IEC 61850',
@@ -127,16 +104,13 @@ export const TRAYS_LABELS: Record<Trays, string> = {
   new_required: 'New Required',
 };
 
-// ─── Sections E–G — Infrastructure ───────────────────────────────────────────────
-
-export type CivilWork = SurveyInfrastructure['civilWork'][number];
-
-export const CIVIL_WORK_LABELS: Record<CivilWork, string> = {
-  grouting:     'Grouting',
-  cable_entry:  'Cable Entry',
-  foundation:   'Foundation',
-  none:         'None',
-};
+// ─── Site infrastructure & checklist ─────────────────────────────────────────────
+//
+// CIVIL_WORK_LABELS and its CivilWork type are GONE. Their only consumers were
+// StepInfrastructure and SurveyPreview, and both now render
+// siteChecklist.outdoorCivilWorkStatus — free text with no enum to label. The
+// `civilWork` field itself stays on SurveyInfrastructure, unused and
+// deliberately not deleted, so stored documents keep their historical value.
 
 /**
  * Re-rooted onto SurveyDcVoltage — the same three values, but now owned by the
