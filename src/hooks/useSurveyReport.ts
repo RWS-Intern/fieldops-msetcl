@@ -1,50 +1,210 @@
 import { useEffect, useState } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/firebase/config';
-import { AUTO_DERIVED_ITEM_KEYS } from '@/lib/boqDerivation';
+import { DERIVED_ITEM_KEYS } from '@/lib/boqDerivation';
 import { SURVEY_APPROVAL_STAGES, findApprovalStage } from '@/lib/approvalStages';
-import type { SurveyReport, SurveyPreVisit, SurveyBay, SurveyDevice, SurveyCableRun, SurveyBoqLine, SurveyBoqChecks, ApprovalStageResult, WorkOrderStatus } from '@/types';
+import { SURVEY_VOLTAGE_LEVELS } from '@/types';
+import type {
+  SurveyReport, SurveyPreVisit, SurveyFeederEntry, SurveyRelayEntry,
+  SurveyTransformerEntry, SurveyCapacitorBank, SurveyCableRun, SurveyBoqLine,
+  SurveyBoqChecks, SurveyContactDetails, SurveyControlRoom, SurveyAssetCounts,
+  SurveySiteChecklist, SurveyVoltageLevel, SurveyDcVoltage,
+  ApprovalStageResult, WorkOrderStatus,
+} from '@/types';
 
 // ─── Mapper ─────────────────────────────────────────────────────────────────────
 
-// Field-by-field defaults (not a whole-element pass-through) so a bay/device/
+// Field-by-field defaults (not a whole-element pass-through) so a feeder/relay/
 // cable-run written before a field existed — or one whose value was never
 // answered — loads as null rather than undefined. null must stay
 // distinguishable from a real answer (including 0) since this becomes a
 // jointly-signed BOQ for government vetting.
+//
+// This matters more than usual right now: the survey shape was rebuilt against
+// the official MSETCL checklist, so EVERY stored document predates most of
+// these fields. Each one must read as unanswered, not crash the reader.
 
+/**
+ * Fills a per-voltage-level record from a stored map, defaulting every level
+ * to null. Built from SURVEY_VOLTAGE_LEVELS so a document written when the
+ * level list was shorter still yields a complete record, and an unknown level
+ * left over from an older list is dropped rather than widening the type.
+ */
+function mapByVoltage<T>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  raw: Record<string, any> | undefined,
+): Record<SurveyVoltageLevel, T | null> {
+  return Object.fromEntries(
+    SURVEY_VOLTAGE_LEVELS.map((level) => [level, raw?.[level] ?? null]),
+  ) as Record<SurveyVoltageLevel, T | null>;
+}
+
+/**
+ * One Feeder List row. Replaces mapBay — deliberately NOT a migration of it:
+ * the old `bays` array shares only `uid`/`remarks`/`photos` with this shape,
+ * and its DI/DO/AI point counts have no home here now that the F-RTU/MFM/CMR
+ * counts are entered directly. A legacy document's `bays` are not read, so
+ * they surface as an empty Feeder List rather than as half-populated rows
+ * nobody can trust. See the Phase 1 report on wiping test surveys.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapBay(raw: Record<string, any>): SurveyBay {
+function mapFeeder(raw: Record<string, any>): SurveyFeederEntry {
   return {
-    uid:               raw['uid'],
-    bayNumber:         raw['bayNumber']         ?? '',
-    bayType:           raw['bayType']           ?? null,
-    voltageLevel:      raw['voltageLevel']      ?? null,
-    diPoints:          raw['diPoints']          ?? null,
-    doPoints:          raw['doPoints']          ?? null,
-    aiPoints:          raw['aiPoints']          ?? null,
-    ctRatio:           raw['ctRatio']           ?? null,
-    ptRatio:           raw['ptRatio']           ?? null,
-    tapChangerPresent: raw['tapChangerPresent'] ?? null,
-    tapPositions:      raw['tapPositions']      ?? null,
-    photos:            raw['photos']            ?? [],
-    remarks:           raw['remarks']           ?? null,
+    uid:                            raw['uid'],
+    bayName:                        raw['bayName']                        ?? '',
+    nominalVoltage:                 raw['nominalVoltage']                 ?? null,
+    feederOrTransformerDescription: raw['feederOrTransformerDescription'] ?? null,
+    cableTrenchLengthM:             raw['cableTrenchLengthM']             ?? null,
+    panelSpaceAvailable:            raw['panelSpaceAvailable']            ?? null,
+    existingMfmAvailableWorking:    raw['existingMfmAvailableWorking']    ?? null,
+    existingMfmRs485Available:      raw['existingMfmRs485Available']      ?? null,
+    mfmRequired:                    raw['mfmRequired']                    ?? null,
+    cmrRequired:                    raw['cmrRequired']                    ?? null,
+    ctPtRatio:                      raw['ctPtRatio']                      ?? null,
+    shutdownRequired:               raw['shutdownRequired']               ?? null,
+    diStatusPoints:                 raw['diStatusPoints']                 ?? null,
+    frtuModulesRequired:            raw['frtuModulesRequired']            ?? null,
+    remarks:                        raw['remarks']                        ?? null,
+    photos:                         raw['photos']                         ?? [],
+  };
+}
+
+/**
+ * One CRP Relay Details row. Replaces mapDevice, and likewise does not migrate
+ * from it.
+ *
+ * `optical` is free text, not a boolean — unconfirmed against the source
+ * document and lossless either way (see the Phase 1 report).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapRelay(raw: Record<string, any>): SurveyRelayEntry {
+  return {
+    uid:            raw['uid'],
+    bayName:        raw['bayName']        ?? '',
+    nominalVoltage: raw['nominalVoltage'] ?? null,
+    relayMakeModel: raw['relayMakeModel'] ?? null,
+    relayType:      raw['relayType']      ?? null,
+    protocol:       raw['protocol']       ?? null,
+    ipAddress:      raw['ipAddress']      ?? null,
+    optical:        raw['optical']        ?? null,
+    ctRatio:        raw['ctRatio']        ?? null,
+    remarks:        raw['remarks']        ?? null,
+    photos:         raw['photos']         ?? [],
+  };
+}
+
+/**
+ * One Transformer Details row. Nameplate/designation values stay TEXT so
+ * "50/63 MVA" and "+9/-9" survive transcription intact.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapTransformer(raw: Record<string, any>): SurveyTransformerEntry {
+  return {
+    uid:                         raw['uid'],
+    transformerNumber:           raw['transformerNumber']           ?? '',
+    voltageLevel:                raw['voltageLevel']                ?? null,
+    mvaRating:                   raw['mvaRating']                   ?? null,
+    rtccHighStep:                raw['rtccHighStep']                ?? null,
+    rtccLowStep:                 raw['rtccLowStep']                 ?? null,
+    tapPositionConnectionType:   raw['tapPositionConnectionType']   ?? null,
+    rtccPanelWorking:            raw['rtccPanelWorking']            ?? null,
+    existingTpiWorking:          raw['existingTpiWorking']          ?? null,
+    existingTpi4to20mAAvailable: raw['existingTpi4to20mAAvailable'] ?? null,
+    tptRequired:                 raw['tptRequired']                 ?? null,
+    remarks:                     raw['remarks']                     ?? null,
   };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapDevice(raw: Record<string, any>): SurveyDevice {
+function mapCapacitorBank(raw: Record<string, any>): SurveyCapacitorBank {
   return {
-    uid:        raw['uid'],
-    deviceType: raw['deviceType'] ?? null,
-    make:       raw['make']       ?? null,
-    model:      raw['model']      ?? null,
-    protocol:   raw['protocol']   ?? null,
-    port:       raw['port']       ?? null,
-    quantity:   raw['quantity']   ?? null,
-    reusable:   raw['reusable']   ?? null,
-    photos:     raw['photos']     ?? [],
-    remarks:    raw['remarks']    ?? null,
+    uid:           raw['uid'],
+    bankNumber:    raw['bankNumber']    ?? '',
+    voltageLevel:  raw['voltageLevel']  ?? null,
+    numberOfBanks: raw['numberOfBanks'] ?? null,
+    controlType:   raw['controlType']   ?? null,
+    ratingPerBank: raw['ratingPerBank'] ?? null,
+    workingStatus: raw['workingStatus'] ?? null,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapContactDetails(raw: Record<string, any> | undefined): SurveyContactDetails {
+  return {
+    substationInchargeName:          raw?.['substationInchargeName']          ?? null,
+    substationInchargePhone:         raw?.['substationInchargePhone']         ?? null,
+    substationLandline:              raw?.['substationLandline']              ?? null,
+    substationVoip:                  raw?.['substationVoip']                  ?? null,
+    shiftOperatorContacts:           raw?.['shiftOperatorContacts']           ?? null,
+    address:                         raw?.['address']                         ?? null,
+    circle:                          raw?.['circle']                          ?? null,
+    division:                        raw?.['division']                        ?? null,
+    commissionedDate:                raw?.['commissionedDate']?.toDate?.()    ?? null,
+    nearestRailwayStationOrLandmark: raw?.['nearestRailwayStationOrLandmark'] ?? null,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapControlRoom(raw: Record<string, any> | undefined): SurveyControlRoom {
+  return {
+    layoutNotes:                           raw?.['layoutNotes']                           ?? null,
+    roomTemperature:                       raw?.['roomTemperature']                       ?? null,
+    acAvailable:                           raw?.['acAvailable']                           ?? null,
+    acCondition:                           raw?.['acCondition']                           ?? null,
+    mountingStructureOrRtuPanelDimensions: raw?.['mountingStructureOrRtuPanelDimensions'] ?? null,
+    cableTrenchAvailable:                  raw?.['cableTrenchAvailable']                  ?? null,
+    cableTrenchLengthM:                    raw?.['cableTrenchLengthM']                    ?? null,
+    trenchExtensionNeeded:                 raw?.['trenchExtensionNeeded']                 ?? null,
+  };
+}
+
+/**
+ * Asset counts. Replaces the two flat fields `surveyedTotalBays` and
+ * `surveyedNumPowerTransformers`, which are NOT read forward: the new shape
+ * counts bays per voltage level, and a single legacy total can't be split
+ * across levels without inventing a distribution.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapAssetCounts(raw: Record<string, any> | undefined): SurveyAssetCounts {
+  return {
+    baysByVoltage:      mapByVoltage<number>(raw?.['baysByVoltage']),
+    transformerCount:   raw?.['transformerCount']   ?? null,
+    busCount:           raw?.['busCount']           ?? null,
+    capacitorBankCount: raw?.['capacitorBankCount'] ?? null,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapSiteChecklist(raw: Record<string, any> | undefined): SurveySiteChecklist {
+  return {
+    outdoorCivilWorkStatus: raw?.['outdoorCivilWorkStatus'] ?? null,
+    communication: {
+      distanceToProposedRtuLocationM: raw?.['communication']?.distanceToProposedRtuLocationM ?? null,
+      channelType:                    raw?.['communication']?.channelType                    ?? null,
+      channelMake:                    raw?.['communication']?.channelMake                    ?? null,
+      cableRouteExists:               raw?.['communication']?.cableRouteExists               ?? null,
+    },
+    acDcSupply: {
+      ac230vAvailable:         raw?.['acDcSupply']?.ac230vAvailable ?? null,
+      dcBreakerVoltageByLevel: mapByVoltage<SurveyDcVoltage>(raw?.['acDcSupply']?.dcBreakerVoltageByLevel),
+      distanceToAcdbM:         raw?.['acDcSupply']?.distanceToAcdbM ?? null,
+      distanceToDcdbM:         raw?.['acDcSupply']?.distanceToDcdbM ?? null,
+    },
+    sld: {
+      sldDrawnAndConfirmed:        raw?.['sld']?.sldDrawnAndConfirmed        ?? null,
+      allEquipmentTypesShownOnSld: raw?.['sld']?.allEquipmentTypesShownOnSld ?? null,
+    },
+    earthing: {
+      matExtendedToControlRoom: raw?.['earthing']?.matExtendedToControlRoom ?? null,
+      matIntact:                raw?.['earthing']?.matIntact                ?? null,
+    },
+    lightningProtectionToControlRoom: raw?.['lightningProtectionToControlRoom'] ?? null,
+    storage: {
+      siteAccessAvailable:             raw?.['storage']?.siteAccessAvailable             ?? null,
+      storageSpaceForRtuPanel:         raw?.['storage']?.storageSpaceForRtuPanel         ?? null,
+      spaceForUnloading:               raw?.['storage']?.spaceForUnloading               ?? null,
+      installSpaceForFrtuSwitchMfmCmr: raw?.['storage']?.installSpaceForFrtuSwitchMfmCmr ?? null,
+    },
   };
 }
 
@@ -52,22 +212,28 @@ function mapDevice(raw: Record<string, any>): SurveyDevice {
  * BOQ lines written before `notApplicable`/`autoDerived` existed have neither
  * field. `notApplicable` is simply false (nobody could have ticked it yet).
  *
+ * The single `surveyedQty` column became two. A legacy value is read forward
+ * into `requiredToSupply`, which is what it always meant — the quantity that
+ * governs supply at the site. `existingUsable` stays null: nobody was ever
+ * asked that question, and 0 would assert that nothing usable is on site.
+ *
  * `autoDerived` has to be inferred: a legacy line already carrying a quantity
- * must be treated as MANUAL, or entering Section J would silently overwrite a
- * number a surveyor typed by hand. Only a blank derivable line is handed to
+ * must be treated as MANUAL, or entering the BOQ step would silently overwrite
+ * a number a surveyor typed by hand. Only a blank derivable line is handed to
  * the auto-derivation.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapBoqLine(raw: Record<string, any>): SurveyBoqLine {
-  const surveyedQty = raw['surveyedQty'] ?? null;
+  const requiredToSupply = raw['requiredToSupply'] ?? raw['surveyedQty'] ?? null;
   return {
-    sr:            raw['sr'],
-    itemKey:       raw['itemKey'],
-    surveyedQty,
-    remarks:       raw['remarks'] ?? null,
-    notApplicable: raw['notApplicable'] ?? false,
-    autoDerived:   raw['autoDerived']
-      ?? (AUTO_DERIVED_ITEM_KEYS.has(raw['itemKey']) && surveyedQty === null),
+    sr:               raw['sr'],
+    itemKey:          raw['itemKey'],
+    existingUsable:   raw['existingUsable'] ?? null,
+    requiredToSupply,
+    remarks:          raw['remarks'] ?? null,
+    notApplicable:    raw['notApplicable'] ?? false,
+    autoDerived:      raw['autoDerived']
+      ?? (DERIVED_ITEM_KEYS.has(raw['itemKey']) && requiredToSupply === null),
   };
 }
 
@@ -157,9 +323,11 @@ export function mapSurveyReport(id: string, data: Record<string, any>): SurveyRe
     location:       data['location']
       ? { lat: data['location'].latitude ?? data['location'].lat, lng: data['location'].longitude ?? data['location'].lng }
       : null,
-    surveyorName:                 data['surveyorName']                 ?? null,
-    surveyedTotalBays:            data['surveyedTotalBays']            ?? null,
-    surveyedNumPowerTransformers: data['surveyedNumPowerTransformers'] ?? null,
+    surveyorName:   data['surveyorName'] ?? null,
+
+    contactDetails: mapContactDetails(data['contactDetails']),
+    controlRoom:    mapControlRoom(data['controlRoom']),
+    assetCounts:    mapAssetCounts(data['assetCounts']),
     preVisit: {
       inZonalPlanAndEngineerConfirmed:    data['preVisit']?.inZonalPlanAndEngineerConfirmed    ?? false,
       authorisationLetterCarried:         data['preVisit']?.authorisationLetterCarried         ?? false,
@@ -168,10 +336,14 @@ export function mapSurveyReport(id: string, data: Record<string, any>): SurveyRe
       substationInchargeContactConfirmed: data['preVisit']?.substationInchargeContactConfirmed  ?? false,
     } as SurveyPreVisit,
 
-    bays:               (data['bays']      ?? []).map(mapBay),
-    devices:            (data['devices']   ?? []).map(mapDevice),
+    feeders:        (data['feeders']        ?? []).map(mapFeeder),
+    relays:         (data['relays']         ?? []).map(mapRelay),
+    transformers:   (data['transformers']   ?? []).map(mapTransformer),
+    capacitorBanks: (data['capacitorBanks'] ?? []).map(mapCapacitorBank),
+
     cableRuns:          (data['cableRuns'] ?? []).map(mapCableRun),
     difficultRunsNotes: data['difficultRunsNotes'] ?? null,
+    siteChecklist:      mapSiteChecklist(data['siteChecklist']),
     // Field-by-field defaults (not a whole-object fallback) so documents
     // written before Sections E/F gained panelSpaceMeasurement/dcdbLocation
     // still load with those two as null rather than undefined.

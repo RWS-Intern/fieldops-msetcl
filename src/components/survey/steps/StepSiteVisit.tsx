@@ -5,9 +5,15 @@ import { parseCoordinatesInput, isValidLatLng } from '@/lib/coordinates';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { PRE_VISIT_LABELS } from '@/lib/surveyLabels';
+import { TriStateToggle } from '@/components/survey/TriStateToggle';
+import { PRE_VISIT_LABELS, BAY_COUNT_LABELS } from '@/lib/surveyLabels';
+import { SURVEY_VOLTAGE_LEVELS } from '@/types';
 import type { SurveyStepProps } from './StepProps';
+import type {
+  SurveyContactDetails, SurveyControlRoom, SurveyAssetCounts,
+} from '@/types';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -27,9 +33,25 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * Number inputs on this step are all counts, so they share one handler: blank
+ * clears to null, never to 0. An unanswered count must not read as a
+ * considered "zero of these" — these figures set BOQ-adjacent expectations,
+ * and a reviewer has to be able to tell "none here" from "nobody looked".
+ */
+function toCount(raw: string): number | null {
+  return raw === '' ? null : Math.max(0, Number(raw));
+}
+
 // ─── Step ─────────────────────────────────────────────────────────────────────
 
-/** Site & visit details — form Sections A + B. */
+/**
+ * Site & Visit — Step 1. Four groups, matching how the checklist itself groups
+ * them: contact details, control room details, asset counts, and the
+ * (unchanged) pre-visit checklist. The survey-date / GPS / surveyor-name
+ * capture that has always lived here is untouched and carries the new groups
+ * alongside it.
+ */
 export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster }: SurveyStepProps) {
   const { currentUser } = useAuthStore();
 
@@ -42,6 +64,18 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
     const parsed = parseCoordinatesInput(manualInput);
     return parsed && isValidLatLng(parsed.lat, parsed.lng) ? parsed : null;
   }, [manualInput]);
+
+  // Patch helpers for the three nested groups — each spreads the current group
+  // so a partial edit never drops a sibling field.
+  function updateContact(patch: Partial<SurveyContactDetails>) {
+    onChange({ contactDetails: { ...survey.contactDetails, ...patch } });
+  }
+  function updateControlRoom(patch: Partial<SurveyControlRoom>) {
+    onChange({ controlRoom: { ...survey.controlRoom, ...patch } });
+  }
+  function updateAssetCounts(patch: Partial<SurveyAssetCounts>) {
+    onChange({ assetCounts: { ...survey.assetCounts, ...patch } });
+  }
 
   function captureLocation() {
     if (!navigator.geolocation) {
@@ -105,9 +139,25 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
     setGpsErrorMsg(null);
   }
 
+  // Master-value hints (Annexure-II) are kept from the previous version of
+  // this step, but the bay figure now compares against the SUM of the four
+  // per-voltage counts, since that is what replaced the single total. The sum
+  // stays null until at least one level is answered, so a partially-filled
+  // group never shows a misleadingly low discrepancy.
+  const answeredBayCounts = SURVEY_VOLTAGE_LEVELS
+    .map((level) => survey.assetCounts.baysByVoltage[level])
+    .filter((n): n is number => n != null);
+  const totalBaysAnswered = answeredBayCounts.length > 0
+    ? answeredBayCounts.reduce((sum, n) => sum + n, 0)
+    : null;
+
+  const contact     = survey.contactDetails;
+  const controlRoom = survey.controlRoom;
+  const counts      = survey.assetCounts;
+
   return (
     <div className="flex flex-col gap-5">
-      {/* Section A — Site identification (read-only) + visit details */}
+      {/* Site identification (read-only) + visit details */}
       <div className="flex flex-col gap-3">
         <h3 className="text-base font-semibold text-gray-900">Site &amp; Visit Details</h3>
 
@@ -194,40 +244,311 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
             </div>
           )}
         </div>
+      </div>
+
+      {/* ── Contact Details ──────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-3">
+        <h3 className="text-base font-semibold text-gray-900">Contact Details</h3>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="surveyedTotalBays">Total Bays (counted)</Label>
+            <Label htmlFor="ssInchargeName">Name of the Substation In-charge</Label>
             <Input
-              id="surveyedTotalBays"
-              type="number" inputMode="numeric" disabled={readOnly}
-              value={survey.surveyedTotalBays ?? ''}
-              onChange={(e) =>
-                onChange({ surveyedTotalBays: e.target.value === '' ? null : Number(e.target.value) })
-              }
+              id="ssInchargeName"
+              disabled={readOnly}
+              value={contact.substationInchargeName ?? ''}
+              onChange={(e) => updateContact({ substationInchargeName: e.target.value || null })}
             />
-            {siteMaster?.totalBays != null && (
-              <p className="text-xs text-gray-400">Master: {siteMaster.totalBays}</p>
-            )}
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="surveyedNumPowerTransformers">Power Transformers (counted)</Label>
+            <Label htmlFor="ssInchargePhone">Substation In-charge Contact Details</Label>
             <Input
-              id="surveyedNumPowerTransformers"
+              id="ssInchargePhone"
+              type="tel" inputMode="tel" disabled={readOnly}
+              value={contact.substationInchargePhone ?? ''}
+              onChange={(e) => updateContact({ substationInchargePhone: e.target.value || null })}
+            />
+          </div>
+        </div>
+
+        {/*
+          The STATION's own numbers — a separate row on the document from the
+          in-charge person's contact above, and the two are not
+          interchangeable: the station line outlives a change of in-charge.
+          Grouped visually under the document's heading while staying two flat
+          fields on the type.
+        */}
+        <div className="flex flex-col gap-1.5">
+          <Label>Substation Telephone no./s</Label>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="ssLandline" className="text-xs font-normal text-gray-500">
+                Landline
+              </Label>
+              <Input
+                id="ssLandline"
+                type="tel" inputMode="tel" disabled={readOnly}
+                value={contact.substationLandline ?? ''}
+                onChange={(e) => updateContact({ substationLandline: e.target.value || null })}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="ssVoip" className="text-xs font-normal text-gray-500">
+                VOIP
+              </Label>
+              <Input
+                id="ssVoip"
+                type="tel" inputMode="tel" disabled={readOnly}
+                value={contact.substationVoip ?? ''}
+                onChange={(e) => updateContact({ substationVoip: e.target.value || null })}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/*
+          One free-text box, not a repeatable list: the paper checklist gives
+          this a single cell, and shift rosters are written as prose ("A shift
+          — Patil 98…"). Structuring it would force surveyors to invent a
+          format the document doesn't ask for.
+        */}
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="shiftOperatorContacts">Contact Details of Shift Operators</Label>
+          <Textarea
+            id="shiftOperatorContacts"
+            disabled={readOnly}
+            value={contact.shiftOperatorContacts ?? ''}
+            onChange={(e) => updateContact({ shiftOperatorContacts: e.target.value || null })}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ssAddress">Address</Label>
+          <Textarea
+            id="ssAddress"
+            disabled={readOnly}
+            value={contact.address ?? ''}
+            onChange={(e) => updateContact({ address: e.target.value || null })}
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ssCircle">Circle</Label>
+            <Input
+              id="ssCircle"
+              disabled={readOnly}
+              value={contact.circle ?? ''}
+              onChange={(e) => updateContact({ circle: e.target.value || null })}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ssDivision">Division</Label>
+            <Input
+              id="ssDivision"
+              disabled={readOnly}
+              value={contact.division ?? ''}
+              onChange={(e) => updateContact({ division: e.target.value || null })}
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="commissionedDate">Commissioned Date</Label>
+          <Input
+            id="commissionedDate"
+            type="date"
+            disabled={readOnly}
+            value={contact.commissionedDate ? toDateInputValue(contact.commissionedDate) : ''}
+            onChange={(e) => updateContact({
+              commissionedDate: e.target.value ? new Date(`${e.target.value}T00:00:00`) : null,
+            })}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="nearestLandmark">Nearest Railway Station / Landmark</Label>
+          <Input
+            id="nearestLandmark"
+            disabled={readOnly}
+            value={contact.nearestRailwayStationOrLandmark ?? ''}
+            onChange={(e) => updateContact({
+              nearestRailwayStationOrLandmark: e.target.value || null,
+            })}
+          />
+        </div>
+      </div>
+
+      {/* ── Control Room Details ─────────────────────────────────────────── */}
+      <div className="flex flex-col gap-3">
+        <h3 className="text-base font-semibold text-gray-900">Control Room Details</h3>
+
+        {/*
+          NOT a dimensions field. The document asks for a SKETCH of panel
+          placements with the proposed RTU location marked on it, agreed with
+          the local S/S in-charge. In-app drawing is out of scope — the paper
+          sketch stays the artefact — so this captures the notes that go with
+          it and points the surveyor at the photo step for the sketch itself.
+        */}
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="layoutNotes">Control room layout notes</Label>
+          <Textarea
+            id="layoutNotes"
+            disabled={readOnly}
+            value={controlRoom.layoutNotes ?? ''}
+            onChange={(e) => updateControlRoom({ layoutNotes: e.target.value || null })}
+          />
+          <p className="text-xs text-gray-500">
+            Sketch the panel layout on paper and mark the proposed RTU location — note it
+            here, and capture it in the site photos.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="roomTemperature">Room Temperature</Label>
+          <Input
+            id="roomTemperature"
+            disabled={readOnly}
+            placeholder="e.g. 28 °C"
+            value={controlRoom.roomTemperature ?? ''}
+            onChange={(e) => updateControlRoom({ roomTemperature: e.target.value || null })}
+          />
+        </div>
+
+        <TriStateToggle
+          label="AC available?"
+          value={controlRoom.acAvailable}
+          onChange={(v) => updateControlRoom({ acAvailable: v })}
+          readOnly={readOnly}
+        />
+        {/* Condition is only a question about an AC that exists. Existing
+            answers are kept rather than cleared if the parent flips — same
+            reasoning as the RS485 field on the Feeder List step. */}
+        {controlRoom.acAvailable === true && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="acCondition">AC Condition</Label>
+            <Input
+              id="acCondition"
+              disabled={readOnly}
+              value={controlRoom.acCondition ?? ''}
+              onChange={(e) => updateControlRoom({ acCondition: e.target.value || null })}
+            />
+          </div>
+        )}
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="rtuPanelDimensions">
+            Mounting Structure / Existing RTU Panel Dimensions
+          </Label>
+          <Input
+            id="rtuPanelDimensions"
+            disabled={readOnly}
+            value={controlRoom.mountingStructureOrRtuPanelDimensions ?? ''}
+            onChange={(e) => updateControlRoom({
+              mountingStructureOrRtuPanelDimensions: e.target.value || null,
+            })}
+          />
+        </div>
+
+        <TriStateToggle
+          label="Cable trench available?"
+          value={controlRoom.cableTrenchAvailable}
+          onChange={(v) => updateControlRoom({ cableTrenchAvailable: v })}
+          readOnly={readOnly}
+        />
+        {controlRoom.cableTrenchAvailable === true && (
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="crTrenchLength">Cable Trench Length (m)</Label>
+            <Input
+              id="crTrenchLength"
               type="number" inputMode="numeric" disabled={readOnly}
-              value={survey.surveyedNumPowerTransformers ?? ''}
-              onChange={(e) =>
-                onChange({ surveyedNumPowerTransformers: e.target.value === '' ? null : Number(e.target.value) })
-              }
+              value={controlRoom.cableTrenchLengthM ?? ''}
+              onChange={(e) => updateControlRoom({ cableTrenchLengthM: toCount(e.target.value) })}
+            />
+          </div>
+        )}
+
+        <TriStateToggle
+          label="Trench extension needed?"
+          value={controlRoom.trenchExtensionNeeded}
+          onChange={(v) => updateControlRoom({ trenchExtensionNeeded: v })}
+          readOnly={readOnly}
+        />
+      </div>
+
+      {/* ── Asset Counts ─────────────────────────────────────────────────── */}
+      <div className="flex flex-col gap-3">
+        <h3 className="text-base font-semibold text-gray-900">Asset Counts</h3>
+
+        <div className="flex flex-col gap-1.5">
+          {/* Driven by SURVEY_VOLTAGE_LEVELS so adding a level is a one-place
+              change — never a new hard-coded input here. Labels come from
+              BAY_COUNT_LABELS, which carries the document's verbatim row
+              wording rather than the generic voltage-picker text. */}
+          <div className="grid grid-cols-2 gap-3">
+            {SURVEY_VOLTAGE_LEVELS.map((level) => (
+              <div key={level} className="flex flex-col gap-1">
+                <Label htmlFor={`bays-${level}`} className="text-xs font-normal text-gray-600">
+                  {BAY_COUNT_LABELS[level]}
+                </Label>
+                <Input
+                  id={`bays-${level}`}
+                  type="number" inputMode="numeric" disabled={readOnly}
+                  value={counts.baysByVoltage[level] ?? ''}
+                  onChange={(e) => updateAssetCounts({
+                    baysByVoltage: {
+                      ...counts.baysByVoltage,
+                      [level]: toCount(e.target.value),
+                    },
+                  })}
+                />
+              </div>
+            ))}
+          </div>
+          {siteMaster?.totalBays != null && (
+            <p className="text-xs text-gray-400">
+              Master total: {siteMaster.totalBays}
+              {totalBaysAnswered != null && ` · counted so far: ${totalBaysAnswered}`}
+            </p>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="transformerCount">Number of Transformers</Label>
+            <Input
+              id="transformerCount"
+              type="number" inputMode="numeric" disabled={readOnly}
+              value={counts.transformerCount ?? ''}
+              onChange={(e) => updateAssetCounts({ transformerCount: toCount(e.target.value) })}
             />
             {siteMaster?.numPowerTransformers != null && (
               <p className="text-xs text-gray-400">Master: {siteMaster.numPowerTransformers}</p>
             )}
           </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="busCount">Number of Buses</Label>
+            <Input
+              id="busCount"
+              type="number" inputMode="numeric" disabled={readOnly}
+              value={counts.busCount ?? ''}
+              onChange={(e) => updateAssetCounts({ busCount: toCount(e.target.value) })}
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="capacitorBankCount">Number of Capacitor Banks</Label>
+          <Input
+            id="capacitorBankCount"
+            type="number" inputMode="numeric" disabled={readOnly}
+            value={counts.capacitorBankCount ?? ''}
+            onChange={(e) => updateAssetCounts({ capacitorBankCount: toCount(e.target.value) })}
+          />
         </div>
       </div>
 
-      {/* Section B — Pre-visit checklist */}
+      {/* ── Pre-Visit Checklist — unchanged ──────────────────────────────── */}
       <div className="flex flex-col gap-2">
         <h3 className="text-base font-semibold text-gray-900">Pre-Visit Checklist</h3>
         {PRE_VISIT_LABELS.map((item) => (

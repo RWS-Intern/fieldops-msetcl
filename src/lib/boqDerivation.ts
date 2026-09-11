@@ -1,152 +1,87 @@
-import type { SurveyReport, SurveyBoqLine, BayType } from '@/types';
+import { BOQ_DERIVED_ITEMS } from '@/lib/boqMaster';
+import type { SurveyReport, SurveyBoqLine } from '@/types';
 
 /**
- * Auto-derivation of BOQ quantities from data already captured earlier in the
- * survey (Section C bays, Section D devices) — per the tender-mapping note:
- * "the F-RTU/Remote-IO, MFM, CMR and tap-transducer counts can be auto-derived
- * from the bay/signal entries; service ITC quantities auto-mirror the matching
- * supply items."
+ * Auto-derivation of BOQ quantities from the Feeder List.
  *
- * The mapping specifies the INPUTS but not the exact formulas, so the two
- * channel capacities below are engineering assumptions standing in for a
- * tender clause that has NOT been independently verified. They are isolated as
- * named constants so they can be corrected in one place once the tender's
- * actual FRTU/CMR channel-count spec is checked.
+ * This module used to compute F-RTU / CMR / MFM counts from summed DI/DO/AI
+ * signal totals divided by assumed channel capacities. That whole approach is
+ * GONE: the official checklist asks the surveyor for those three counts
+ * directly, per feeder, so there is nothing left to infer. The assumed
+ * capacities were flagged as unverified engineering guesses from the day they
+ * were written — the document has now confirmed direct entry is correct, so
+ * they are deleted rather than corrected.
+ *
+ * What remains is a straight column sum: for each BOQ line the master marks
+ * `autoDerived`, add up the matching field across every feeder and offer the
+ * total as `requiredToSupply`. No formulas, no assumptions, no constants.
+ *
+ * Which lines are derived is decided by boqMaster.ts (`autoDerived` +
+ * `derivedFromFeederField`), never by a list kept here — adding or removing a
+ * derived line is a one-line master edit and this module follows.
  *
  * Nothing here is authoritative: every derived value lands in an editable
  * field and stops recomputing as soon as the surveyor touches it (see
  * SurveyBoqLine.autoDerived).
  */
 
-// ─── Assumed capacities — VERIFY AGAINST THE TENDER BEFORE THIS SHIPS ─────────
-
 /**
- * ASSUMPTION: one F-RTU / Remote-IO module serves up to this many COMBINED
- * DI+DO+AI points, and modules are not shared between bays (bays are
- * physically separate, so each bay's I/O terminates on its own module set).
+ * The itemKeys under auto-derivation control, from the master.
  *
- * Caveat worth checking alongside the number itself: real remote-IO hardware
- * is usually built from separate DI / DO / AI cards rather than one mixed
- * pool, so a per-signal-type calculation may turn out to be the correct shape
- * — this combined form follows the brief as written.
+ * Exported for the read mapper, which needs it to decide whether a legacy BOQ
+ * line — written before `autoDerived` was persisted — should be treated as
+ * still-derived or as a manual entry.
  */
-export const FRTU_MODULE_CHANNEL_CAPACITY = 32;
+export const DERIVED_ITEM_KEYS: ReadonlySet<string> = new Set(
+  BOQ_DERIVED_ITEMS.map((item) => item.itemKey),
+);
 
 /**
- * ASSUMPTION: one CMR DIN-rail unit multiplies up to this many status/control
- * (DI+DO) contacts. Applied to the station-wide total rather than per bay,
- * since CMR units are pooled in the panel.
- */
-export const CMR_CHANNEL_CAPACITY = 16;
-
-/**
- * Bay types that carry metering and therefore need an MFM. Bus couplers and
- * bus sections are excluded — they don't meter.
- */
-export const MFM_METERING_BAY_TYPES: readonly BayType[] = [
-  'transformer', 'line', 'capacitor', 'reactor',
-];
-
-// ─── Which lines are under auto-derivation control ────────────────────────────
-
-/** Service item -> the supply item whose final quantity it mirrors 1:1. */
-export const SERVICE_TO_SUPPLY_MIRROR: Readonly<Record<string, string>> = {
-  itcNetworkingPanel:          'networkingPanel',
-  itcRemoteIoFrtu:             'frtuRemoteIo',
-  itcMfm:                      'mfm',
-  powerCableLayingTermination: 'powerSupplyCable',
-  cat6CableLayingTermination:  'cat6Cable',
-};
-
-const AUTO_DERIVED_SUPPLY_ITEM_KEYS = [
-  'frtuRemoteIo', 'mfm', 'cmrDinRail', 'tapPositionTransducer',
-] as const;
-
-/**
- * Every itemKey whose quantity this module computes. Used by
- * createEmptyBoqLines() to seed `autoDerived: true` on exactly these lines —
- * that flag is what marks a line as "still under auto control", so a line not
- * in this set is never touched by a recompute.
- */
-export const AUTO_DERIVED_ITEM_KEYS: ReadonlySet<string> = new Set<string>([
-  ...AUTO_DERIVED_SUPPLY_ITEM_KEYS,
-  'substationSurvey',
-  ...Object.keys(SERVICE_TO_SUPPLY_MIRROR),
-]);
-
-// ─── Derivation ───────────────────────────────────────────────────────────────
-
-/**
- * Supply-part quantities derived from Sections C (bays) and D (devices).
+ * Sums each derived line's feeder field across the Feeder List.
+ *
  * Returns a plain itemKey -> quantity map; keys absent from the map are not
  * derived at all.
- */
-export function deriveSupplyQuantities(survey: SurveyReport): Record<string, number> {
-  const bays = survey.bays;
-
-  // Σ over bays of ceil((DI + DO + AI) / capacity) — per bay, not pooled.
-  const frtuRemoteIo = bays.reduce((sum, bay) => {
-    const points = (bay.diPoints ?? 0) + (bay.doPoints ?? 0) + (bay.aiPoints ?? 0);
-    return sum + (points > 0 ? Math.ceil(points / FRTU_MODULE_CHANNEL_CAPACITY) : 0);
-  }, 0);
-
-  // Metering-relevant bays, less any existing MFM the surveyor marked reusable.
-  // Sums the device rows' `quantity` (one row can represent several units).
-  // A row with a null quantity subtracts nothing — it is an incomplete row that
-  // validation already flags, and under-subtracting errs toward over-supply
-  // rather than leaving the site short.
-  const meteringBays = bays.filter(
-    (bay) => bay.bayType !== null && MFM_METERING_BAY_TYPES.includes(bay.bayType),
-  ).length;
-  const reusableMfms = survey.devices
-    .filter((d) => d.deviceType === 'mfm' && d.reusable === true)
-    .reduce((sum, d) => sum + (d.quantity ?? 0), 0);
-  const mfm = Math.max(0, meteringBays - reusableMfms);
-
-  // Station-wide DI+DO total against one CMR capacity (see the constant).
-  const totalContactPoints = bays.reduce(
-    (sum, bay) => sum + (bay.diPoints ?? 0) + (bay.doPoints ?? 0),
-    0,
-  );
-  const cmrDinRail = totalContactPoints > 0
-    ? Math.ceil(totalContactPoints / CMR_CHANNEL_CAPACITY)
-    : 0;
-
-  const tapPositionTransducer = bays.filter(
-    (bay) => bay.bayType === 'transformer' && bay.tapChangerPresent === true,
-  ).length;
-
-  return { frtuRemoteIo, mfm, cmrDinRail, tapPositionTransducer };
-}
-
-/**
- * Service-part quantities. `substationSurvey` is always 1; the rest mirror
- * their matching supply line's FINAL quantity — whatever it is after any
- * manual override — so this must be called with the supply lines as they
- * stand after deriveSupplyQuantities has been applied.
  *
- * A blank supply line mirrors as null rather than 0: 0 would assert "no ITC
- * needed here", which is a claim nobody has made yet. Both lines then stay
- * blank and validation flags both.
+ * A total is `null`, not 0, when NO feeder has answered that column (including
+ * when there are no feeders yet). 0 would assert "none needed at this site",
+ * which is a claim nobody has made — the line must stay blank so validation
+ * flags it. A feeder that explicitly answered 0 IS an answer and makes the
+ * total a real number; feeders that left the column blank contribute nothing
+ * to a total that other feeders have started.
  */
-export function deriveServiceQuantities(
-  boqSupply: readonly SurveyBoqLine[],
-): Record<string, number | null> {
-  const derived: Record<string, number | null> = { substationSurvey: 1 };
-  for (const [serviceKey, supplyKey] of Object.entries(SERVICE_TO_SUPPLY_MIRROR)) {
-    derived[serviceKey] = boqSupply.find((l) => l.itemKey === supplyKey)?.surveyedQty ?? null;
+export function deriveSupplyQuantities(survey: SurveyReport): Record<string, number | null> {
+  const derived: Record<string, number | null> = {};
+
+  for (const item of BOQ_DERIVED_ITEMS) {
+    const field = item.derivedFromFeederField;
+    // An autoDerived master item with no source field has nothing to sum —
+    // leave it out of the map entirely so applyDerivedQuantities skips it
+    // rather than blanking a line the surveyor may have filled.
+    if (!field) continue;
+
+    let total: number | null = null;
+    for (const feeder of survey.feeders) {
+      const value = feeder[field];
+      if (value === null || value === undefined) continue;
+      total = (total ?? 0) + value;
+    }
+    derived[item.itemKey] = total;
   }
+
   return derived;
 }
 
 /**
- * Writes derived quantities into the lines still under auto control, leaving
- * every other line exactly as it was.
+ * Writes derived quantities into `requiredToSupply` on the lines still under
+ * auto control, leaving every other line exactly as it was.
  *
  * A line is skipped when `autoDerived` is false (the surveyor has edited it or
  * ticked not-applicable — it is a manual override from then on) or when
- * `notApplicable` is set. Returns the ORIGINAL array reference when nothing
- * changed, so the caller can cheaply detect a no-op and avoid an update loop.
+ * `notApplicable` is set. `existingUsable` is NEVER derived: what is already
+ * installed at the site is an observation, not a calculation.
+ *
+ * Returns the ORIGINAL array reference when nothing changed, so the caller can
+ * cheaply detect a no-op and avoid an update loop.
  */
 export function applyDerivedQuantities(
   lines: SurveyBoqLine[],
@@ -159,10 +94,10 @@ export function applyDerivedQuantities(
     if (!(line.itemKey in derived)) return line;
 
     const value = derived[line.itemKey];
-    if (line.surveyedQty === value) return line;
+    if (line.requiredToSupply === value) return line;
 
     changed = true;
-    return { ...line, surveyedQty: value };
+    return { ...line, requiredToSupply: value };
   });
 
   return changed ? next : lines;

@@ -1,5 +1,5 @@
-import { AUTO_DERIVED_ITEM_KEYS } from '@/lib/boqDerivation';
 import { SURVEY_APPROVAL_STAGES, deriveStageOwnerUids } from '@/lib/approvalStages';
+import { SURVEY_VOLTAGE_LEVELS } from '@/types';
 import type {
   SurveyBoqLine,
   SurveyBoqChecks,
@@ -8,6 +8,12 @@ import type {
   SurveySignOff,
   SurveyPreVisit,
   ApprovalStageResult,
+  SurveyContactDetails,
+  SurveyControlRoom,
+  SurveyAssetCounts,
+  SurveySiteChecklist,
+  SurveyVoltageLevel,
+  SurveyDcVoltage,
 } from '@/types';
 
 /**
@@ -26,91 +32,211 @@ export interface BoqMasterItem {
   /**
    * Per-item survey guidance, shown as visible helper text beneath the inputs
    * (deliberately not tooltip-only — a surveyor working one-handed in a
-   * substation must not need an extra tap to read it). Text is verbatim from
-   * the tender-mapping review; do not paraphrase when editing.
-   *
-   * Service items carry none: each auto-mirrors its matching supply item
-   * (see src/lib/boqDerivation.ts) and the guidance is implicit in that.
+   * substation must not need an extra tap to read it).
    */
   guidance?:   string;
   /**
-   * A required line must end up with either a quantity or an explicit
-   * not-applicable + reason before Submit. Drives validateBoq() — the
+   * A required line must end up answered — either a quantity or an explicit
+   * not-applicable + reason — before Submit. Drives validateBoq(); the
    * validator reads this flag rather than carrying its own item list.
    */
   required:    boolean;
+  /**
+   * Whether the "Existing & usable" column applies. True for the 12 supply
+   * items (the official two-column table); false for service/ITC lines, where
+   * "already on site" is meaningless — those record requiredToSupply only.
+   */
+  hasExistingUsable: boolean;
+  /**
+   * Whether `requiredToSupply` starts as an auto-derived suggestion, summed
+   * from the per-feeder entries. True for MFM / CMR / F-RTU ONLY — every other
+   * line is pure direct entry, because no other section of the checklist
+   * contains anything to derive them from.
+   *
+   * Owned here rather than in boqDerivation.ts so the master stays the single
+   * source of truth for what each item IS, and so seeding a blank survey does
+   * not depend on the derivation module Phase 2 rewrites.
+   */
+  autoDerived: boolean;
+  /**
+   * Sums this per-feeder field into requiredToSupply. Set only where
+   * autoDerived is true; names a numeric field on SurveyFeederEntry.
+   */
+  derivedFromFeederField?: 'mfmRequired' | 'cmrRequired' | 'frtuModulesRequired';
 }
 
-// ─── Supply Part (13 items) ────────────────────────────────────────────────────
+// ---- Supply Part: the official two-column BOQ table (12 items) --------------
+//
+// Twelve items, each with "Existing & usable" and "Required (to supply)".
+//
+// CHANGES from the previous 13-item table, all deliberate:
+//   - "RTU & FRTU Configuration tool license" is DROPPED. It is a
+//     project-level item, not a per-site one, and has no meaningful
+//     "existing & usable" value — a cell that could never be filled. If it
+//     must still be recorded, its natural home is a single field on the site
+//     checklist, not a row in this table. Flagged in the Phase 1 report.
+//   - GPS item renamed to "GPS clock + antenna".
+//   - CAT6 and power cable are measured in METRES, not km. No conversion.
+//   - MFM (not MFT) throughout — see the note on SurveyFeederEntry.
 
 export const SUPPLY_BOQ_MASTER: readonly BoqMasterItem[] = [
-  { sr: 1,  itemKey: 'rtu',                     item: 'Remote Terminal Unit (RTU)',                                    unit: 'Nos.', required: true,
+  { sr: 1,  itemKey: 'rtu',                   item: 'Remote Terminal Unit (RTU)',                 unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: false,
     guidance: 'Confirm 1 Station RTU required (as per approved architecture); note any existing RTU/SCADA to reuse or replace.' },
-  { sr: 2,  itemKey: 'router',                  item: 'Router',                                                        unit: 'Nos.', required: true,
+  { sr: 2,  itemKey: 'router',                item: 'Router',                                     unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: false,
     guidance: 'Confirm 1 per S/S; check existing router/communication availability at site.' },
-  { sr: 3,  itemKey: 'gpsClock',                item: 'GPS Time Synchronization Clock',                                unit: 'Nos.', required: true,
+  { sr: 3,  itemKey: 'gpsClock',              item: 'GPS clock + antenna',                        unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: false,
     guidance: 'Confirm 1 per S/S; check if a suitable existing GPS can be integrated.' },
-  { sr: 4,  itemKey: 'ethSwitch10Port',         item: 'Managed Ethernet Switch (10 port)',                             unit: 'Nos.', required: true,
+  { sr: 4,  itemKey: 'ethSwitch10Port',       item: 'Managed Ethernet Switch (10 port)',          unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: false,
     guidance: 'Count required from panel/architecture and number of devices needing ports.' },
-  { sr: 5,  itemKey: 'ethSwitch16Port',         item: 'Managed Ethernet Switch (16 port)',                             unit: 'Nos.', required: true,
+  { sr: 5,  itemKey: 'ethSwitch16Port',       item: 'Managed Ethernet Switch (16 port)',          unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: false,
     guidance: 'Count from total IED/device port demand at the station.' },
-  { sr: 6,  itemKey: 'networkingPanel',         item: 'Networking Panel',                                              unit: 'Nos.', required: true,
+  { sr: 6,  itemKey: 'networkingPanel',       item: 'Networking Panel',                           unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: false,
     guidance: 'Confirm panel(s) required vs free space in existing panels; note new-panel need.' },
-  { sr: 7,  itemKey: 'frtuRemoteIo',            item: 'F-RTU / Remote IO Modules',                                     unit: 'Nos.', required: true,
-    guidance: 'Derive from bay count and DI/DO/AI signal counts per bay (Section C of survey).' },
-  { sr: 8,  itemKey: 'mfm',                     item: 'Multi-Function Meter (MFM)',                                    unit: 'Nos.', required: true,
-    guidance: 'Count feeders/transformer bays needing metering; deduct suitable existing MFMs.' },
-  { sr: 9,  itemKey: 'cat6Cable',               item: 'CAT6 Ethernet Cable',                                           unit: 'Km', remarksHint: 'length in m in remarks', required: true,
-    guidance: 'Measure total CAT6 route length (record metres; 1 Km = 1000 m).' },
-  { sr: 10, itemKey: 'tapPositionTransducer',   item: 'Transformer Tap position transducer',                          unit: 'Nos.', required: true,
-    guidance: 'Count power transformers with an on-load tap changer.' },
-  { sr: 11, itemKey: 'cmrDinRail',              item: 'CMR DIN rail mount',                                            unit: 'Nos.', required: true,
-    guidance: 'Derive from status/control (DI/DO) points needing contact multiplication.' },
-  { sr: 12, itemKey: 'powerSupplyCable',        item: 'Power Supply cable (2C, Cu, Ar, 2.5 sq.mm)',                    unit: 'Km', remarksHint: 'length in m in remarks', required: true,
-    guidance: 'Measure DC/AC supply cable route length (record metres).' },
-  // Not required — the mapping's own words: "Project-level item — usually 0 per site."
-  { sr: 13, itemKey: 'rtuFrtuConfigToolLicense', item: 'RTU & FRTU Configuration tool license',                        unit: 'Nos.', remarksHint: 'project-level, if applicable', required: false,
-    guidance: 'Project-level item — usually 0 per site; confirm only if a site-specific license is needed.' },
+
+  // -- The three auto-derived lines (decision 3) --
+  { sr: 7,  itemKey: 'frtuRemoteIo',          item: 'F-RTU / Remote IO Modules',                  unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: true,  derivedFromFeederField: 'frtuModulesRequired',
+    guidance: 'Suggested from the Feeder List — sum of "F-RTU modules required" across all feeders. Adjust if needed.' },
+  { sr: 8,  itemKey: 'mfm',                   item: 'Multi-Function Meter (MFM)',                 unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: true,  derivedFromFeederField: 'mfmRequired',
+    guidance: 'Suggested from the Feeder List — sum of "MFM required" across all feeders. Adjust if needed.' },
+  { sr: 9,  itemKey: 'cmrDinRail',            item: 'CMR DIN rail mount',                         unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: true,  derivedFromFeederField: 'cmrRequired',
+    guidance: 'Suggested from the Feeder List — sum of "CMR required" across all feeders. Adjust if needed.' },
+
+  // -- Cables: metres, no km conversion (decision 4) --
+  { sr: 10, itemKey: 'cat6Cable',             item: 'CAT6 Ethernet Cable',                        unit: 'm',    required: true, hasExistingUsable: true, autoDerived: false, remarksHint: 'route notes',
+    guidance: 'Measure total CAT6 route length in metres. A running total from the cable-run entries is offered as a suggestion.' },
+  { sr: 11, itemKey: 'powerSupplyCable',      item: 'Power Supply cable (2C, Cu, Ar, 2.5 sq.mm)', unit: 'm',    required: true, hasExistingUsable: true, autoDerived: false, remarksHint: 'route notes',
+    guidance: 'Measure DC/AC supply cable route length in metres. A running total from the cable-run entries is offered as a suggestion.' },
+
+  { sr: 12, itemKey: 'tapPositionTransducer', item: 'Transformer Tap position transducer',        unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: false,
+    guidance: 'Count power transformers needing a transducer — cross-check against the Transformer Details section.' },
 ] as const;
 
-// ─── Service Part (6 items) ────────────────────────────────────────────────────
-// All required: each auto-derives from a required supply item (or is a flat 1),
-// so all six are always fillable and should always be filled. No `guidance` —
-// see the BoqMasterItem.guidance comment.
+// ---- Service Part (6 items) -------------------------------------------------
+// Not part of the official two-column table: these are installation/testing/
+// commissioning and laying lines, so hasExistingUsable is false — only
+// requiredToSupply applies. Retained unchanged pending a Phase 2 decision on
+// whether the service table survives the rebuild at all (see the report).
 
 export const SERVICE_BOQ_MASTER: readonly BoqMasterItem[] = [
-  { sr: 1, itemKey: 'substationSurvey',              item: 'Substation Survey',                                              unit: 'Nos.', required: true },
-  { sr: 2, itemKey: 'itcNetworkingPanel',            item: 'ITC of networking panel with RTU, GPS & associated items',       unit: 'Nos.', required: true },
-  { sr: 3, itemKey: 'itcRemoteIoFrtu',               item: 'ITC of Remote IO Module / FRTU in panel',                         unit: 'Nos.', required: true },
-  { sr: 4, itemKey: 'itcMfm',                        item: 'ITC of MFM',                                                      unit: 'Nos.', required: true },
-  { sr: 5, itemKey: 'powerCableLayingTermination',   item: 'Power supply cable laying & termination',                        unit: 'Km', remarksHint: 'length in m in remarks', required: true },
-  { sr: 6, itemKey: 'cat6CableLayingTermination',    item: 'CAT6 Ethernet Cable laying & termination',                        unit: 'Km', remarksHint: 'length in m in remarks', required: true },
+  { sr: 1, itemKey: 'substationSurvey',            item: 'Substation Survey',                                        unit: 'Nos.', required: true, hasExistingUsable: false, autoDerived: false },
+  { sr: 2, itemKey: 'itcNetworkingPanel',          item: 'ITC of networking panel with RTU, GPS & associated items', unit: 'Nos.', required: true, hasExistingUsable: false, autoDerived: false },
+  { sr: 3, itemKey: 'itcRemoteIoFrtu',             item: 'ITC of Remote IO Module / FRTU in panel',                  unit: 'Nos.', required: true, hasExistingUsable: false, autoDerived: false },
+  { sr: 4, itemKey: 'itcMfm',                      item: 'ITC of MFM',                                               unit: 'Nos.', required: true, hasExistingUsable: false, autoDerived: false },
+  { sr: 5, itemKey: 'powerCableLayingTermination', item: 'Power supply cable laying & termination',                  unit: 'm',    required: true, hasExistingUsable: false, autoDerived: false },
+  { sr: 6, itemKey: 'cat6CableLayingTermination',  item: 'CAT6 Ethernet Cable laying & termination',                 unit: 'm',    required: true, hasExistingUsable: false, autoDerived: false },
 ] as const;
+
+/** The supply lines whose requiredToSupply is auto-derived from the Feeder List. */
+export const BOQ_DERIVED_ITEMS: readonly BoqMasterItem[] =
+  SUPPLY_BOQ_MASTER.filter((m) => m.autoDerived);
 
 // ─── Factories ──────────────────────────────────────────────────────────────────
 
 /**
  * Seeds a blank pair of BOQ line arrays from the master — one line per master
- * item, `surveyedQty`/`remarks` unset. Call once per new SurveyReport draft.
+ * item, both quantity columns unset.
  *
- * `autoDerived` starts true on exactly the lines boqDerivation computes: that
- * flag means "still under auto control", so those lines fill themselves on
- * entry to Section J and keep tracking their inputs until the surveyor edits
- * one. Every other line starts false and is never touched by a recompute.
+ * `autoDerived` comes from the master item itself (MFM / CMR / F-RTU only),
+ * not from boqDerivation: the flag means "requiredToSupply is still a
+ * suggestion", so those lines fill themselves from the Feeder List and keep
+ * tracking it until the surveyor edits one. Every other line starts false and
+ * is never touched by a recompute.
  */
 export function createEmptyBoqLines(): { boqSupply: SurveyBoqLine[]; boqService: SurveyBoqLine[] } {
   const toLine = (m: BoqMasterItem): SurveyBoqLine => ({
-    sr:            m.sr,
-    itemKey:       m.itemKey,
-    surveyedQty:   null,
-    remarks:       null,
-    notApplicable: false,
-    autoDerived:   AUTO_DERIVED_ITEM_KEYS.has(m.itemKey),
+    sr:               m.sr,
+    itemKey:          m.itemKey,
+    existingUsable:   null,
+    requiredToSupply: null,
+    remarks:          null,
+    notApplicable:    false,
+    autoDerived:      m.autoDerived,
   });
 
   return {
     boqSupply:  SUPPLY_BOQ_MASTER.map(toLine),
     boqService: SERVICE_BOQ_MASTER.map(toLine),
+  };
+}
+
+/**
+ * Per-voltage-level record with every level unanswered. Built from
+ * SURVEY_VOLTAGE_LEVELS so adding a level needs no change here.
+ */
+function emptyByVoltage<T>(): Record<SurveyVoltageLevel, T | null> {
+  return Object.fromEntries(
+    SURVEY_VOLTAGE_LEVELS.map((lvl) => [lvl, null]),
+  ) as Record<SurveyVoltageLevel, T | null>;
+}
+
+function createEmptyContactDetails(): SurveyContactDetails {
+  return {
+    substationInchargeName:          null,
+    substationInchargePhone:         null,
+    substationLandline:              null,
+    substationVoip:                  null,
+    shiftOperatorContacts:           null,
+    address:                         null,
+    circle:                          null,
+    division:                        null,
+    commissionedDate:                null,
+    nearestRailwayStationOrLandmark: null,
+  };
+}
+
+function createEmptyControlRoom(): SurveyControlRoom {
+  return {
+    layoutNotes:                           null,
+    roomTemperature:                       null,
+    acAvailable:                           null,
+    acCondition:                           null,
+    mountingStructureOrRtuPanelDimensions: null,
+    cableTrenchAvailable:                  null,
+    cableTrenchLengthM:                    null,
+    trenchExtensionNeeded:                 null,
+  };
+}
+
+/** Counts start null, never 0 — see the null-vs-zero note in src/types. */
+function createEmptyAssetCounts(): SurveyAssetCounts {
+  return {
+    baysByVoltage:      emptyByVoltage<number>(),
+    transformerCount:   null,
+    busCount:           null,
+    capacitorBankCount: null,
+  };
+}
+
+function createEmptySiteChecklist(): SurveySiteChecklist {
+  return {
+    outdoorCivilWorkStatus: null,
+    communication: {
+      distanceToProposedRtuLocationM: null,
+      channelType:                    null,
+      channelMake:                    null,
+      cableRouteExists:               null,
+    },
+    acDcSupply: {
+      ac230vAvailable:         null,
+      dcBreakerVoltageByLevel: emptyByVoltage<SurveyDcVoltage>(),
+      distanceToAcdbM:         null,
+      distanceToDcdbM:         null,
+    },
+    sld: {
+      sldDrawnAndConfirmed:        null,
+      allEquipmentTypesShownOnSld: null,
+    },
+    earthing: {
+      matExtendedToControlRoom: null,
+      matIntact:                null,
+    },
+    lightningProtectionToControlRoom: null,
+    storage: {
+      siteAccessAvailable:             null,
+      storageSpaceForRtuPanel:         null,
+      spaceForUnloading:               null,
+      installSpaceForFrtuSwitchMfmCmr: null,
+    },
   };
 }
 
@@ -242,15 +368,21 @@ export function createEmptySurveyReport(input: CreateEmptySurveyReportInput): Su
     surveyDate:   null,
     location:     null,
     surveyorName: null,
-    surveyedTotalBays:            null,
-    surveyedNumPowerTransformers: null,
-    preVisit: createEmptyPreVisit(),
 
-    bays:               [],
-    devices:            [],
+    contactDetails: createEmptyContactDetails(),
+    controlRoom:    createEmptyControlRoom(),
+    assetCounts:    createEmptyAssetCounts(),
+    preVisit:       createEmptyPreVisit(),
+
+    feeders:        [],
+    relays:         [],
+    transformers:   [],
+    capacitorBanks: [],
+
     cableRuns:          [],
     difficultRunsNotes: null,
-    infrastructure: createEmptyInfrastructure(),
+    siteChecklist:      createEmptySiteChecklist(),
+    infrastructure:     createEmptyInfrastructure(),
     boqSupply,
     boqService,
     boqChecks:  createEmptyBoqChecks(),

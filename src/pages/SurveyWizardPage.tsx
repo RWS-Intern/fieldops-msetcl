@@ -23,28 +23,99 @@ import { validateSurvey, getStepStatuses } from '@/lib/surveyValidation';
 import { Button } from '@/components/ui/button';
 import { cn }      from '@/lib/utils';
 import { StepSiteVisit }      from '@/components/survey/steps/StepSiteVisit';
-import { StepBays }           from '@/components/survey/steps/StepBays';
-import { StepDevices }        from '@/components/survey/steps/StepDevices';
+import { StepFeederList }     from '@/components/survey/steps/StepFeederList';
+import { StepRelayDetails }   from '@/components/survey/steps/StepRelayDetails';
 import { StepInfrastructure } from '@/components/survey/steps/StepInfrastructure';
 import { StepCableRuns }      from '@/components/survey/steps/StepCableRuns';
 import { StepPhotos }         from '@/components/survey/steps/StepPhotos';
 import { StepBoq }            from '@/components/survey/steps/StepBoq';
 import { StepSignOff }        from '@/components/survey/steps/StepSignOff';
+import type { StepStatus } from '@/lib/surveyValidation';
 import type { SurveyStepProps } from '@/components/survey/steps/StepProps';
 import type { SurveyReport } from '@/types';
 
 // ─── Steps ────────────────────────────────────────────────────────────────────
 
-const STEPS: { key: string; label: string; Component: React.ComponentType<SurveyStepProps> }[] = [
-  { key: 'site_visit',     label: 'Site & Visit',     Component: StepSiteVisit },
-  { key: 'bays',           label: 'Bays',             Component: StepBays },
-  { key: 'devices',        label: 'Devices',          Component: StepDevices },
-  { key: 'infrastructure', label: 'Infrastructure',   Component: StepInfrastructure },
-  { key: 'cable_runs',     label: 'Cable Runs',       Component: StepCableRuns },
-  { key: 'photos',         label: 'Photos',           Component: StepPhotos },
-  { key: 'boq',            label: 'BOQ',              Component: StepBoq },
-  { key: 'sign_off',       label: 'Sign-Off',         Component: StepSignOff },
+interface WizardStep {
+  key:   string;
+  label: string;
+  Component: React.ComponentType<SurveyStepProps>;
+  /**
+   * This step's index in surveyValidation.ts's POSITIONAL status array, which
+   * still describes the old 8-step form. The two orders no longer line up, so
+   * every soft-validation read goes through this field instead of the step's
+   * own index — otherwise Capacitor Banks would show Infrastructure's issue
+   * count.
+   *
+   * null for steps the current validator knows nothing about; they read as
+   * 'untouched' until the validation phase rewrites surveyValidation.ts, at
+   * which point this indirection is deleted and the arrays align again.
+   */
+  validationIndex: number | null;
+}
+
+/**
+ * The confirmed 10-step structure.
+ *
+ * Steps 4 and 5 are placeholders — their shapes exist (survey.capacitorBanks /
+ * survey.transformers) but their forms land in a later phase. Steps 6, 9 and
+ * 10 keep their EXISTING components mounted: those are being revised later,
+ * not built from nothing, and replacing working UI with a placeholder would
+ * lose function for no gain.
+ */
+function placeholderStep(section: string): React.ComponentType<SurveyStepProps> {
+  return function StepPlaceholder() {
+    return (
+      <div className="flex flex-col gap-3">
+        <h3 className="text-base font-semibold text-gray-900">{section}</h3>
+        <div className="flex items-start gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <Clock className="h-5 w-5 text-brand-blue shrink-0 mt-0.5" />
+          <p className="text-xs text-brand-blue">
+            This section is part of the survey rebuild — its fields are added in a later phase.
+            Nothing needs to be entered here yet, and leaving it empty will not block Submit.
+          </p>
+        </div>
+      </div>
+    );
+  };
+}
+
+const STEPS: WizardStep[] = [
+  { key: 'site_visit',      label: 'Site & Visit',                    Component: StepSiteVisit,                             validationIndex: 0 },
+  { key: 'feeders',         label: 'Feeder List',                     Component: StepFeederList,                            validationIndex: 1 },
+  { key: 'relays',          label: 'CRP Relay Details',               Component: StepRelayDetails,                          validationIndex: 2 },
+  { key: 'capacitor_banks', label: 'Capacitor Banks',                 Component: placeholderStep('Capacitor Bank Details'), validationIndex: null },
+  { key: 'transformers',    label: 'Transformer Details',             Component: placeholderStep('Transformer Details'),    validationIndex: null },
+  { key: 'infrastructure',  label: 'Site Infrastructure & Checklist', Component: StepInfrastructure,                        validationIndex: 3 },
+  { key: 'cable_runs',      label: 'Cable Runs',                      Component: StepCableRuns,                             validationIndex: 4 },
+  { key: 'photos',          label: 'Photos',                          Component: StepPhotos,                                validationIndex: 5 },
+  { key: 'boq',             label: 'BOQ',                             Component: StepBoq,                                   validationIndex: 6 },
+  { key: 'sign_off',        label: 'Sign-Off',                        Component: StepSignOff,                               validationIndex: 7 },
 ];
+
+/** A step the validator doesn't cover yet — never 'incomplete', so it can't nag. */
+const UNVALIDATED_STEP: StepStatus = { state: 'untouched', missingCount: 0 };
+
+/**
+ * Soft-validation status for a wizard step, via its validationIndex. Falls
+ * back to 'untouched' both for placeholder steps and for a status array
+ * shorter than expected, so a validator/registry mismatch degrades to "no
+ * indicator" rather than a crash on undefined.
+ */
+function statusForStep(statuses: StepStatus[], step: WizardStep): StepStatus {
+  if (step.validationIndex === null) return UNVALIDATED_STEP;
+  return statuses[step.validationIndex] ?? UNVALIDATED_STEP;
+}
+
+/**
+ * Maps a validation issue's stepIndex (old 8-step numbering) back to the
+ * wizard step that now owns it, so "jump to issue" lands on the right screen.
+ * Returns null if no step claims that index.
+ */
+function wizardIndexForValidationIndex(validationIndex: number): number | null {
+  const found = STEPS.findIndex((s) => s.validationIndex === validationIndex);
+  return found === -1 ? null : found;
+}
 
 function formatTime(ms: number): string {
   return new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -381,7 +452,7 @@ export function SurveyWizardPage() {
   // with the live edit, no memoisation needed.
   const stepStatuses     = getStepStatuses(surveyData);
   const validationIssues = validateSurvey(surveyData);
-  const currentStepStatus = stepStatuses[stepIndex];
+  const currentStepStatus = statusForStep(stepStatuses, STEPS[stepIndex]);
   const validationErrorCount   = validationIssues.filter((i) => i.severity === 'error').length;
   const validationWarningCount = validationIssues.length - validationErrorCount;
 
@@ -486,7 +557,7 @@ export function SurveyWizardPage() {
         {/* Step names — wider screens only */}
         <div className="hidden sm:flex items-center gap-1 flex-wrap">
           {STEPS.map((s, i) => {
-            const status = stepStatuses[i];
+            const status = statusForStep(stepStatuses, s);
             const isCurrent = i === stepIndex;
             return (
               <span
@@ -545,7 +616,10 @@ export function SurveyWizardPage() {
               <li key={i}>
                 <button
                   type="button"
-                  onClick={() => setStepIndex(iss.stepIndex)}
+                  onClick={() => {
+                    const target = wizardIndexForValidationIndex(iss.stepIndex);
+                    if (target !== null) setStepIndex(target);
+                  }}
                   className={cn(
                     'text-xs hover:underline text-left',
                     iss.severity === 'error' ? 'text-red-700' : 'text-amber-700',

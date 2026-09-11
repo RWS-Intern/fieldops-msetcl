@@ -1,6 +1,7 @@
 import type {
-  BayType, DeviceType, DeviceProtocol, SurveyDevice, SurveyCableRun,
+  BayType, DeviceType, DeviceProtocol, SurveyCableRun,
   SurveyInfrastructure, SurveyPreVisit, SurveyBoqChecks,
+  SurveyVoltageLevel, SurveyDcVoltage, SurveyRelayType, SurveyCapacitorBank,
 } from '@/types';
 
 /**
@@ -16,8 +17,48 @@ import type {
  * they already have their own shared homes.
  */
 
-// ─── Section C — Bays ────────────────────────────────────────────────────────────
+// ─── Shared across the rebuilt sections ─────────────────────────────────────────
 
+/**
+ * Nominal voltage, used by the Feeder List, CRP Relay Details, Transformer
+ * Details, Capacitor Bank Details and the per-level asset counts / DC breaker
+ * pickers — every one of them offers the same four options, so they share one
+ * map rather than each spelling out "66 / 33 kV".
+ *
+ * 66 and 33 are ONE option, not two: the source checklist buckets them
+ * together (see SurveyVoltageLevel).
+ */
+export const VOLTAGE_LEVEL_LABELS: Record<SurveyVoltageLevel, string> = {
+  '132':   '132 kV',
+  '110':   '110 kV',
+  '100':   '100 kV',
+  '66_33': '66 / 33 kV',
+};
+
+/**
+ * The bay-count row labels, VERBATIM from the source document — including its
+ * unspaced "132kV" and the "(If any)" qualifier on the combined 66/33 row.
+ *
+ * A separate map rather than `Number of Bays on ${VOLTAGE_LEVEL_LABELS[l]}`
+ * because the document's wording differs from the generic picker labels in
+ * both spacing and that qualifier, and this text appears on a page an MSETCL
+ * engineer signs. Lives here, not in the step, so SurveyPreview renders the
+ * identical wording when it's rewritten — the parity rule above.
+ */
+export const BAY_COUNT_LABELS: Record<SurveyVoltageLevel, string> = {
+  '132':   'Number of Bays on 132kV',
+  '110':   'Number of Bays on 110kV',
+  '100':   'Number of Bays on 100kV',
+  '66_33': 'Number of Bays on 66 or 33kV (If any)',
+};
+
+// ─── Feeder List (replaces Section C — Bays) ────────────────────────────────────
+
+/**
+ * @deprecated Retained only for StepBays.tsx / SurveyPreview.tsx, which still
+ * read the old `bays` shape and are rewritten in a later phase. The Feeder
+ * List has no bay-type column — delete this map with its last consumer.
+ */
 export const BAY_TYPE_LABELS: Record<BayType, string> = {
   line:         'Line',
   transformer:  'Transformer',
@@ -27,8 +68,12 @@ export const BAY_TYPE_LABELS: Record<BayType, string> = {
   reactor:      'Reactor',
 };
 
-// ─── Section D — Devices ─────────────────────────────────────────────────────────
+// ─── CRP Relay Details (replaces Section D — Devices) ───────────────────────────
 
+/**
+ * @deprecated Same reasoning as BAY_TYPE_LABELS — the relay table records a
+ * make/model and a relay TYPE, not a device-type enum.
+ */
 export const DEVICE_TYPE_LABELS: Record<DeviceType, string> = {
   mfm:             'MFM',
   cmr:             'CMR',
@@ -38,6 +83,7 @@ export const DEVICE_TYPE_LABELS: Record<DeviceType, string> = {
   legacy_rtu:      'Legacy RTU',
 };
 
+/** NOT deprecated — SurveyRelayEntry.protocol reuses this union unchanged. */
 export const PROTOCOL_LABELS: Record<DeviceProtocol, string> = {
   modbus:    'Modbus',
   iec_61850: 'IEC 61850',
@@ -46,13 +92,23 @@ export const PROTOCOL_LABELS: Record<DeviceProtocol, string> = {
   none:      'None',
 };
 
-export type Port = NonNullable<SurveyDevice['port']>;
+export const RELAY_TYPE_LABELS: Record<SurveyRelayType, string> = {
+  electro_mechanical: 'Electro-Mechanical',
+  static:             'Static',
+  numeric:            'Numeric',
+};
 
-export const PORT_LABELS: Record<Port, string> = {
-  rs485:    'RS485',
-  rs232:    'RS232',
-  ethernet: 'Ethernet',
-  other:    'Other',
+// PORT_LABELS is GONE along with SurveyDevice['port'], which was its only type
+// source. The relay table has no port column — whether a device speaks RS485
+// is now recorded per feeder (SurveyFeederEntry.existingMfmRs485Available).
+
+// ─── Capacitor Bank Details (new) ───────────────────────────────────────────────
+
+export type CapacitorControlType = NonNullable<SurveyCapacitorBank['controlType']>;
+
+export const CAPACITOR_CONTROL_TYPE_LABELS: Record<CapacitorControlType, string> = {
+  auto:   'Auto',
+  manual: 'Manual',
 };
 
 // ─── Section H — Cable runs ──────────────────────────────────────────────────────
@@ -82,9 +138,16 @@ export const CIVIL_WORK_LABELS: Record<CivilWork, string> = {
   none:         'None',
 };
 
-export type DcVoltage = SurveyInfrastructure['dcVoltages'][number];
+/**
+ * Re-rooted onto SurveyDcVoltage — the same three values, but now owned by the
+ * type the checklist uses rather than by the legacy `dcVoltages` multi-select
+ * that siteChecklist.acDcSupply.dcBreakerVoltageByLevel supersedes. One map
+ * serves both the old shared picker and the new per-voltage-level one, so the
+ * wording can't drift between them while both exist.
+ */
+export type DcVoltage = SurveyDcVoltage;
 
-export const DC_VOLTAGE_LABELS: Record<DcVoltage, string> = {
+export const DC_VOLTAGE_LABELS: Record<SurveyDcVoltage, string> = {
   '110': '110V',
   '48':  '48V',
   '24':  '24V',

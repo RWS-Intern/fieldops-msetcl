@@ -473,53 +473,303 @@ export interface WorkOrder {
 }
 
 // ─── Survey sub-shapes ─────────────────────────────────────────────────────────
+//
+// NULL-VS-ZERO DISCIPLINE, carried forward from the original survey build and
+// applying to every nullable number below: this becomes a jointly-signed BOQ
+// submitted for government vetting, so "the surveyor hasn't answered yet" must
+// stay distinguishable from any real value. 0 status points is a legitimate
+// answer. Never default a count to 0.
 
+/**
+ * Voltage buckets used across the feeder list, transformers, capacitor banks
+ * and the per-level DC breaker voltages.
+ *
+ * '66_33' is one bucket covering 66kV and 33kV, per the official checklist's
+ * own grouping — NOT two separate levels.
+ */
+export type SurveyVoltageLevel = '132' | '110' | '100' | '66_33';
+
+export const SURVEY_VOLTAGE_LEVELS: readonly SurveyVoltageLevel[] =
+  ['132', '110', '100', '66_33'];
+
+/** DC breaker voltage options — the same domain the old shared multi-select used. */
+export type SurveyDcVoltage = '110' | '48' | '24';
+
+/**
+ * @deprecated Superseded by SurveyFeederEntry. Retained only until the step
+ * components and src/lib/boqDerivation.ts are rewritten (Phase 2) — nothing
+ * new should reference it.
+ */
 export type BayType = 'line' | 'transformer' | 'bus_coupler' | 'bus_section' | 'capacitor' | 'reactor';
 
 /**
- * One bay row surveyed at the substation — an array element, not a subcollection.
- * bayType/voltageLevel/diPoints/doPoints/aiPoints are nullable despite being
- * required-for-submit fields (see validateSurvey): this becomes a
- * jointly-signed BOQ submitted for government vetting, so "surveyor didn't
- * answer yet" must be a distinguishable state from any real value — 0 status
- * points is a legitimate answer, so it must never be indistinguishable from
- * unanswered.
+ * @deprecated Superseded by SurveyRelayEntry / the two-column BOQ. Retained
+ * only until Phase 2 rewrites its remaining callers.
  */
-export interface SurveyBay {
+export type DeviceType = 'mfm' | 'cmr' | 'tpi' | 'gps' | 'numerical_relay' | 'legacy_rtu';
+
+/** Still current — reused by SurveyRelayEntry.protocol. */
+export type DeviceProtocol = 'modbus' | 'iec_61850' | 'iec_103' | 'serial' | 'none';
+
+// ─── Feeder List (replaces the old bay shape) ─────────────────────────────────
+
+/**
+ * One bay/feeder row from the official checklist's Feeder List.
+ *
+ * Replaces SurveyBay's diPoints/doPoints/aiPoints model: the checklist asks
+ * the surveyor to state directly how many MFMs, CMRs and F-RTU modules a
+ * feeder needs, rather than deriving them from three signal counts.
+ *
+ * NAMING MISMATCH, DELIBERATE: the printed Feeder List column is headed "MFT
+ * required", but this field is `mfmRequired`. The official document is
+ * internally inconsistent (MFT in the Feeder List, MFM in the new BOQ table);
+ * "Multi-Function Meter" only abbreviates to MFM, so the app standardises on
+ * MFM everywhere. A surveyor comparing screen to paper will see MFM where the
+ * paper says MFT — worth a line in the field instructions.
+ *
+ * `photos` keeps the existing local:// → Cloudinary pipeline untouched.
+ */
+export interface SurveyFeederEntry {
   uid: string;                  // client-generated id for list keys / edits
-  bayNumber: string;
-  bayType: BayType | null;
-  voltageLevel: '132' | '110' | '100' | '66' | null;
-  diPoints: number | null;      // status points — CB, isolators, earth switches, trip/alarm
-  doPoints: number | null;      // control points — open/close
-  aiPoints: number | null;      // analog — MW, MVAR, V, I, Hz
+  bayName: string;
+  nominalVoltage: SurveyVoltageLevel | null;
+  feederOrTransformerDescription: string | null;
+  cableTrenchLengthM: number | null;
+  panelSpaceAvailable: boolean | null;
+  existingMfmAvailableWorking: boolean | null;
+  existingMfmRs485Available: boolean | null;
+  /** Direct surveyor entry. Summed into the MFM BOQ line's requiredToSupply. */
+  mfmRequired: number | null;
+  /** Direct surveyor entry. Summed into the CMR BOQ line's requiredToSupply. */
+  cmrRequired: number | null;
+  ctPtRatio: string | null;
+  shutdownRequired: boolean | null;
+  /** Direct surveyor entry — no longer split into DI/DO/AI. */
+  diStatusPoints: number | null;
+  /** Direct surveyor entry. Summed into the F-RTU BOQ line's requiredToSupply. */
+  frtuModulesRequired: number | null;
+  remarks: string | null;
+  photos: string[];             // Cloudinary URLs / local:// refs — pipeline unchanged
+}
+
+// ─── CRP Relay Details (replaces the old flat device list) ────────────────────
+
+/**
+ * Relay technology. ONE single-select, not three booleans: a relay is normally
+ * exactly one of these, and the three columns on the printed form are a print
+ * layout rather than three independent facts.
+ */
+export type SurveyRelayType = 'electro_mechanical' | 'static' | 'numeric';
+
+/**
+ * One relay row from the official checklist's CRP Relay Details table.
+ * Replaces SurveyDevice, which modelled any on-site device generically.
+ */
+export interface SurveyRelayEntry {
+  uid: string;
+  bayName: string;
+  nominalVoltage: SurveyVoltageLevel | null;
+  relayMakeModel: string | null;
+  relayType: SurveyRelayType | null;
+  protocol: DeviceProtocol | null;
+  ipAddress: string | null;
+  /**
+   * UNVERIFIED FIELD SHAPE — free text was chosen because it can hold either
+   * answer. I could not check the official document (not available to me), so
+   * whether this column is a tick-box or a description is unconfirmed. If it
+   * is a tick-box, narrow this to `boolean | null` in Phase 2; free text can
+   * represent "Yes"/"No" as well as "2 x ST fibre", so nothing is lost either
+   * way while it stays unconfirmed.
+   */
+  optical: string | null;
   ctRatio: string | null;
-  ptRatio: string | null;
-  tapChangerPresent: boolean | null;   // conditional: transformer bays
-  tapPositions: number | null;         // conditional: show if tapChangerPresent
-  photos: string[];                    // Cloudinary URLs
+  remarks: string | null;
+  photos: string[];             // pipeline unchanged
+}
+
+// ─── Capacitor Bank Details (new repeatable group) ───────────────────────────
+
+export interface SurveyCapacitorBank {
+  uid: string;
+  bankNumber: string;
+  voltageLevel: SurveyVoltageLevel | null;
+  numberOfBanks: number | null;
+  controlType: 'auto' | 'manual' | null;
+  /** Nameplate rating as transcribed, e.g. "5 MVAR" — text, not a number. */
+  ratingPerBank: string | null;
+  workingStatus: string | null;
+}
+
+// ─── Transformer Details (new repeatable group) ───────────────────────────────
+
+/**
+ * One transformer, separate from the Feeder List — matching the official
+ * document's own structure. Replaces SurveyBay's tapChangerPresent/tapPositions
+ * conditional pair, which only ever captured a fraction of this.
+ *
+ * Nameplate/designation values are text rather than numbers so a transcription
+ * like "50/63 MVA" or "+9/-9" survives intact.
+ */
+export interface SurveyTransformerEntry {
+  uid: string;
+  transformerNumber: string;
+  voltageLevel: SurveyVoltageLevel | null;
+  mvaRating: string | null;
+  rtccHighStep: string | null;
+  rtccLowStep: string | null;
+  tapPositionConnectionType: string | null;
+  rtccPanelWorking: boolean | null;
+  existingTpiWorking: boolean | null;
+  existingTpi4to20mAAvailable: boolean | null;
+  tptRequired: boolean | null;
   remarks: string | null;
 }
 
-export type DeviceType = 'mfm' | 'cmr' | 'tpi' | 'gps' | 'numerical_relay' | 'legacy_rtu';
-export type DeviceProtocol = 'modbus' | 'iec_61850' | 'iec_103' | 'serial' | 'none';
+// ─── Site & Visit extensions ─────────────────────────────────────────────────
+
+/** Substation contact + location details, one set per survey. */
+export interface SurveyContactDetails {
+  substationInchargeName: string | null;
+  /** The IN-CHARGE PERSON's own contact number — not the station's line. */
+  substationInchargePhone: string | null;
+  /**
+   * The SUBSTATION's own telephone numbers, distinct from the in-charge
+   * person's phone above: the document lists them as separate rows, and the
+   * station line survives a change of in-charge. Kept as two flat fields
+   * rather than a nested { landline, voip } object to match the flat style of
+   * every other field in this interface — the UI groups them visually under
+   * the document's own "Substation Telephone no./s" heading.
+   */
+  substationLandline: string | null;
+  substationVoip: string | null;
+  /**
+   * Free text rather than a repeatable group: the printed form is a single
+   * cell and a shift roster may list several names/numbers together.
+   */
+  shiftOperatorContacts: string | null;
+  address: string | null;
+  circle: string | null;
+  division: string | null;
+  commissionedDate: Date | null;
+  nearestRailwayStationOrLandmark: string | null;
+}
+
+/** Control room measurements and services, one set per survey. */
+export interface SurveyControlRoom {
+  /**
+   * Control room layout notes — deliberately NOT dimensions.
+   *
+   * The document doesn't ask for measurements here: it instructs the surveyor
+   * to "prepare a sketch of panel placements and identify proposed RTU
+   * location on it after consultation with local S/S In charge". The sketch
+   * itself stays a paper/photo artefact (no in-app drawing), so this field
+   * holds the written notes that accompany it.
+   *
+   * Renamed from `roomDimensions`, which described the question the form was
+   * once thought to be asking rather than the one it actually asks.
+   */
+  layoutNotes: string | null;
+  /** Free text — often recorded as a range rather than one reading. */
+  roomTemperature: string | null;
+  acAvailable: boolean | null;
+  acCondition: string | null;
+  mountingStructureOrRtuPanelDimensions: string | null;
+  cableTrenchAvailable: boolean | null;
+  cableTrenchLengthM: number | null;
+  trenchExtensionNeeded: boolean | null;
+}
 
 /**
- * One existing device found on-site during survey — an array element.
- * deviceType/protocol/quantity/reusable are nullable — same "unanswered must
- * never look like a real answer" reasoning as SurveyBay above.
+ * Counts as surveyed on site. Replaces the single `surveyedTotalBays` number
+ * and the transformer-only `surveyedNumPowerTransformers`.
+ *
+ * These may legitimately differ from the Annexure-II site master
+ * (Site.totalBays / Site.numPowerTransformers) — a discrepancy is a survey
+ * finding, not a data-entry error to silently reconcile.
  */
-export interface SurveyDevice {
-  uid: string;
-  deviceType: DeviceType | null;
-  make: string | null;
-  model: string | null;
-  protocol: DeviceProtocol | null;
-  port: 'rs485' | 'rs232' | 'ethernet' | 'other' | null;
-  quantity: number | null;
-  reusable: boolean | null;
-  photos: string[];
-  remarks: string | null;
+export interface SurveyAssetCounts {
+  /** Bay count per voltage level — keyed so a new level needs no new field. */
+  baysByVoltage: Record<SurveyVoltageLevel, number | null>;
+  transformerCount: number | null;
+  busCount: number | null;
+  capacitorBankCount: number | null;
+}
+
+// ─── Site checklist (official checklist table 2) ─────────────────────────────
+
+/**
+ * Communication equipment details.
+ *
+ * The official checklist has FOUR UNLABELLED ROWS in this table — no heading
+ * text at all. No fields are built for them: inventing plausible-sounding
+ * labels for a government document would be worse than leaving them out. If
+ * the labels are recovered from a later revision, add them here.
+ */
+export interface SurveyCommunicationEquipment {
+  distanceToProposedRtuLocationM: number | null;
+  channelType: string | null;
+  channelMake: string | null;
+  /** Whether a usable cable route already exists for the comms cable. */
+  cableRouteExists: boolean | null;
+}
+
+/**
+ * AC/DC supply. The DC breaker voltage is PER VOLTAGE LEVEL — each level
+ * carries its own value, replacing the single shared multi-select
+ * (SurveyInfrastructure.dcVoltages), which this supersedes.
+ */
+export interface SurveyAcDcSupply {
+  ac230vAvailable: boolean | null;
+  dcBreakerVoltageByLevel: Record<SurveyVoltageLevel, SurveyDcVoltage | null>;
+  distanceToAcdbM: number | null;
+  distanceToDcdbM: number | null;
+}
+
+/** Two booleans rather than free text — the form asks only whether, not how. */
+export interface SurveySldDetails {
+  sldDrawnAndConfirmed: boolean | null;
+  allEquipmentTypesShownOnSld: boolean | null;
+}
+
+export interface SurveyEarthingDetails {
+  matExtendedToControlRoom: boolean | null;
+  matIntact: boolean | null;
+}
+
+export interface SurveyStorageDetails {
+  siteAccessAvailable: boolean | null;
+  /**
+   * The RTU panel is approximately 1000 x 440 x 600 mm. That figure is a HINT
+   * for the surveyor only — deliberately not encoded as a validated dimension,
+   * since the answer is a judgement about the actual room.
+   */
+  storageSpaceForRtuPanel: boolean | null;
+  spaceForUnloading: boolean | null;
+  installSpaceForFrtuSwitchMfmCmr: boolean | null;
+}
+
+/**
+ * The official checklist's table 2 — one set per substation, not per bay.
+ *
+ * OVERLAP WITH SurveyInfrastructure is deliberate and unresolved in this
+ * phase: AC/DC supply, earthing and civil work now appear in both shapes.
+ * `dcBreakerVoltageByLevel` explicitly supersedes
+ * `SurveyInfrastructure.dcVoltages`. Deciding which shape owns the rest needs
+ * the official document to hand — see the Phase 1 report.
+ */
+export interface SurveySiteChecklist {
+  /**
+   * Free text, not an enum: the document's own wording for the options is
+   * unknown, and inventing a status vocabulary would be the same mistake as
+   * inventing the unlabelled rows above.
+   */
+  outdoorCivilWorkStatus: string | null;
+  communication: SurveyCommunicationEquipment;
+  acDcSupply: SurveyAcDcSupply;
+  sld: SurveySldDetails;
+  earthing: SurveyEarthingDetails;
+  lightningProtectionToControlRoom: boolean | null;
+  storage: SurveyStorageDetails;
 }
 
 /**
@@ -574,19 +824,31 @@ export interface SurveyPreVisit {
 export interface SurveyBoqLine {
   sr: number;
   itemKey: string;              // stable key from the BOQ master (see src/lib/boqMaster.ts)
-  surveyedQty: number | null;
+  /**
+   * TWO columns, replacing the old single `surveyedQty`, matching the official
+   * BOQ table: what is already on site and reusable, and what we must supply.
+   * Both nullable — an unanswered column must never read as a considered 0.
+   *
+   * `existingUsable` is meaningless for service/ITC lines; those master items
+   * carry `hasExistingUsable: false` and leave it null.
+   */
+  existingUsable: number | null;
+  requiredToSupply: number | null;
   remarks: string | null;
   /**
    * A CONSIDERED zero: the surveyor asserted this item isn't applicable here
-   * and said why in `remarks`. Distinct from surveyedQty === null (nobody has
+   * and said why in `remarks`. Distinct from a null column (nobody has
    * answered yet) and from a plain 0 that was typed — all three would
    * otherwise be indistinguishable to a reviewer vetting the signed BOQ.
    */
   notApplicable: boolean;
   /**
-   * True while `surveyedQty` is still the value computed by
-   * src/lib/boqDerivation.ts and the surveyor has not overridden it. Set false
-   * the moment they edit the quantity or tick `notApplicable`, which freezes
+   * True while `requiredToSupply` is still an auto-derived suggestion and the
+   * surveyor has not overridden it. Applies to MFM / CMR / F-RTU only, each
+   * summed from the matching per-feeder entry (SurveyFeederEntry.mfmRequired /
+   * .cmrRequired / .frtuModulesRequired). `existingUsable` is never derived.
+   *
+   * Set false the moment they edit the quantity or tick `notApplicable`, which freezes
    * the line against further recomputation. Persisted (not component state)
    * for two reasons: a draft resumed in a later session must not silently
    * re-derive over a manual override, and a reviewer needs to see which
@@ -669,20 +931,34 @@ export interface SurveyReport {
   surveyDate: Date | null;
   location: { lat: number; lng: number } | null;   // auto-captured, manual override allowed
   surveyorName: string | null;                     // Section A "Surveyor (our rep)"
-  /**
-   * As counted on site during this survey — may differ from the Annexure-II
-   * site master values (Site.totalBays / Site.numPowerTransformers), which is
-   * exactly why both are kept: a discrepancy here is a survey finding, not a
-   * data-entry error to silently reconcile.
-   */
-  surveyedTotalBays: number | null;
-  surveyedNumPowerTransformers: number | null;
+
+  // ── Site & Visit (extended for the MSETCL Technical Survey Checklist) ─────
+  contactDetails: SurveyContactDetails;
+  controlRoom:    SurveyControlRoom;
+  /** Replaces surveyedTotalBays + surveyedNumPowerTransformers. */
+  assetCounts:    SurveyAssetCounts;
   preVisit: SurveyPreVisit;
 
-  bays: SurveyBay[];
-  devices: SurveyDevice[];
+  // ── Repeatable groups ────────────────────────────────────────────────────
+  /** Feeder List — replaces `bays`. */
+  feeders:      SurveyFeederEntry[];
+  /** CRP Relay Details — replaces `devices`. */
+  relays:       SurveyRelayEntry[];
+  /** New group, separate from feeders. */
+  transformers: SurveyTransformerEntry[];
+  /** New group, separate from feeders. */
+  capacitorBanks: SurveyCapacitorBank[];
+
   cableRuns: SurveyCableRun[];
   difficultRunsNotes: string | null;    // Section H "Longest / difficult runs noted"
+  /** Official checklist table 2 — see the overlap note on SurveySiteChecklist. */
+  siteChecklist: SurveySiteChecklist;
+  /**
+   * RETAINED, partly superseded. `infrastructure.dcVoltages` is definitively
+   * replaced by siteChecklist.acDcSupply.dcBreakerVoltageByLevel; the AC/DC,
+   * earthing and civil-work overlap with siteChecklist is unresolved pending
+   * the official document. Phase 2 decides what survives here.
+   */
   infrastructure: SurveyInfrastructure;
   boqSupply: SurveyBoqLine[];
   boqService: SurveyBoqLine[];
