@@ -19,6 +19,7 @@ import { SurveysPage } from '@/pages/SurveysPage';
 import { SurveyWizardPage } from '@/pages/SurveyWizardPage';
 import { AdminSurveyOversightPage } from '@/pages/AdminSurveyOversightPage';
 import { SubstationLifecyclePage } from '@/pages/SubstationLifecyclePage';
+import { MyReviewHistoryPage } from '@/pages/MyReviewHistoryPage';
 import type { UserRole } from '@/types';
 
 // Initialises the Firebase auth listener at the app root
@@ -122,6 +123,18 @@ export default function App() {
               element={
                 <ProtectedRoute allowRoles={['approver', 'admin']}>
                   <ApprovalsPage />
+                </ProtectedRoute>
+              }
+            />
+
+            {/* A reviewer's own acted-on stages. Same roles as /approvals —
+                it shows only what the signed-in user personally reviewed, so
+                it needs no wider access than the queue it follows on from. */}
+            <Route
+              path="/review-history"
+              element={
+                <ProtectedRoute allowRoles={['approver', 'admin']}>
+                  <MyReviewHistoryPage />
                 </ProtectedRoute>
               }
             />

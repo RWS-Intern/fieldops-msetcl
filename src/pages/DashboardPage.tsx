@@ -187,10 +187,24 @@ type ReviewedRow =
   | { kind: 'siteTask'; reviewedAt: Date; task: SiteTask }
   | { kind: 'survey';   reviewedAt: Date; survey: SurveyReport };
 
-function RecentlyReviewed({ rows }: { rows: ReviewedRow[] }) {
+function RecentlyReviewed({ rows, onViewAll }: { rows: ReviewedRow[]; onViewAll: () => void }) {
   return (
     <div>
-      <h3 className="text-base font-semibold text-gray-900 mb-3">Recently Reviewed</h3>
+      {/* "View all" goes to the survey review history, which is sourced from
+          approvalStageOwnerUids rather than reviewedBy — so it lists every
+          stage this reviewer acted on, including ones the chain has since
+          moved past. This widget still mixes surveys and site tasks; the
+          history page is surveys only. */}
+      <div className="flex items-baseline justify-between gap-2 mb-3">
+        <h3 className="text-base font-semibold text-gray-900">Recently Reviewed</h3>
+        <button
+          type="button"
+          onClick={onViewAll}
+          className="text-xs font-medium text-brand-blue hover:underline shrink-0"
+        >
+          View all
+        </button>
+      </div>
       {rows.length === 0 ? (
         <p className="text-sm text-gray-400 py-4 text-center">No reviews yet.</p>
       ) : (
@@ -480,7 +494,7 @@ export function DashboardPage() {
               <ActivitySkeletons />
             </div>
           ) : (
-            <RecentlyReviewed rows={recentlyReviewed} />
+            <RecentlyReviewed rows={recentlyReviewed} onViewAll={() => navigate('/review-history')} />
           )}
         </>
       )}
