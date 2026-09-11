@@ -400,6 +400,12 @@ export type WorkOrderStage = 'survey' | 'repair' | 'commissioning' | 'amc';
  * necessarily a client clock value. Document-level timestamps (reviewedAt,
  * updatedAt) remain server-side.
  */
+/**
+ * Which way an approval chain is currently travelling — see the
+ * `reviewDirection` field on WorkOrder / SurveyReport for the full semantics.
+ */
+export type ReviewDirection = 'forward' | 'backward';
+
 export interface ApprovalStageResult {
   stageKey:      string;
   /** Denormalised from SURVEY_APPROVAL_STAGES at creation. */
@@ -467,6 +473,24 @@ export interface WorkOrder {
    * `approverUid == uid` (the live stage) may update.
    */
   approvalStageOwnerUids: string[];
+  /**
+   * Which way the review is currently travelling.
+   *
+   * 'forward'  — normal top-down progression: each stage approves and hands
+   *              down to the next, or (at Level 1 only) sends the work back to
+   *              the field.
+   * 'backward' — an ESCALATION REVIEW is in progress. A stage above Level 1
+   *              requested changes, and the flag is now cascading down one
+   *              stage at a time for each lower stage to agree with (pass it
+   *              further down) or disagree with (bounce it back up, forcing
+   *              the stage above to reconsider). The field sees nothing until
+   *              the flag reaches Level 1 AND Level 1 agrees.
+   *
+   * Paired across workOrders and surveyReports like every other chain field,
+   * and pinned by firestore.rules: it can only change as part of a valid stage
+   * transition, never on its own.
+   */
+  reviewDirection: ReviewDirection;
   createdAt: Date;
   updatedAt: Date;
   archived: boolean;
@@ -925,6 +949,24 @@ export interface SurveyReport {
   approvalStages: ApprovalStageResult[];
   currentStageIndex: number;
   approvalStageOwnerUids: string[];
+  /**
+   * Which way the review is currently travelling.
+   *
+   * 'forward'  — normal top-down progression: each stage approves and hands
+   *              down to the next, or (at Level 1 only) sends the work back to
+   *              the field.
+   * 'backward' — an ESCALATION REVIEW is in progress. A stage above Level 1
+   *              requested changes, and the flag is now cascading down one
+   *              stage at a time for each lower stage to agree with (pass it
+   *              further down) or disagree with (bounce it back up, forcing
+   *              the stage above to reconsider). The field sees nothing until
+   *              the flag reaches Level 1 AND Level 1 agrees.
+   *
+   * Paired across workOrders and surveyReports like every other chain field,
+   * and pinned by firestore.rules: it can only change as part of a valid stage
+   * transition, never on its own.
+   */
+  reviewDirection: ReviewDirection;
 
   surveyDate: Date | null;
   location: { lat: number; lng: number } | null;   // auto-captured, manual override allowed

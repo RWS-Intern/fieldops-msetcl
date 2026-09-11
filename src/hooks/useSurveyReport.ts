@@ -319,6 +319,9 @@ export function mapSurveyReport(id: string, data: Record<string, any>): SurveyRe
     currentStageIndex: data['currentStageIndex'] ?? 0,
     approvalStageOwnerUids: data['approvalStageOwnerUids']
       ?? (data['approverUid'] ? [data['approverUid']] : []),
+    // Legacy documents predate the escalation cascade — they were written
+    // when every review moved one way, which is exactly 'forward'.
+    reviewDirection: data['reviewDirection'] ?? 'forward',
 
     surveyDate:     data['surveyDate']?.toDate?.() ?? null,
     location:       data['location']

@@ -375,6 +375,9 @@ export function createEmptySurveyReport(input: CreateEmptySurveyReportInput): Su
     // index that points at the live stage must agree with it from the start.
     currentStageIndex: 0,
     approvalStageOwnerUids: deriveStageOwnerUids(input.approvalStages ?? []),
+    // A freshly-created survey has never been reviewed, so the chain starts
+    // travelling the only way it can.
+    reviewDirection: 'forward',
 
     surveyDate:   null,
     location:     null,

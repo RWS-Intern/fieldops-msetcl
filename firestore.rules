@@ -70,40 +70,144 @@ service cloud.firestore {
     }
 
     /**
-     * Exactly one of three well-formed transitions, all measured against the
-     * pre-write document. `liveIndex` is resource.data.currentStageIndex.
-     *
-     * The acting owner's OWN stage entry is deliberately unconstrained — it is
-     * theirs to fill in, and policing its contents would risk denying the
-     * legitimate write for no security gain (they cannot reach another stage
-     * through it: the handover target is read from stages[live + 1], which this
-     * function pins, and approvalStageOwnerUids is not in either hasOnly fence).
+     * A stage entry reset so its owner must reconsider. Identity and ROUTING
+     * are pinned — stageKey/stageLabel/ownerUid/ownerName — while the three
+     * result fields (reviewNotes/attachmentUrl/actedAt) are deliberately left
+     * free: a stage going back to 'pending' has no result yet, and clearing
+     * them carries no authority. ownerUid is the field that matters, and it
+     * cannot move.
      */
-    function isValidStageTransition(before, after) {
-      let stages = before.approvalStages;
-      let live   = before.currentStageIndex;
-      let last   = stages.size() - 1;
-      return live >= 0 && live <= last
-        && chainStagesUnchangedExceptLive(before, after, live)
-        && (
-          // Sending work back: the flagging stage keeps the document, so
-          // neither ownership nor position may move. Resubmission returns to
-          // this same owner rather than restarting the chain.
-          (after.status == 'changes_requested'
-            && after.currentStageIndex == live
-            && after.approverUid == before.approverUid)
-          // Approving the LAST stage: chain complete, nobody owns it now.
+    function isResetToPending(beforeStage, afterStage) {
+      return afterStage.status   == 'pending'
+        && afterStage.stageKey   == beforeStage.stageKey
+        && afterStage.stageLabel == beforeStage.stageLabel
+        && afterStage.ownerUid   == beforeStage.ownerUid
+        && afterStage.ownerName  == beforeStage.ownerName;
+    }
+
+    /**
+     * The ONE narrow exception to "only the live stage may change": a Disagree
+     * writes its own entry AND resets liveIndex + 1 to 'pending'. Nothing else
+     * may move, and liveIndex + 1 may only move in the reset shape above.
+     *
+     * liveIndex is fenced to 0..1 because liveIndex + 1 must exist.
+     */
+    function chainStagesUnchangedExceptLiveAndNext(before, after, liveIndex) {
+      let b = before.approvalStages;
+      let a = after.approvalStages;
+      return b.size() == 3 && a.size() == 3
+        && liveIndex >= 0 && liveIndex <= 1
+        && (liveIndex == 0 || b[0] == a[0])
+        && (liveIndex == 1 || liveIndex == 0 || b[1] == a[1])
+        && (liveIndex == 2 || liveIndex == 1 || b[2] == a[2])
+        && isResetToPending(b[liveIndex + 1], a[liveIndex + 1]);
+    }
+
+    /**
+     * Normal top-down progression (reviewDirection == 'forward' before the
+     * write). Four shapes; the acting owner's own stage entry stays
+     * unconstrained, as before.
+     */
+    function isForwardTransition(before, after, afterDir, stages, live, last) {
+      return (
+          // F1 - approve a NON-final stage: advance exactly one and hand over
+          // to exactly the next stage's nominated owner. This is the branch
+          // that makes routing-to-self impossible.
+          (after.status == 'pending_approval'
+            && live < last
+            && after.currentStageIndex == live + 1
+            && after.approverUid == stages[live + 1].ownerUid
+            && afterDir == 'forward')
+          // F2 - approve the LAST stage: chain complete, nobody owns it now.
           || (after.status == 'approved'
             && live == last
             && after.currentStageIndex == stages.size()
-            && after.approverUid == null)
-          // Approving a NON-final stage: advance by exactly one and hand over
-          // to exactly the next stage's nominated owner. This is the branch
-          // that makes routing-to-self impossible.
+            && after.approverUid == null
+            && afterDir == 'forward')
+          // F3 - Level 1 requests changes. Nothing below it to escalate to, so
+          // this goes straight to the field, unchanged from before this phase.
+          || (after.status == 'changes_requested'
+            && live == 0
+            && after.currentStageIndex == live
+            && after.approverUid == before.approverUid
+            && afterDir == 'forward')
+          // F4 - a stage ABOVE Level 1 requests changes: the escalation
+          // cascade BEGINS. Top-level status deliberately stays
+          // 'pending_approval' - the field must not see this yet - while the
+          // flag moves DOWN one stage for that owner to review.
           || (after.status == 'pending_approval'
-            && live < last
-            && after.currentStageIndex == live + 1
-            && after.approverUid == stages[live + 1].ownerUid)
+            && live > 0
+            && after.currentStageIndex == live - 1
+            && after.approverUid == stages[live - 1].ownerUid
+            && afterDir == 'backward')
+        )
+        && chainStagesUnchangedExceptLive(before, after, live);
+    }
+
+    /**
+     * An escalation review in progress (reviewDirection == 'backward' before
+     * the write): the flag is travelling down toward Level 1.
+     *
+     * THREE shapes only. There is deliberately no "reconsider and approve"
+     * branch here: a Disagree flips the direction back to 'forward' as part of
+     * its own write, so the bounced-to stage's next action — approve, or
+     * re-reject — is an ordinary forward transition (F1/F2, or F4) evaluated by
+     * isForwardTransition. Keeping that case out of here is what makes the
+     * backward side three branches instead of five.
+     */
+    function isBackwardTransition(before, after, afterDir, stages, live, last) {
+      return (
+        (
+          // B1 - AGREE at Level 1. The flag has reached the bottom, so now it
+          // reaches the field, and the chain returns to normal progression.
+          (after.status == 'changes_requested'
+            && live == 0
+            && after.currentStageIndex == live
+            && after.approverUid == before.approverUid
+            && afterDir == 'forward')
+          // B2 - AGREE above Level 1: pass the flag one stage further down.
+          || (after.status == 'pending_approval'
+            && live > 0
+            && after.currentStageIndex == live - 1
+            && after.approverUid == stages[live - 1].ownerUid
+            && afterDir == 'backward')
+        )
+        && chainStagesUnchangedExceptLive(before, after, live)
+      ) || (
+        // B3 - DISAGREE: bounce the flag back UP one stage, reset that stage to
+        // 'pending' so its owner must reconsider, and return the chain to
+        // 'forward'. The only transition in this model that writes an index
+        // other than the live one, which is why it is the one branch using the
+        // widened stages check.
+        (after.status == 'pending_approval'
+          && live < last
+          && after.currentStageIndex == live + 1
+          && after.approverUid == stages[live + 1].ownerUid
+          && afterDir == 'forward')
+        && chainStagesUnchangedExceptLiveAndNext(before, after, live)
+      );
+    }
+
+    /**
+     * Exactly one well-formed transition, keyed on the direction the chain was
+     * travelling BEFORE the write. Everything is measured against the pre-write
+     * document, which the acting owner cannot influence.
+     *
+     * afterDir uses .get(..., 'forward') so a chain document written before
+     * reviewDirection existed still transitions normally: absent reads as
+     * 'forward', which is exactly what those documents were doing. A write that
+     * needs 'backward' must therefore set the field explicitly.
+     */
+    function isValidStageTransition(before, after) {
+      let stages   = before.approvalStages;
+      let live     = before.currentStageIndex;
+      let last     = stages.size() - 1;
+      let dir      = before.get('reviewDirection', 'forward');
+      let afterDir = after.get('reviewDirection', 'forward');
+      return live >= 0 && live <= last
+        && (
+          (dir == 'forward' && isForwardTransition(before, after, afterDir, stages, live, last))
+          || (dir == 'backward' && isBackwardTransition(before, after, afterDir, stages, live, last))
         );
     }
 
@@ -113,11 +217,49 @@ service cloud.firestore {
      * (this is what keeps pre-chain documents, which have no approvalStages at
      * all, writable by their single approver — `true || <error>` absorbs the
      * missing-field error, verified in the emulator).
+     *
+     * reviewDirection is in the hasAny list so a write that changes ONLY the
+     * direction — with no accompanying transition — is forced through
+     * isValidStageTransition and denied there.
      */
     function isValidChainWrite(before, after) {
       return !after.diff(before).affectedKeys()
-                .hasAny(['approvalStages', 'currentStageIndex', 'approverUid', 'approverName'])
+                .hasAny(['approvalStages', 'currentStageIndex', 'approverUid', 'approverName', 'reviewDirection'])
         || isValidStageTransition(before, after);
+    }
+
+    /**
+     * Resubmission RESTARTS THE WHOLE CHAIN at Approver Level 1 — it no longer
+     * resumes at the stage that flagged it. The engineer may therefore move
+     * currentStageIndex and approverUid, which their branch previously pinned
+     * outright, so the target is pinned instead to stages[0].ownerUid read
+     * from the PRE-write document: they still cannot route the survey to
+     * themselves or to anyone off the chain.
+     *
+     * approvalStages is pinned UNCHANGED. Every stage's recorded flag is
+     * permanent history; each stage overwrites its own entry when it next acts.
+     */
+    function isChainRestart(before, after) {
+      let stages = before.get('approvalStages', []);
+      return stages.size() > 0
+        && after.status == 'pending_approval'
+        && after.get('approvalStages', []) == stages
+        && after.get('currentStageIndex', 0) == 0
+        && after.approverUid == stages[0].ownerUid
+        && after.get('reviewDirection', 'forward') == 'forward';
+    }
+
+    /**
+     * The engineer branch's chain guard: either nothing chain-related moves at
+     * all (drafts, saves, pre-chain documents), or it is exactly a restart.
+     */
+    function isValidEngineerChainWrite(before, after) {
+      return (
+        after.approverUid == before.approverUid
+        && after.get('approvalStages', []) == before.get('approvalStages', [])
+        && after.get('currentStageIndex', 0) == before.get('currentStageIndex', 0)
+        && after.get('reviewDirection', 'forward') == before.get('reviewDirection', 'forward')
+      ) || isChainRestart(before, after);
     }
 
     match /tasks/{taskId} {
@@ -386,11 +528,7 @@ service cloud.firestore {
                         && resource.data.assignedTo == request.auth.uid
                         && request.resource.data.status in ['in_progress', 'pending_approval']
                         && request.resource.data.assignedTo  == resource.data.assignedTo
-                        && request.resource.data.approverUid == resource.data.approverUid
-                        && request.resource.data.get('approvalStages', [])
-                           == resource.data.get('approvalStages', [])
-                        && request.resource.data.get('currentStageIndex', 0)
-                           == resource.data.get('currentStageIndex', 0))
+                        && isValidEngineerChainWrite(resource.data, request.resource.data))
                     // Approver branch — the LIVE stage owner may update only the
                     // workflow status plus the stage-transition fields.
                     // approverUid/approverName are in the allowlist because
@@ -414,6 +552,7 @@ service cloud.firestore {
                                'currentStageIndex',
                                'approverUid',
                                'approverName',
+                               'reviewDirection',
                                'updatedAt',
                              ])
                         && isValidChainWrite(resource.data, request.resource.data));
@@ -449,11 +588,7 @@ service cloud.firestore {
                         && resource.data.assignedTo == request.auth.uid
                         && request.resource.data.status in ['in_progress', 'pending_approval']
                         && request.resource.data.assignedTo  == resource.data.assignedTo
-                        && request.resource.data.approverUid == resource.data.approverUid
-                        && request.resource.data.get('approvalStages', [])
-                           == resource.data.get('approvalStages', [])
-                        && request.resource.data.get('currentStageIndex', 0)
-                           == resource.data.get('currentStageIndex', 0))
+                        && isValidEngineerChainWrite(resource.data, request.resource.data))
                     // Approver branch — the LIVE stage owner may update ONLY the
                     // review fields plus the stage-transition fields. They must
                     // never touch the engineer's answers or photos. See the
@@ -475,6 +610,7 @@ service cloud.firestore {
                                'currentStageIndex',
                                'approverUid',
                                'approverName',
+                               'reviewDirection',
                                'updatedAt',
                              ])
                         && isValidChainWrite(resource.data, request.resource.data));

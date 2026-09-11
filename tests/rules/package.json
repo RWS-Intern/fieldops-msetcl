@@ -5,7 +5,14 @@
   "description": "Firestore security-rule tests for FieldOps. Deliberately a separate package: @firebase/rules-unit-testing is a dev-only tool for one emulator test run and must not enter the app's dependency tree.",
   "type": "commonjs",
   "scripts": {
-    "test": "node rules.test.mjs ../../firestore.rules"
+    "test": "node rules.test.mjs ../../firestore.rules && node chainCore.test.mjs ../../firestore.rules && node chainRoundTrip.test.mjs ../../firestore.rules && node chainAudit.test.mjs ../../firestore.rules && node chainV2.test.mjs ../../firestore.rules && node updatesAccess.test.mjs ../../firestore.rules && node siteTasksUpdates.test.mjs ../../firestore.rules",
+    "test:rules": "node rules.test.mjs ../../firestore.rules",
+    "test:chainCore": "node chainCore.test.mjs ../../firestore.rules",
+    "test:chainRoundTrip": "node chainRoundTrip.test.mjs ../../firestore.rules",
+    "test:chainAudit": "node chainAudit.test.mjs ../../firestore.rules",
+    "test:chainV2": "node chainV2.test.mjs ../../firestore.rules",
+    "test:updatesAccess": "node updatesAccess.test.mjs ../../firestore.rules",
+    "test:siteTasksUpdates": "node siteTasksUpdates.test.mjs ../../firestore.rules"
   },
   "dependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",
