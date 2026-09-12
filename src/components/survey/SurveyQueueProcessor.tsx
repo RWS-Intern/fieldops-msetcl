@@ -90,7 +90,7 @@ function appendUploadedPhoto(
     case 'sitePhoto':
       return {
         ...data,
-        sitePhotos: [...data.sitePhotos, { url, caption: target.caption }],
+        sitePhotos: [...data.sitePhotos, { url, caption: target.caption, remark: target.remark }],
       };
     case 'signOffSignedPage':
       return {

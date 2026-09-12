@@ -7,10 +7,12 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { VOLTAGE_LEVEL_LABELS } from '@/lib/surveyLabels';
+import { VOLTAGE_LEVEL_LABELS, TAP_POSITION_CONNECTION_TYPE_LABELS } from '@/lib/surveyLabels';
 import { SURVEY_VOLTAGE_LEVELS } from '@/types';
 import type { SurveyStepProps } from './StepProps';
-import type { SurveyTransformerEntry, SurveyVoltageLevel } from '@/types';
+import type {
+  SurveyTransformerEntry, SurveyVoltageLevel, TapPositionConnectionType,
+} from '@/types';
 
 function createTransformer(): SurveyTransformerEntry {
   return {
@@ -83,7 +85,7 @@ export function StepTransformerDetails({ survey, onChange, readOnly }: SurveySte
           <Label>MVA Rating</Label>
           <Input
             disabled={readOnly}
-            placeholder="e.g. 50/63 MVA"
+            placeholder="e.g. 50/25 MVA"
             value={tx.mvaRating ?? ''}
             onChange={(e) => update({ mvaRating: e.target.value || null })}
           />
@@ -110,11 +112,18 @@ export function StepTransformerDetails({ survey, onChange, readOnly }: SurveySte
 
         <div className="flex flex-col gap-1.5">
           <Label>Tap Position Connection Type</Label>
-          <Input
+          <Select
             disabled={readOnly}
-            value={tx.tapPositionConnectionType ?? ''}
-            onChange={(e) => update({ tapPositionConnectionType: e.target.value || null })}
-          />
+            value={tx.tapPositionConnectionType ?? undefined}
+            onValueChange={(v) => update({ tapPositionConnectionType: v as TapPositionConnectionType })}
+          >
+            <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
+            <SelectContent>
+              {(Object.keys(TAP_POSITION_CONNECTION_TYPE_LABELS) as TapPositionConnectionType[]).map((t) => (
+                <SelectItem key={t} value={t}>{TAP_POSITION_CONNECTION_TYPE_LABELS[t]}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <TriStateToggle

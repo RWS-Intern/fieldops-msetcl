@@ -6,9 +6,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { cn } from '@/lib/utils';
 import { TriStateToggle } from '@/components/survey/TriStateToggle';
-import { PRE_VISIT_LABELS, BAY_COUNT_LABELS } from '@/lib/surveyLabels';
+import { BAY_COUNT_LABELS } from '@/lib/surveyLabels';
 import { SURVEY_VOLTAGE_LEVELS } from '@/types';
 import type { SurveyStepProps } from './StepProps';
 import type {
@@ -47,8 +46,7 @@ function toCount(raw: string): number | null {
 
 /**
  * Site & Visit — Step 1. Four groups, matching how the checklist itself groups
- * them: contact details, control room details, asset counts, and the
- * (unchanged) pre-visit checklist. The survey-date / GPS / surveyor-name
+ * them: contact details, control room details and asset counts. The survey-date / GPS / surveyor-name
  * capture that has always lived here is untouched and carries the new groups
  * alongside it.
  */
@@ -548,29 +546,6 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
         </div>
       </div>
 
-      {/* ── Pre-Visit Checklist — unchanged ──────────────────────────────── */}
-      <div className="flex flex-col gap-2">
-        <h3 className="text-base font-semibold text-gray-900">Pre-Visit Checklist</h3>
-        {PRE_VISIT_LABELS.map((item) => (
-          <label
-            key={item.key}
-            className={cn(
-              'flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
-              survey.preVisit[item.key] ? 'bg-blue-50 border-blue-200' : 'border-gray-200',
-              readOnly && 'cursor-not-allowed opacity-70',
-            )}
-          >
-            <input
-              type="checkbox"
-              checked={survey.preVisit[item.key]}
-              disabled={readOnly}
-              onChange={(e) => onChange({ preVisit: { ...survey.preVisit, [item.key]: e.target.checked } })}
-              className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-brand-blue focus:ring-brand-blue"
-            />
-            <span className="text-sm text-gray-700">{item.label}</span>
-          </label>
-        ))}
-      </div>
     </div>
   );
 }

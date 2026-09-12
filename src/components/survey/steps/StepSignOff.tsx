@@ -55,13 +55,14 @@ export function StepSignOff({
     survey.feeders.reduce((n, f) => n + f.photos.length, 0) +
     survey.relays.reduce((n, r) => n + r.photos.length, 0) +
     signOff.signedPagePhotos.length;
-  const boqTotalLines = survey.boqSupply.length + survey.boqService.length;
+  // Supply only — the service table is no longer part of the survey, so
+  // counting its (permanently unfillable) lines would make this read x/18.
+  const boqTotalLines = survey.boqSupply.length;
   // "Filled" counts the required-to-supply column, matching validateBoq's
   // remap — that is the column that governs supply. existingUsable is not
   // counted here for the same reason it carries no validation rule.
   const boqFilledLines =
-    survey.boqSupply.filter((l) => l.requiredToSupply != null).length +
-    survey.boqService.filter((l) => l.requiredToSupply != null).length;
+    survey.boqSupply.filter((l) => l.requiredToSupply != null).length;
 
   return (
     <div className="flex flex-col gap-5">

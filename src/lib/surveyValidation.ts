@@ -1,4 +1,4 @@
-import { SUPPLY_BOQ_MASTER, SERVICE_BOQ_MASTER } from '@/lib/boqMaster';
+import { SUPPLY_BOQ_MASTER } from '@/lib/boqMaster';
 import type {
   SurveyReport, SurveyInfrastructure, SurveyAssetCounts, SurveyBoqLine,
 } from '@/types';
@@ -189,13 +189,29 @@ function validateRelays(survey: SurveyReport): SurveyValidationIssue[] {
   return issues;
 }
 
-// ─── Section H — Cable runs (optional to have any; each present one must be filled) ─
+// ─── Cable runs — BOTH types now required ───────────────────────────────────
+//
+// Reverses the earlier "cable runs may legitimately be empty" decision: every
+// site needs both a CAT6 route and a power route, so each is now a hard error
+// rather than an optional group. Each entry present must still be complete.
 
 function validateCableRuns(survey: SurveyReport): SurveyValidationIssue[] {
   const issues: SurveyValidationIssue[] = [];
 
+  if (!survey.cableRuns.some((r) => r.cableType === 'cat6')) {
+    issues.push(issue(STEP.cableRuns, 'At least one CAT6 cable run is required.'));
+  }
+  if (!survey.cableRuns.some((r) => r.cableType === 'power')) {
+    issues.push(issue(STEP.cableRuns, 'At least one power cable run is required.'));
+  }
+
   survey.cableRuns.forEach((run, i) => {
-    const label = `Cable run #${i + 1}`;
+    // The type is set by whichever group's Add button created the entry, so a
+    // missing one means a document written before the split — still worth
+    // flagging, since it belongs to neither group on screen.
+    const label = run.cableType === 'cat6' ? `CAT6 run #${i + 1}`
+                : run.cableType === 'power' ? `Power run #${i + 1}`
+                : `Cable run #${i + 1}`;
     if (!run.cableType) {
       issues.push(issue(STEP.cableRuns, `${label}: cable type is required.`));
     }
@@ -302,10 +318,14 @@ function validateBoq(survey: SurveyReport): SurveyValidationIssue[] {
   }
 
   // Matched by itemKey, never array position — same convention as StepBoq.
-  const auditable = [
-    ...SUPPLY_BOQ_MASTER.map((m) => ({ master: m, line: survey.boqSupply.find((l) => l.itemKey === m.itemKey) })),
-    ...SERVICE_BOQ_MASTER.map((m) => ({ master: m, line: survey.boqService.find((l) => l.itemKey === m.itemKey) })),
-  ];
+  //
+  // SUPPLY ONLY. The service/ITC table was removed from the survey form, so
+  // its lines can never be filled — auditing them here would make Submit
+  // permanently impossible. SERVICE_BOQ_MASTER is retained in boqMaster.ts for
+  // a possible future export, but nothing validates it.
+  const auditable = SUPPLY_BOQ_MASTER.map(
+    (m) => ({ master: m, line: survey.boqSupply.find((l) => l.itemKey === m.itemKey) }),
+  );
 
   let optionalBlankCount = 0;
 
@@ -486,8 +506,7 @@ export function getStepStatuses(survey: SurveyReport): StepStatus[] {
       !!survey.surveyDate ||
       isAssetCountsTouched(survey.assetCounts) ||
       isAnyValueSet(survey.contactDetails) ||
-      isAnyValueSet(survey.controlRoom) ||
-      Object.values(survey.preVisit).some(Boolean),
+      isAnyValueSet(survey.controlRoom),
     // Feeder List
     survey.feeders.length > 0,
     // CRP Relay Details
@@ -502,8 +521,7 @@ export function getStepStatuses(survey: SurveyReport): StepStatus[] {
     // quantity column counts; an answered "existing & usable" is a real
     // survey observation even with the supply column still blank.
     Object.values(survey.boqChecks).some(Boolean) ||
-      survey.boqSupply.some(isBoqLineTouched) ||
-      survey.boqService.some(isBoqLineTouched),
+      survey.boqSupply.some(isBoqLineTouched),
     // Sign-off
     !!survey.signOff.msetclEngineerName?.trim() ||
       !!survey.signOff.msetclEngineerDesignation?.trim() ||

@@ -6,7 +6,6 @@ import type {
   SurveyReport,
   SurveyInfrastructure,
   SurveySignOff,
-  SurveyPreVisit,
   ApprovalStageResult,
   SurveyContactDetails,
   SurveyControlRoom,
@@ -128,6 +127,16 @@ export const SUPPLY_BOQ_MASTER: readonly BoqMasterItem[] = [
 // requiredToSupply applies. Retained unchanged pending a Phase 2 decision on
 // whether the service table survives the rebuild at all (see the report).
 
+/**
+ * RETAINED BUT NO LONGER PART OF THE SURVEY.
+ *
+ * The service/ITC table was removed from the survey form on supervisor
+ * instruction. This constant is deliberately kept for a possible future export
+ * feature — it is real tender Annexure-I content — but nothing in the form,
+ * the preview or validation reads it any more. `boqService` lines are still
+ * seeded onto new surveys below so the stored shape is unchanged; they simply
+ * stay empty.
+ */
 export const SERVICE_BOQ_MASTER: readonly BoqMasterItem[] = [
   { sr: 1, itemKey: 'substationSurvey',            item: 'Substation Survey',                                        unit: 'Nos.', required: true, hasExistingUsable: false, autoDerived: false },
   { sr: 2, itemKey: 'itcNetworkingPanel',          item: 'ITC of networking panel with RTU, GPS & associated items', unit: 'Nos.', required: true, hasExistingUsable: false, autoDerived: false },
@@ -271,16 +280,6 @@ function createEmptyInfrastructure(): SurveyInfrastructure {
   };
 }
 
-function createEmptyPreVisit(): SurveyPreVisit {
-  return {
-    inZonalPlanAndEngineerConfirmed:     false,
-    authorisationLetterCarried:          false,
-    existingSldObtained:                 false,
-    toolsCarried:                        false,
-    substationInchargeContactConfirmed:  false,
-  };
-}
-
 /**
  * Seeds the approval chain at full length with every stage pending. Owners are
  * null unless the caller supplies them — createWorkOrder always does, so a
@@ -386,7 +385,6 @@ export function createEmptySurveyReport(input: CreateEmptySurveyReportInput): Su
     contactDetails: createEmptyContactDetails(),
     controlRoom:    createEmptyControlRoom(),
     assetCounts:    createEmptyAssetCounts(),
-    preVisit:       createEmptyPreVisit(),
 
     feeders:        [],
     relays:         [],

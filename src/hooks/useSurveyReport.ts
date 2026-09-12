@@ -5,7 +5,7 @@ import { DERIVED_ITEM_KEYS } from '@/lib/boqDerivation';
 import { SURVEY_APPROVAL_STAGES, findApprovalStage } from '@/lib/approvalStages';
 import { SURVEY_VOLTAGE_LEVELS } from '@/types';
 import type {
-  SurveyReport, SurveyPreVisit, SurveyFeederEntry, SurveyRelayEntry,
+  SurveyReport, SurveyFeederEntry, SurveyRelayEntry,
   SurveyTransformerEntry, SurveyCapacitorBank, SurveyCableRun, SurveyBoqLine,
   SurveyBoqChecks, SurveyContactDetails, SurveyControlRoom, SurveyAssetCounts,
   SurveySiteChecklist, SurveyVoltageLevel, SurveyDcVoltage,
@@ -332,13 +332,6 @@ export function mapSurveyReport(id: string, data: Record<string, any>): SurveyRe
     contactDetails: mapContactDetails(data['contactDetails']),
     controlRoom:    mapControlRoom(data['controlRoom']),
     assetCounts:    mapAssetCounts(data['assetCounts']),
-    preVisit: {
-      inZonalPlanAndEngineerConfirmed:    data['preVisit']?.inZonalPlanAndEngineerConfirmed    ?? false,
-      authorisationLetterCarried:         data['preVisit']?.authorisationLetterCarried         ?? false,
-      existingSldObtained:                data['preVisit']?.existingSldObtained                ?? false,
-      toolsCarried:                       data['preVisit']?.toolsCarried                        ?? false,
-      substationInchargeContactConfirmed: data['preVisit']?.substationInchargeContactConfirmed  ?? false,
-    } as SurveyPreVisit,
 
     feeders:        (data['feeders']        ?? []).map(mapFeeder),
     relays:         (data['relays']         ?? []).map(mapRelay),
@@ -375,7 +368,16 @@ export function mapSurveyReport(id: string, data: Record<string, any>): SurveyRe
       markedUpSldAttached:                    data['boqChecks']?.markedUpSldAttached                    ?? false,
       updatedInMsetclWebAppAndTracker:         data['boqChecks']?.updatedInMsetclWebAppAndTracker         ?? false,
     } as SurveyBoqChecks,
-    sitePhotos:     data['sitePhotos'] ?? [],
+    // Defaulted per entry: a photo written before remarks existed has no
+    // `remark`, and undefined inside an array element would reach Firestore.
+    sitePhotos: (data['sitePhotos'] ?? []).map(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (p: Record<string, any>) => ({
+        url:     p['url']     ?? '',
+        caption: p['caption'] ?? '',
+        remark:  p['remark']  ?? null,
+      }),
+    ),
     signOff:        data['signOff'] ?? {
       signedPagePhotos:          [],
       surveyorName:              null,

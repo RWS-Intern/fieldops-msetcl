@@ -1,7 +1,8 @@
 import type {
   DeviceProtocol, SurveyCableRun,
-  SurveyPreVisit, SurveyBoqChecks,
+  SurveyBoqChecks,
   SurveyVoltageLevel, SurveyDcVoltage, SurveyRelayType, SurveyCapacitorBank,
+  TapPositionConnectionType,
 } from '@/types';
 
 /**
@@ -69,6 +70,11 @@ export const PROTOCOL_LABELS: Record<DeviceProtocol, string> = {
   none:      'None',
 };
 
+export const TAP_POSITION_CONNECTION_TYPE_LABELS: Record<TapPositionConnectionType, string> = {
+  resistance: 'Resistance',
+  lamp:       'Lamp',
+};
+
 export const RELAY_TYPE_LABELS: Record<SurveyRelayType, string> = {
   electro_mechanical: 'Electro-Mechanical',
   static:             'Static',
@@ -126,16 +132,6 @@ export const DC_VOLTAGE_LABELS: Record<SurveyDcVoltage, string> = {
   '48':  '48V',
   '24':  '24V',
 };
-
-// ─── Section B — Pre-visit checklist ────────────────────────────────────────────
-
-export const PRE_VISIT_LABELS: { key: keyof SurveyPreVisit; label: string }[] = [
-  { key: 'inZonalPlanAndEngineerConfirmed', label: 'Site included in the zonal survey plan and MSETCL engineer confirmed' },
-  { key: 'authorisationLetterCarried',      label: 'Authorisation / intimation letter to the substation carried' },
-  { key: 'existingSldObtained',             label: 'Existing SLD / substation drawings obtained (if available)' },
-  { key: 'toolsCarried',                    label: 'Tools carried: measuring tape/laser, camera, this checklist, tender BOQ, laptop' },
-  { key: 'substationInchargeContactConfirmed', label: 'Substation in-charge contact confirmed' },
-];
 
 // ─── Section J — BOQ confirmation checklist ─────────────────────────────────────
 

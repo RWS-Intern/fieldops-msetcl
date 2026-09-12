@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { SUPPLY_BOQ_MASTER, SERVICE_BOQ_MASTER } from '@/lib/boqMaster';
+import { SUPPLY_BOQ_MASTER } from '@/lib/boqMaster';
 import {
   deriveSupplyQuantities,
   applyDerivedQuantities,
@@ -19,8 +19,6 @@ import type { SurveyBoqLine, SurveyReport } from '@/types';
 const CABLE_HINT_BY_ITEM_KEY: Record<string, 'cat6' | 'power'> = {
   cat6Cable:                   'cat6',   // supply
   powerSupplyCable:            'power',  // supply
-  cat6CableLayingTermination:  'cat6',   // service
-  powerCableLayingTermination: 'power',  // service
 };
 
 function cableRunTotalMetres(cableRuns: SurveyReport['cableRuns'], cableType: 'cat6' | 'power'): number {
@@ -268,7 +266,7 @@ export function StepBoq({ survey, onChange, readOnly }: SurveyStepProps) {
 
       <BoqSection
         title="Supply"
-        subtitle="Both columns apply — existing usable, and required to supply."
+        subtitle="Existing usable at the site, and what we must supply."
         master={SUPPLY_BOQ_MASTER}
         lines={survey.boqSupply}
         onChangeLines={(boqSupply) => onChange({ boqSupply })}
@@ -276,15 +274,6 @@ export function StepBoq({ survey, onChange, readOnly }: SurveyStepProps) {
         readOnly={readOnly}
       />
 
-      <BoqSection
-        title="Service"
-        subtitle="Installation, testing & commissioning — required quantity only."
-        master={SERVICE_BOQ_MASTER}
-        lines={survey.boqService}
-        onChangeLines={(boqService) => onChange({ boqService })}
-        cableRuns={survey.cableRuns}
-        readOnly={readOnly}
-      />
 
       <div className="flex flex-col gap-2 pt-2 border-t border-gray-100">
         <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Confirmation</h4>

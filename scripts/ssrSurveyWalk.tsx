@@ -88,13 +88,19 @@ function buildPopulatedSurvey(): SurveyReport {
   survey.transformers.push({
     uid: 't1', transformerNumber: 'TR-1', voltageLevel: '132',
     mvaRating: '50/63 MVA', rtccHighStep: '+9', rtccLowStep: '-9',
-    tapPositionConnectionType: 'Resistor chain', rtccPanelWorking: true,
+    tapPositionConnectionType: 'resistance', rtccPanelWorking: true,
     existingTpiWorking: true, existingTpi4to20mAAvailable: false,
     tptRequired: true, remarks: null,
   });
+  // Both cable types — each is now a REQUIRED group, and each renders in its
+  // own list on the step and in the preview.
   survey.cableRuns.push({
     uid: 'cr1', cableType: 'cat6', fromTo: 'RTU to Bay-01',
     lengthM: 55, trays: 'available',
+  });
+  survey.cableRuns.push({
+    uid: 'cr2', cableType: 'power', fromTo: 'DCDB to RTU panel',
+    lengthM: 18, trays: 'new_required',
   });
 
   // Site checklist (the official table 2) and the retained infrastructure
@@ -129,8 +135,15 @@ function buildPopulatedSurvey(): SurveyReport {
   survey.infrastructure.routerAvailable       = false;
   survey.infrastructure.mplsAvailable         = false;
   survey.infrastructure.sldcPathNotes         = 'Existing OFC to SLDC via Nashik.';
+  // One photo WITH a remark and one WITHOUT, so both branches of the optional
+  // remark render (and the preview's omit-when-empty path) are exercised.
   survey.sitePhotos.push({
     url: 'https://example.test/a.jpg', caption: 'Substation nameplate / entrance',
+    remark: 'Nameplate partly obscured by creeper.',
+  });
+  survey.sitePhotos.push({
+    url: 'https://example.test/b.jpg', caption: 'Existing SLD (photo)',
+    remark: null,
   });
   // BOQ lines in three distinct states, so the step renders every branch:
   // a plain two-column entry, an existing-usable-only observation, and a

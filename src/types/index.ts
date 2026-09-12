@@ -632,6 +632,9 @@ export interface SurveyCapacitorBank {
  * Nameplate/designation values are text rather than numbers so a transcription
  * like "50/63 MVA" or "+9/-9" survives intact.
  */
+/** How a transformer's tap position is wired out for reading. */
+export type TapPositionConnectionType = 'resistance' | 'lamp';
+
 export interface SurveyTransformerEntry {
   uid: string;
   transformerNumber: string;
@@ -639,7 +642,8 @@ export interface SurveyTransformerEntry {
   mvaRating: string | null;
   rtccHighStep: string | null;
   rtccLowStep: string | null;
-  tapPositionConnectionType: string | null;
+  /** "(Resistance/Lamp)" per the source document — no third option exists. */
+  tapPositionConnectionType: TapPositionConnectionType | null;
   rtccPanelWorking: boolean | null;
   existingTpiWorking: boolean | null;
   existingTpi4to20mAAvailable: boolean | null;
@@ -825,14 +829,11 @@ export interface SurveyInfrastructure {
   earthingAvailable: boolean | null;
 }
 
-/** Section B — pre-visit checklist, all default false. */
-export interface SurveyPreVisit {
-  inZonalPlanAndEngineerConfirmed: boolean;
-  authorisationLetterCarried: boolean;
-  existingSldObtained: boolean;
-  toolsCarried: boolean;
-  substationInchargeContactConfirmed: boolean;
-}
+// SurveyPreVisit is GONE. The five-checkbox pre-visit section was removed from
+// the survey on supervisor instruction; its type, factory, labels, mapper and
+// validation touch-check went with it. Stored documents keep whatever
+// preVisit map they were written with — the reader simply stops looking at it.
+
 
 /**
  * One BOQ line item as surveyed at this site (surveyedQty is the field-filled
@@ -977,7 +978,6 @@ export interface SurveyReport {
   controlRoom:    SurveyControlRoom;
   /** Replaces surveyedTotalBays + surveyedNumPowerTransformers. */
   assetCounts:    SurveyAssetCounts;
-  preVisit: SurveyPreVisit;
 
   // ── Repeatable groups ────────────────────────────────────────────────────
   /** Feeder List — replaces `bays`. */
@@ -1003,7 +1003,14 @@ export interface SurveyReport {
   boqSupply: SurveyBoqLine[];
   boqService: SurveyBoqLine[];
   boqChecks: SurveyBoqChecks;
-  sitePhotos: { url: string; caption: string }[];  // Section I
+  /**
+   * Section I's named-slot photographs.
+   *
+   * `caption` holds the SLOT NAME (see SURVEY_PHOTO_SLOTS) — it is what groups
+   * photos into their sections, not free text. `remark` is the surveyor's
+   * optional note about that one photograph; always optional, never validated.
+   */
+  sitePhotos: { url: string; caption: string; remark: string | null }[];
   signOff: SurveySignOff;
 
   submittedBy: string | null;

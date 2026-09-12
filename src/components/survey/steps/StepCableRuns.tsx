@@ -5,31 +5,46 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { CABLE_TYPE_LABELS, TRAYS_LABELS } from '@/lib/surveyLabels';
+import { TRAYS_LABELS } from '@/lib/surveyLabels';
 import type { CableType, Trays } from '@/lib/surveyLabels';
 import type { SurveyStepProps } from './StepProps';
 import type { SurveyCableRun } from '@/types';
 
 const TRAYS_UNSPECIFIED = 'unspecified';
 
-function createCableRun(): SurveyCableRun {
+/** One rendered group per cable type — the type is never a per-entry choice. */
+const CABLE_GROUPS: {
+  type: CableType; title: string; addLabel: string; emptyText: string; entryNoun: string;
+}[] = [
+  { type: 'cat6',  title: 'CAT6 Cable Runs',  addLabel: 'Add CAT6 Run',
+    emptyText: 'No CAT6 cable runs added yet.',  entryNoun: 'CAT6 run' },
+  { type: 'power', title: 'Power Cable Runs', addLabel: 'Add Power Run',
+    emptyText: 'No power cable runs added yet.', entryNoun: 'power run' },
+];
+
+/**
+ * Each group's Add button stamps its own cable type, so an entry can never be
+ * created without one — which is why the per-entry type picker is gone.
+ */
+function createCableRun(cableType: CableType): SurveyCableRun {
   return {
     uid:       crypto.randomUUID(),
-    cableType: null,
+    cableType,
     fromTo:    '',
     lengthM:   null,
     trays:     null,
   };
 }
 
+// The type is already stated by the group heading, so the collapsed line
+// leads with the route instead of repeating it.
 function renderCableRunSummary(run: SurveyCableRun, index: number) {
-  const label = run.fromTo.trim() || `Cable run #${index + 1}`;
-  const typeLabel = run.cableType ? CABLE_TYPE_LABELS[run.cableType] : '—';
+  const label = run.fromTo.trim() || `Run #${index + 1}`;
   const lengthLabel = run.lengthM != null ? `${run.lengthM} m` : '—';
   return (
     <>
-      <span className="font-semibold text-gray-900">{typeLabel}</span>
-      <span className="text-gray-400"> · {label} · {lengthLabel}</span>
+      <span className="font-semibold text-gray-900">{label}</span>
+      <span className="text-gray-400"> · {lengthLabel}</span>
     </>
   );
 }
@@ -46,22 +61,6 @@ export function StepCableRuns({ survey, onChange, readOnly }: SurveyStepProps) {
   function renderCableRunForm(run: SurveyCableRun, update: (patch: Partial<SurveyCableRun>) => void) {
     return (
       <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1.5">
-          <Label>Cable Type</Label>
-          <Select
-            disabled={readOnly}
-            value={run.cableType ?? undefined}
-            onValueChange={(v) => update({ cableType: v as CableType })}
-          >
-            <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
-            <SelectContent>
-              {(Object.keys(CABLE_TYPE_LABELS) as CableType[]).map((t) => (
-                <SelectItem key={t} value={t}>{CABLE_TYPE_LABELS[t]}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
         <div className="flex flex-col gap-1.5">
           <Label>Route (from / to)</Label>
           <Input
@@ -110,17 +109,30 @@ export function StepCableRuns({ survey, onChange, readOnly }: SurveyStepProps) {
         <span>Power total: {powerTotal} m</span>
       </div>
 
-      <RepeatableGroup<SurveyCableRun>
-        entries={survey.cableRuns}
-        onChange={(cableRuns) => onChange({ cableRuns })}
-        createEntry={createCableRun}
-        renderSummary={renderCableRunSummary}
-        renderForm={renderCableRunForm}
-        readOnly={readOnly}
-        addLabel="Add Cable Run"
-        emptyText="No cable runs added yet."
-        entryNoun="cable run"
-      />
+      {/* Two groups over ONE underlying array: each list is survey.cableRuns
+          filtered by type, and each group's onChange splices its own type back
+          together with the other type's entries untouched. Both are required
+          before Submit — every site needs a CAT6 route and a power route. */}
+      {CABLE_GROUPS.map(({ type, title, addLabel, emptyText, entryNoun }) => (
+        <div key={type} className="flex flex-col gap-2">
+          <h4 className="text-sm font-semibold uppercase tracking-wide text-gray-500">
+            {title}<span className="text-brand-red"> *</span>
+          </h4>
+          <RepeatableGroup<SurveyCableRun>
+            entries={survey.cableRuns.filter((r) => r.cableType === type)}
+            onChange={(runs) => onChange({
+              cableRuns: [...survey.cableRuns.filter((r) => r.cableType !== type), ...runs],
+            })}
+            createEntry={() => createCableRun(type)}
+            renderSummary={renderCableRunSummary}
+            renderForm={renderCableRunForm}
+            readOnly={readOnly}
+            addLabel={addLabel}
+            emptyText={emptyText}
+            entryNoun={entryNoun}
+          />
+        </div>
+      ))}
 
       <div className="flex flex-col gap-1.5">
         <Label>Longest / difficult runs noted</Label>

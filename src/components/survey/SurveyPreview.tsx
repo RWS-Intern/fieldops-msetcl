@@ -3,13 +3,13 @@ import { createPortal } from 'react-dom';
 import { AlertTriangle, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { SUPPLY_BOQ_MASTER, SERVICE_BOQ_MASTER } from '@/lib/boqMaster';
+import { SUPPLY_BOQ_MASTER } from '@/lib/boqMaster';
 import { SURVEY_PHOTO_SLOTS, validateSurvey } from '@/lib/surveyValidation';
 import { formatMetresAsKm } from '@/lib/units';
 import {
   VOLTAGE_LEVEL_LABELS, BAY_COUNT_LABELS, RELAY_TYPE_LABELS, PROTOCOL_LABELS,
-  CAPACITOR_CONTROL_TYPE_LABELS, CABLE_TYPE_LABELS, TRAYS_LABELS,
-  DC_VOLTAGE_LABELS, PRE_VISIT_LABELS, BOQ_CHECK_LABELS,
+  CAPACITOR_CONTROL_TYPE_LABELS, TRAYS_LABELS,
+  DC_VOLTAGE_LABELS, BOQ_CHECK_LABELS,
 } from '@/lib/surveyLabels';
 import { SurveyPhotoThumb } from './SurveyPhotoThumb';
 import { SignaturePad } from './SignaturePad';
@@ -427,18 +427,27 @@ function CableRunsSection({ cableRuns, difficultRunsNotes }: { cableRuns: Survey
       <p className="text-xs font-medium text-gray-600">
         CAT6 total: {cat6Total} m = {formatMetresAsKm(cat6Total)} km · Power total: {powerTotal} m = {formatMetresAsKm(powerTotal)} km
       </p>
-      {cableRuns.length === 0 ? (
-        <p className="text-xs text-gray-400 italic">No cable runs recorded.</p>
-      ) : (
-        cableRuns.map((run, i) => (
-          <div key={run.uid} className="grid grid-cols-2 gap-2 p-2 rounded border border-gray-200 break-inside-avoid">
-            <Field label="Cable Type" value={run.cableType ? CABLE_TYPE_LABELS[run.cableType] : '—'} />
-            <Field label="Route" value={run.fromTo.trim() || `Run #${i + 1}`} />
-            <Field label="Length" value={run.lengthM != null ? `${run.lengthM} m` : '—'} />
-            <Field label="Trays" value={run.trays ? TRAYS_LABELS[run.trays] : '—'} />
+      {/* Two labelled groups, matching the step. Each is required, so an
+          empty one is a real gap a reviewer should see named. */}
+      {([['cat6', 'CAT6 Cable Runs'], ['power', 'Power Cable Runs']] as const).map(([type, title]) => {
+        const runs = cableRuns.filter((r) => r.cableType === type);
+        return (
+          <div key={type} className="flex flex-col gap-1">
+            <SubHeading>{title}</SubHeading>
+            {runs.length === 0 ? (
+              <p className="text-xs text-gray-400 italic">None recorded.</p>
+            ) : (
+              runs.map((run, i) => (
+                <div key={run.uid} className="grid grid-cols-3 gap-2 p-2 rounded border border-gray-200 break-inside-avoid">
+                  <Field label="Route" value={run.fromTo.trim() || `Run #${i + 1}`} />
+                  <Field label="Length" value={run.lengthM != null ? `${run.lengthM} m` : '—'} />
+                  <Field label="Trays" value={run.trays ? TRAYS_LABELS[run.trays] : '—'} />
+                </div>
+              ))
+            )}
           </div>
-        ))
-      )}
+        );
+      })}
       <Field label="Longest / difficult runs noted" value={dash(difficultRunsNotes)} />
     </div>
   );
@@ -637,12 +646,6 @@ export function SurveyPreview({
           <ContactDetailsBlock contact={survey.contactDetails} />
           <ControlRoomBlock controlRoom={survey.controlRoom} />
           <AssetCountsBlock counts={survey.assetCounts} siteMaster={siteMaster} />
-          <div className="flex flex-col gap-1">
-            <SubHeading>Pre-Visit Checklist</SubHeading>
-            {PRE_VISIT_LABELS.map((item) => (
-              <TickField key={item.key} label={item.label} checked={survey.preVisit[item.key]} />
-            ))}
-          </div>
         </div>
 
         {/* 2. Feeder List */}
@@ -700,19 +703,34 @@ export function SurveyPreview({
         {/* 8. Site Photographs — grouped by slot, in SURVEY_PHOTO_SLOTS order (not array order) */}
         <div className="flex flex-col gap-3">
           <SectionHeading>8. Site Photographs</SectionHeading>
-          {SURVEY_PHOTO_SLOTS.map((slot) => (
-            <div key={slot} className="flex flex-col gap-1 break-inside-avoid">
-              <span className="text-xs font-medium text-gray-600">{slot}</span>
-              <PhotoGrid refs={survey.sitePhotos.filter((p) => p.caption === slot).map((p) => p.url)} />
-            </div>
-          ))}
+          {SURVEY_PHOTO_SLOTS.map((slot) => {
+            const entries = survey.sitePhotos.filter((p) => p.caption === slot);
+            const remarked = entries.filter((p) => !!p.remark?.trim());
+            return (
+              <div key={slot} className="flex flex-col gap-1 break-inside-avoid">
+                <span className="text-xs font-medium text-gray-600">{slot}</span>
+                <PhotoGrid refs={entries.map((p) => p.url)} />
+                {/* Remarks are optional — the block is omitted entirely when
+                    none of this slot's photos carries one. */}
+                {remarked.length > 0 && (
+                  <ul className="mt-0.5 flex flex-col gap-0.5">
+                    {remarked.map((p, i) => (
+                      <li key={p.url} className="text-xs text-gray-500">
+                        <span className="text-gray-400">Photo {i + 1}:</span>{' '}
+                        <span className="italic">{p.remark}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* 9. BOQ */}
         <div className="flex flex-col gap-3">
           <SectionHeading>9. Bill of Quantity</SectionHeading>
           <BoqTable title="Supply" master={SUPPLY_BOQ_MASTER} lines={survey.boqSupply} />
-          <BoqTable title="Service" master={SERVICE_BOQ_MASTER} lines={survey.boqService} />
         </div>
 
         {/* Confirmation — unchanged shape */}

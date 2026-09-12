@@ -51,7 +51,10 @@ function getDB(): Promise<IDBPDatabase> {
 export type PendingSurveyPhotoTarget =
   | { kind: 'feeder'; feederUid: string }
   | { kind: 'relay'; relayUid: string }
-  | { kind: 'sitePhoto'; caption: string }
+  // `remark` rides along so a queued photo's note survives the
+  // strip-then-re-splice round trip — stripLocalPhotoRefs drops the whole
+  // entry, and the processor rebuilds it from this target.
+  | { kind: 'sitePhoto'; caption: string; remark: string | null }
   | { kind: 'signOffSignedPage' }
   | { kind: 'signOffSurveyorSignature' }
   | { kind: 'signOffMsetclSignature' };
@@ -132,7 +135,10 @@ export function findLocalPhotoRefs(data: PhotoBearingSurvey): LocalPhotoRef[] {
   }
   for (const photo of data.sitePhotos) {
     if (photo.url.startsWith(LOCAL_PHOTO_PREFIX)) {
-      found.push({ photoId: photo.url.slice(LOCAL_PHOTO_PREFIX.length), target: { kind: 'sitePhoto', caption: photo.caption } });
+      found.push({
+        photoId: photo.url.slice(LOCAL_PHOTO_PREFIX.length),
+        target:  { kind: 'sitePhoto', caption: photo.caption, remark: photo.remark ?? null },
+      });
     }
   }
   for (const url of data.signOff.signedPagePhotos) {
