@@ -3,12 +3,13 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { DERIVED_ITEM_KEYS } from '@/lib/boqDerivation';
 import { SURVEY_APPROVAL_STAGES, findApprovalStage } from '@/lib/approvalStages';
-import { SURVEY_VOLTAGE_LEVELS } from '@/types';
+import { SURVEY_VOLTAGE_LEVELS, ACDC_MCB_SLOT_COUNT } from '@/types';
 import type {
   SurveyReport, SurveyFeederEntry, SurveyRelayEntry,
   SurveyTransformerEntry, SurveyCapacitorBank, SurveyCableRun, SurveyBoqLine,
   SurveyBoqChecks, SurveyContactDetails, SurveyControlRoom, SurveyAssetCounts,
-  SurveySiteChecklist, SurveyVoltageLevel, SurveyDcVoltage,
+  SurveySiteChecklist, SurveyAcdcMcbDetails, McbSlot,
+  SurveyVoltageLevel, SurveyDcVoltage,
   ApprovalStageResult, WorkOrderStatus,
 } from '@/types';
 
@@ -37,6 +38,36 @@ function mapByVoltage<T>(
   return Object.fromEntries(
     SURVEY_VOLTAGE_LEVELS.map((level) => [level, raw?.[level] ?? null]),
   ) as Record<SurveyVoltageLevel, T | null>;
+}
+
+/**
+ * A board's spare-MCB slots, ALWAYS at full length.
+ *
+ * Built from ACDC_MCB_SLOT_COUNT rather than from what is stored — same shape
+ * as mapByVoltage above, and for the same reason: a document written with
+ * fewer slots (an older build, a partial write) would otherwise render a short
+ * table, and the surveyor would silently lose rows that exist on the paper
+ * form. Extra stored slots beyond the count are dropped rather than widening
+ * the table past what the form has.
+ */
+function mapMcbSlots(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  raw: any[] | undefined,
+): McbSlot[] {
+  return Array.from({ length: ACDC_MCB_SLOT_COUNT }, (_, i) => ({
+    poleType: raw?.[i]?.poleType ?? null,
+    ratingA:  raw?.[i]?.ratingA  ?? null,
+  }));
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapAcdcMcbDetails(raw: Record<string, any> | undefined): SurveyAcdcMcbDetails {
+  return {
+    acdbMcbSlots:             mapMcbSlots(raw?.['acdbMcbSlots']),
+    dcdbChargerOutputVoltage: raw?.['dcdbChargerOutputVoltage'] ?? null,
+    dcdbBatteryOutputVoltage: raw?.['dcdbBatteryOutputVoltage'] ?? null,
+    dcdbMcbSlots:             mapMcbSlots(raw?.['dcdbMcbSlots']),
+  };
 }
 
 /**
@@ -341,6 +372,7 @@ export function mapSurveyReport(id: string, data: Record<string, any>): SurveyRe
     cableRuns:          (data['cableRuns'] ?? []).map(mapCableRun),
     difficultRunsNotes: data['difficultRunsNotes'] ?? null,
     siteChecklist:      mapSiteChecklist(data['siteChecklist']),
+    acdcMcbDetails:     mapAcdcMcbDetails(data['acdcMcbDetails']),
     // Field-by-field defaults (not a whole-object fallback) so documents
     // written before Sections E/F gained panelSpaceMeasurement/dcdbLocation
     // still load with those two as null rather than undefined.

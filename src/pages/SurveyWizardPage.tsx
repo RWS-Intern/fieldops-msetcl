@@ -28,6 +28,7 @@ import { StepRelayDetails }   from '@/components/survey/steps/StepRelayDetails';
 import { StepCapacitorBanks } from '@/components/survey/steps/StepCapacitorBanks';
 import { StepTransformerDetails } from '@/components/survey/steps/StepTransformerDetails';
 import { StepInfrastructure } from '@/components/survey/steps/StepInfrastructure';
+import { StepAcdcDetails }    from '@/components/survey/steps/StepAcdcDetails';
 import { StepCableRuns }      from '@/components/survey/steps/StepCableRuns';
 import { StepPhotos }         from '@/components/survey/steps/StepPhotos';
 import { StepBoq }            from '@/components/survey/steps/StepBoq';
@@ -57,8 +58,7 @@ interface WizardStep {
 }
 
 /**
- * The confirmed 10-step structure. Every step now has a real form — the
- * Capacitor Banks and Transformer Details placeholders are gone.
+ * The confirmed 11-step structure. Every step has a real form.
  *
  * Steps 6, 9 and 10 keep the components they already had: those are being
  * REVISED against the official checklist in a later phase, not built from
@@ -71,6 +71,10 @@ const STEPS: WizardStep[] = [
   { key: 'capacitor_banks', label: 'Capacitor Banks',                 Component: StepCapacitorBanks,                        validationIndex: null },
   { key: 'transformers',    label: 'Transformer Details',             Component: StepTransformerDetails,                    validationIndex: null },
   { key: 'infrastructure',  label: 'Site Infrastructure & Checklist', Component: StepInfrastructure,                        validationIndex: 3 },
+  // New step, no validation rules yet — same treatment Capacitor Banks and
+  // Transformer Details got when they first landed. validationIndex: null
+  // means it reads 'untouched' and can never nag.
+  { key: 'acdc_details',    label: 'ACDB & DCDB Details',             Component: StepAcdcDetails,                           validationIndex: null },
   { key: 'cable_runs',      label: 'Cable Runs',                      Component: StepCableRuns,                             validationIndex: 4 },
   { key: 'photos',          label: 'Photos',                          Component: StepPhotos,                                validationIndex: 5 },
   { key: 'boq',             label: 'BOQ',                             Component: StepBoq,                                   validationIndex: 6 },

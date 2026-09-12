@@ -810,6 +810,41 @@ export interface SurveyCableRun {
   trays: 'available' | 'new_required' | null;
 }
 
+/**
+ * How many spare-MCB rows each board has. FIXED, not user-addable: the paper
+ * form has exactly this many rows on each of the ACDB and DCDB tables, and a
+ * surveyor ticking off slots against the board expects the same count.
+ * Exported so the factory, the read mapper and the step all size themselves
+ * from one place — same discipline as SURVEY_VOLTAGE_LEVELS.
+ */
+export const ACDC_MCB_SLOT_COUNT = 10;
+
+/** One spare-MCB slot on a distribution board. */
+export interface McbSlot {
+  poleType: 'single' | 'double' | null;
+  /** Free text — carries its unit/notation as written, e.g. "16 A", "6/10". */
+  ratingA:  string | null;
+}
+
+/**
+ * The station's own AC and DC distribution boards.
+ *
+ * DISTINCT from SurveySiteChecklist.acDcSupply.dcBreakerVoltageByLevel, which
+ * records the DC breaker voltage at each SUBSTATION VOLTAGE LEVEL (the 132kV
+ * bays, the 110kV bays, …). This is the station-wide DCDB battery/charger
+ * system and its spare ways — one set of facts per substation, not per level.
+ * Both exist deliberately; neither replaces the other.
+ */
+export interface SurveyAcdcMcbDetails {
+  /** Always exactly ACDC_MCB_SLOT_COUNT entries — 230V AC board. */
+  acdbMcbSlots:             McbSlot[];
+  /** Free text — carries units, same reasoning as MVA Rating. */
+  dcdbChargerOutputVoltage: string | null;
+  dcdbBatteryOutputVoltage: string | null;
+  /** Always exactly ACDC_MCB_SLOT_COUNT entries — 48V DC board. */
+  dcdbMcbSlots:             McbSlot[];
+}
+
 /** Sections E–G of the survey form — one set per site (not a repeatable group). */
 export interface SurveyInfrastructure {
   panelSpaceAvailable: boolean | null;
@@ -993,6 +1028,8 @@ export interface SurveyReport {
   difficultRunsNotes: string | null;    // Section H "Longest / difficult runs noted"
   /** Official checklist table 2 — see the overlap note on SurveySiteChecklist. */
   siteChecklist: SurveySiteChecklist;
+  /** ACDB / DCDB spare-MCB detail — see the note on SurveyAcdcMcbDetails. */
+  acdcMcbDetails: SurveyAcdcMcbDetails;
   /**
    * RETAINED, partly superseded. `infrastructure.dcVoltages` is definitively
    * replaced by siteChecklist.acDcSupply.dcBreakerVoltageByLevel; the AC/DC,

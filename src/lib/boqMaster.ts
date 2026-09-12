@@ -1,5 +1,5 @@
 import { SURVEY_APPROVAL_STAGES, deriveStageOwnerUids } from '@/lib/approvalStages';
-import { SURVEY_VOLTAGE_LEVELS } from '@/types';
+import { SURVEY_VOLTAGE_LEVELS, ACDC_MCB_SLOT_COUNT } from '@/types';
 import type {
   SurveyBoqLine,
   SurveyBoqChecks,
@@ -11,6 +11,8 @@ import type {
   SurveyControlRoom,
   SurveyAssetCounts,
   SurveySiteChecklist,
+  SurveyAcdcMcbDetails,
+  McbSlot,
   SurveyVoltageLevel,
   SurveyDcVoltage,
 } from '@/types';
@@ -227,6 +229,22 @@ function createEmptyAssetCounts(): SurveyAssetCounts {
   };
 }
 
+/**
+ * Both boards seeded at full length. A fixed count, not a repeatable-group
+ * default: the rows exist whether or not anyone fills them, exactly as they do
+ * on the paper form.
+ */
+function createEmptyAcdcMcbDetails(): SurveyAcdcMcbDetails {
+  const emptySlots = (): McbSlot[] =>
+    Array.from({ length: ACDC_MCB_SLOT_COUNT }, () => ({ poleType: null, ratingA: null }));
+  return {
+    acdbMcbSlots:             emptySlots(),
+    dcdbChargerOutputVoltage: null,
+    dcdbBatteryOutputVoltage: null,
+    dcdbMcbSlots:             emptySlots(),
+  };
+}
+
 function createEmptySiteChecklist(): SurveySiteChecklist {
   return {
     outdoorCivilWorkStatus: null,
@@ -394,6 +412,7 @@ export function createEmptySurveyReport(input: CreateEmptySurveyReportInput): Su
     cableRuns:          [],
     difficultRunsNotes: null,
     siteChecklist:      createEmptySiteChecklist(),
+    acdcMcbDetails:     createEmptyAcdcMcbDetails(),
     infrastructure:     createEmptyInfrastructure(),
     boqSupply,
     boqService,

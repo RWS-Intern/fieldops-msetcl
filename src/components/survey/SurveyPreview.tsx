@@ -9,7 +9,7 @@ import { formatMetresAsKm } from '@/lib/units';
 import {
   VOLTAGE_LEVEL_LABELS, BAY_COUNT_LABELS, RELAY_TYPE_LABELS, PROTOCOL_LABELS,
   CAPACITOR_CONTROL_TYPE_LABELS, TRAYS_LABELS,
-  DC_VOLTAGE_LABELS, BOQ_CHECK_LABELS,
+  DC_VOLTAGE_LABELS, MCB_POLE_TYPE_LABELS, BOQ_CHECK_LABELS,
 } from '@/lib/surveyLabels';
 import { SurveyPhotoThumb } from './SurveyPhotoThumb';
 import { SignaturePad } from './SignaturePad';
@@ -19,7 +19,7 @@ import type {
   SurveyReport, SurveyFeederEntry, SurveyRelayEntry, SurveyTransformerEntry,
   SurveyCapacitorBank, SurveyCableRun, SurveyInfrastructure, SurveyBoqLine,
   SurveySignOff, SurveyContactDetails, SurveyControlRoom, SurveyAssetCounts,
-  SurveySiteChecklist,
+  SurveySiteChecklist, SurveyAcdcMcbDetails, McbSlot,
 } from '@/types';
 
 // Every enum label and checklist wording comes from src/lib/surveyLabels.ts —
@@ -418,6 +418,51 @@ function InfrastructureSection({
   );
 }
 
+/**
+ * One board's spare-MCB table, read-only. Every slot renders, filled or not:
+ * an unanswered way shows "—" in both cells, so a reviewer can tell a slot
+ * nobody looked at from one recorded as empty — the same rule every other
+ * unanswered field in this preview follows.
+ */
+function McbTablePreview({ title, slots }: { title: string; slots: McbSlot[] }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <SubHeading>{title}</SubHeading>
+      <div className="grid grid-cols-[3.5rem_1fr_1fr] gap-2 border-b border-gray-300 pb-1 text-[10px] uppercase tracking-wide text-gray-400">
+        <span>Slot</span><span>Pole type</span><span>Rating (A)</span>
+      </div>
+      {slots.map((slot, i) => (
+        <div
+          key={i}
+          className="grid grid-cols-[3.5rem_1fr_1fr] gap-2 break-inside-avoid border-b border-gray-100 py-1 text-xs"
+        >
+          <span className="font-mono text-gray-400">MCB {i + 1}</span>
+          <span className="text-gray-800">
+            {slot.poleType ? MCB_POLE_TYPE_LABELS[slot.poleType] : '—'}
+          </span>
+          <span className="text-gray-800">{dash(slot.ratingA)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AcdcDetailsSection({ details }: { details: SurveyAcdcMcbDetails }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <McbTablePreview title="ACDB — Spare MCBs (230V AC)" slots={details.acdbMcbSlots} />
+      <div className="flex flex-col gap-1">
+        <SubHeading>DCDB Details</SubHeading>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Charger O/P Voltage" value={dash(details.dcdbChargerOutputVoltage)} />
+          <Field label="Battery O/P Voltage" value={dash(details.dcdbBatteryOutputVoltage)} />
+        </div>
+      </div>
+      <McbTablePreview title="DCDB — Spare MCBs (48V DC)" slots={details.dcdbMcbSlots} />
+    </div>
+  );
+}
+
 function CableRunsSection({ cableRuns, difficultRunsNotes }: { cableRuns: SurveyCableRun[]; difficultRunsNotes: string | null }) {
   const cat6Total  = cableRuns.filter((r) => r.cableType === 'cat6').reduce((sum, r) => sum + (r.lengthM ?? 0), 0);
   const powerTotal = cableRuns.filter((r) => r.cableType === 'power').reduce((sum, r) => sum + (r.lengthM ?? 0), 0);
@@ -694,15 +739,22 @@ export function SurveyPreview({
           <InfrastructureSection infra={survey.infrastructure} checklist={survey.siteChecklist} />
         </div>
 
-        {/* 7. Cable Runs */}
+        {/* 7. ACDB & DCDB Details — the station's own boards. Distinct from the
+            per-voltage-level DC breaker voltages in section 6 above. */}
         <div className="flex flex-col gap-2">
-          <SectionHeading>7. Cable Runs</SectionHeading>
+          <SectionHeading>7. ACDB &amp; DCDB Details</SectionHeading>
+          <AcdcDetailsSection details={survey.acdcMcbDetails} />
+        </div>
+
+        {/* 8. Cable Runs */}
+        <div className="flex flex-col gap-2">
+          <SectionHeading>8. Cable Runs</SectionHeading>
           <CableRunsSection cableRuns={survey.cableRuns} difficultRunsNotes={survey.difficultRunsNotes} />
         </div>
 
-        {/* 8. Site Photographs — grouped by slot, in SURVEY_PHOTO_SLOTS order (not array order) */}
+        {/* 9. Site Photographs — grouped by slot, in SURVEY_PHOTO_SLOTS order (not array order) */}
         <div className="flex flex-col gap-3">
-          <SectionHeading>8. Site Photographs</SectionHeading>
+          <SectionHeading>9. Site Photographs</SectionHeading>
           {SURVEY_PHOTO_SLOTS.map((slot) => {
             const entries = survey.sitePhotos.filter((p) => p.caption === slot);
             const remarked = entries.filter((p) => !!p.remark?.trim());
@@ -727,9 +779,9 @@ export function SurveyPreview({
           })}
         </div>
 
-        {/* 9. BOQ */}
+        {/* 10. BOQ */}
         <div className="flex flex-col gap-3">
-          <SectionHeading>9. Bill of Quantity</SectionHeading>
+          <SectionHeading>10. Bill of Quantity</SectionHeading>
           <BoqTable title="Supply" master={SUPPLY_BOQ_MASTER} lines={survey.boqSupply} />
         </div>
 
@@ -741,9 +793,9 @@ export function SurveyPreview({
           ))}
         </div>
 
-        {/* 10. Sign-off — unchanged shape */}
+        {/* 11. Sign-off — unchanged shape */}
         <div className="flex flex-col gap-2">
-          <SectionHeading>10. Sign-Off</SectionHeading>
+          <SectionHeading>11. Sign-Off</SectionHeading>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Surveyor" value={dash(survey.surveyorName)} />
             <Field label="MSETCL Engineer Name" value={dash(survey.signOff.msetclEngineerName)} />

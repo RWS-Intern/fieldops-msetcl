@@ -36,6 +36,7 @@ import { StepRelayDetails } from '@/components/survey/steps/StepRelayDetails';
 import { StepCapacitorBanks } from '@/components/survey/steps/StepCapacitorBanks';
 import { StepTransformerDetails } from '@/components/survey/steps/StepTransformerDetails';
 import { StepInfrastructure } from '@/components/survey/steps/StepInfrastructure';
+import { StepAcdcDetails } from '@/components/survey/steps/StepAcdcDetails';
 import { StepCableRuns } from '@/components/survey/steps/StepCableRuns';
 import { StepPhotos } from '@/components/survey/steps/StepPhotos';
 import { StepBoq } from '@/components/survey/steps/StepBoq';
@@ -135,6 +136,16 @@ function buildPopulatedSurvey(): SurveyReport {
   survey.infrastructure.routerAvailable       = false;
   survey.infrastructure.mplsAvailable         = false;
   survey.infrastructure.sldcPathNotes         = 'Existing OFC to SLDC via Nashik.';
+
+  // ACDB / DCDB — PARTIALLY filled on purpose: a few slots answered, the rest
+  // left null, so both the filled and the unanswered ("—") render paths run.
+  survey.acdcMcbDetails.acdbMcbSlots[0] = { poleType: 'single', ratingA: '16 A' };
+  survey.acdcMcbDetails.acdbMcbSlots[1] = { poleType: 'double', ratingA: '32 A' };
+  survey.acdcMcbDetails.acdbMcbSlots[4] = { poleType: 'single', ratingA: '6 A' };
+  survey.acdcMcbDetails.dcdbChargerOutputVoltage = '48 V';
+  survey.acdcMcbDetails.dcdbBatteryOutputVoltage = '46.5 V';
+  survey.acdcMcbDetails.dcdbMcbSlots[0] = { poleType: 'double', ratingA: '10 A' };
+  survey.acdcMcbDetails.dcdbMcbSlots[3] = { poleType: 'single', ratingA: '6 A' };
   // One photo WITH a remark and one WITHOUT, so both branches of the optional
   // remark render (and the preview's omit-when-empty path) are exercised.
   survey.sitePhotos.push({
@@ -174,10 +185,11 @@ const STEPS: readonly [string, React.ComponentType<SurveyStepProps>][] = [
   ['4. Capacitor Banks',     StepCapacitorBanks],
   ['5. Transformer Details', StepTransformerDetails],
   ['6. Site Infrastructure', StepInfrastructure],
-  ['7. Cable Runs',          StepCableRuns],
-  ['8. Photos',              StepPhotos],
-  ['9. BOQ',                 StepBoq],
-  ['10. Sign-Off',           StepSignOff],
+  ['7. ACDB & DCDB Details', StepAcdcDetails],
+  ['8. Cable Runs',          StepCableRuns],
+  ['9. Photos',              StepPhotos],
+  ['10. BOQ',                StepBoq],
+  ['11. Sign-Off',           StepSignOff],
 ];
 
 /** Returns the number of failures; 0 means the walk is clean. */
