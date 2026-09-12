@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Paperclip, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Paperclip, X } from 'lucide-react';
 import { useAuthStore }     from '@/store/authStore';
 import { useSurveyReport }  from '@/hooks/useSurveyReport';
 import { useSurveyActions } from '@/hooks/useSurveyActions';
@@ -13,7 +13,9 @@ import { SurveyPreview }    from '@/components/survey/SurveyPreview';
 import { uploadToCloudinary } from '@/utils/uploadToCloudinary';
 import { findApprovalStage } from '@/lib/approvalStages';
 import { cn } from '@/lib/utils';
-import type { SurveyUpdate, WorkOrderStatus, ApprovalStageResult } from '@/types';
+import type {
+  SurveyUpdate, WorkOrderStatus, ApprovalStageResult, ReviewDirection,
+} from '@/types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -30,6 +32,8 @@ const ACTION_LABEL: Record<SurveyUpdate['action'], string> = {
   submit:          'Submitted',
   approve:         'Approved',
   request_changes: 'Changes Requested',
+  agree:           'Agreed With Flag',
+  disagree:        'Disagreed With Flag',
 };
 
 // ─── Review actions — rendered on the record page itself AND passed into
@@ -180,10 +184,57 @@ function AttachmentControl({
   );
 }
 
+/**
+ * Shown only while the chain is travelling BACKWARD — i.e. a stage above this
+ * reviewer rejected the survey and the flag is cascading down for each lower
+ * stage to agree or disagree with.
+ *
+ * It carries the flagging stage's own reviewNotes verbatim: a reviewer asked
+ * to agree or disagree with an objection cannot make that call without seeing
+ * what was actually objected to.
+ */
+function EscalationBanner({ stages, liveIndex }: { stages: ApprovalStageResult[]; liveIndex: number }) {
+  // The nearest stage ABOVE this one that has flagged the survey — the
+  // objection being passed down. Searching upward (rather than assuming
+  // liveIndex + 1) is what keeps this correct after several cascade steps.
+  const origin = stages
+    .slice(liveIndex + 1)
+    .find((stage) => stage.status === 'changes_requested');
+
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-violet-200 bg-violet-50 p-3">
+      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-violet-900">
+          Escalation review — you are not reviewing the survey itself
+        </p>
+        <p className="mt-0.5 text-xs text-violet-800">
+          {origin
+            ? `${origin.stageLabel} rejected this survey. You are being asked whether you agree with that objection.`
+            : 'A stage above you rejected this survey. You are being asked whether you agree with that objection.'}
+          {' '}Agreeing passes it further down; disagreeing sends it back up for them to reconsider.
+          The field engineer sees nothing until this resolves at Approver Level 1.
+        </p>
+        {origin?.reviewNotes && (
+          <div className="mt-2 rounded border border-violet-200 bg-white px-2 py-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-500">
+              {origin.stageLabel} wrote
+            </p>
+            <p className="mt-0.5 whitespace-pre-wrap text-xs text-gray-700">{origin.reviewNotes}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ReviewActions({
+  direction,
   onApprove,
   onRequestChanges,
 }: {
+  /** Selects the labels AND which decision each button sends. */
+  direction: ReviewDirection;
   onApprove: () => Promise<void>;
   onRequestChanges: (notes: string) => Promise<void>;
 }) {
@@ -210,13 +261,26 @@ function ReviewActions({
     }
   }
 
+  // Backward = an escalation review. The same two code paths are reused
+  // (request_changes and approve), but their MEANING is different and the
+  // labels must say so: a reviewer agreeing with a flag from above is not
+  // "requesting changes" on the survey, and one disagreeing is not
+  // "approving" it outright.
+  const isEscalation = direction === 'backward';
+  const flagLabel    = isEscalation ? 'Agree' : 'Request Changes';
+  const flagSendLabel = isEscalation ? 'Agree & Pass Down' : 'Send Back';
+  const clearLabel   = isEscalation ? 'Disagree, approve as-is' : 'Approve';
+  const clearBusy    = isEscalation ? 'Sending back up…' : 'Approving…';
+
   if (requestingChanges) {
     return (
       <div className="flex flex-col gap-2 w-full sm:w-72">
         <Textarea
           value={reviewNotes}
           onChange={(e) => setReviewNotes(e.target.value)}
-          placeholder="Describe what the engineer needs to fix or add…"
+          placeholder={isEscalation
+            ? 'Why do you agree with the objection above?'
+            : 'Describe what the engineer needs to fix or add…'}
           rows={2}
           autoFocus
         />
@@ -233,7 +297,7 @@ function ReviewActions({
             onClick={handleSend}
             disabled={submitting || !reviewNotes.trim()}
           >
-            {submitting ? 'Sending…' : 'Send Back'}
+            {submitting ? 'Sending…' : flagSendLabel}
           </Button>
         </div>
       </div>
@@ -243,10 +307,10 @@ function ReviewActions({
   return (
     <div className="flex gap-2">
       <Button type="button" variant="outline" size="sm" onClick={() => setRequestingChanges(true)} disabled={submitting}>
-        Request Changes
+        {flagLabel}
       </Button>
       <Button type="button" size="sm" onClick={handleApprove} disabled={submitting}>
-        {submitting ? 'Approving…' : 'Approve'}
+        {submitting ? clearBusy : clearLabel}
       </Button>
     </div>
   );
@@ -389,19 +453,28 @@ export function ApproverSurveyReviewPage() {
   async function handleApprove() {
     if (!survey || !workOrderId) return;
     try {
+      const escalating = survey.reviewDirection === 'backward';
       await reviewSurvey(survey.id, {
-        decision:    'approve',
+        // Same code path, different meaning: during an escalation review this
+        // button DISAGREES with the flag above rather than approving the
+        // survey. reviewSurvey validates the pairing against the direction.
+        decision:    escalating ? 'disagree' : 'approve',
         workOrderId,
         approverUid: survey.approverUid,
         // The LIVE array and index — reviewSurvey replaces only the acting
         // entry. Rebuilding the chain is rejected by firestore.rules.
         approvalStages:    survey.approvalStages,
         currentStageIndex: survey.currentStageIndex,
+        reviewDirection:   survey.reviewDirection,
         attachmentUrl,
       });
       const wasFinal = survey.currentStageIndex >= survey.approvalStages.length - 1;
       showToast(
-        wasFinal
+        escalating
+          ? `Sent back up to ${
+              survey.approvalStages[survey.currentStageIndex + 1]?.ownerName ?? 'the stage above'
+            } to reconsider`
+          : wasFinal
           ? 'Survey fully approved — all stages cleared'
           : `${survey.approvalStages[survey.currentStageIndex]?.stageLabel ?? 'Stage'} approved — sent to ${
               survey.approvalStages[survey.currentStageIndex + 1]?.ownerName ?? 'the next approver'
@@ -421,21 +494,27 @@ export function ApproverSurveyReviewPage() {
   async function handleRequestChanges(notes: string) {
     if (!survey || !workOrderId) return;
     try {
+      const escalating = survey.reviewDirection === 'backward';
+      const atLevelOne = survey.currentStageIndex === 0;
       await reviewSurvey(survey.id, {
-        decision:    'request_changes',
+        decision:    escalating ? 'agree' : 'request_changes',
         reviewNotes: notes,
         workOrderId,
         approverUid: survey.approverUid,
         approvalStages:    survey.approvalStages,
         currentStageIndex: survey.currentStageIndex,
+        reviewDirection:   survey.reviewDirection,
         attachmentUrl,
       });
-      // Names the stage so the reviewer can see the work comes back to THEM,
-      // not to stage 1 — that is the resume-at-flagging-stage behaviour.
+      // Says where it actually went. Only Level 1 reaches the field; anything
+      // above it starts (or continues) the cascade downward, and a
+      // resubmission always restarts the whole chain at Level 1.
       showToast(
-        `Changes requested — returns to ${
-          survey.approvalStages[survey.currentStageIndex]?.stageLabel ?? 'this stage'
-        } after resubmission`,
+        atLevelOne
+          ? 'Sent back to the engineer — resubmission restarts the chain at Approver Level 1'
+          : `Passed down to ${
+              survey.approvalStages[survey.currentStageIndex - 1]?.ownerName ?? 'the stage below'
+            } to review — the engineer is not notified yet`,
         'success',
       );
       // Close the preview first — otherwise its full-screen overlay can
@@ -484,10 +563,14 @@ export function ApproverSurveyReviewPage() {
   // denormalised — when that happens, the sub-line below must not ALSO show
   // the bare siteCode, or the same code repeats twice in the header.
   const showSiteCodeInSubline = !!survey.siteName;
+  // Captured out here: renderActions is a function declaration, so TypeScript's
+  // null-narrowing on `survey` does not reach inside it.
+  const reviewDirection: ReviewDirection = survey.reviewDirection;
+  const isEscalationReview = reviewDirection === 'backward' && survey.status === 'pending_approval';
 
   function renderActions() {
     if (canAct) {
-      return <ReviewActions onApprove={handleApprove} onRequestChanges={handleRequestChanges} />;
+      return <ReviewActions direction={reviewDirection} onApprove={handleApprove} onRequestChanges={handleRequestChanges} />;
     }
     // A viewer sees the status, never "Not assigned to you" — nothing is ever
     // assigned to them, so that wording would imply an action they could have.
@@ -539,6 +622,15 @@ export function ApproverSurveyReviewPage() {
         currentStageIndex={survey.currentStageIndex}
         docStatus={survey.status}
       />
+
+      {/* Only while the flag is cascading down — carries the objection's own
+          notes so whoever must agree or disagree can actually read it. */}
+      {isEscalationReview && (
+        <EscalationBanner
+          stages={survey.approvalStages}
+          liveIndex={survey.currentStageIndex}
+        />
+      )}
 
       {/* Optional at every stage. Only offered to whoever can actually act. */}
       {canAct && (

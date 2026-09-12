@@ -1,5 +1,6 @@
 import {
   doc,
+  getDoc,
   collection,
   addDoc,
   writeBatch,
@@ -7,7 +8,9 @@ import {
 } from 'firebase/firestore';
 import { db }           from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
-import type { SurveyReport, WorkOrderStatus, ApprovalStageResult } from '@/types';
+import type {
+  SurveyReport, WorkOrderStatus, ApprovalStageResult, ReviewDirection,
+} from '@/types';
 
 // ─── Field stripping ────────────────────────────────────────────────────────────
 // Fields an engineer write must NEVER include: the deployed rules reject any
@@ -25,10 +28,18 @@ import type { SurveyReport, WorkOrderStatus, ApprovalStageResult } from '@/types
 // engineer's snapshot is. An engineer owns the survey's content, never its
 // approval record.
 
+/** Audit-log wording, one entry per decision — see reviewSurvey. */
+const REVIEW_DECISION_AUDIT_VERB: Record<ReviewDecision, string> = {
+  approve:         'Approved',
+  request_changes: 'Requested changes on',
+  agree:           'Agreed with the flag raised above',
+  disagree:        'Disagreed with the flag raised above, approving',
+};
+
 const UNWRITABLE_KEYS = [
   'id', 'workOrderId', 'siteId',
   'assignedTo', 'assignedToName', 'approverUid', 'approverName',
-  'approvalStages', 'currentStageIndex', 'approvalStageOwnerUids',
+  'approvalStages', 'currentStageIndex', 'approvalStageOwnerUids', 'reviewDirection',
   'createdAt', 'updatedAt',
 ] as const;
 
@@ -38,29 +49,6 @@ function stripUnwritableFields(data: Partial<SurveyReport>): Partial<SurveyRepor
     delete copy[key];
   }
   return copy;
-}
-
-/**
- * The approval stage a submission belongs to, taken from the payload as it
- * stood at submit time.
- *
- * Both fields are nullable rather than defaulted, because a survey created
- * before the approval chain existed — or a submission queued offline by an
- * older build — genuinely has no stage to name. Writing null keeps that
- * honest; guessing index 0 would label a resubmission as "Approver Level 1"
- * on a document headed for government vetting.
- */
-function resolveSubmittedStage(
-  data: Partial<SurveyReport>,
-): { stageKey: string | null; stageIndex: number | null } {
-  const index = data.currentStageIndex;
-  if (typeof index !== 'number' || index < 0) {
-    return { stageKey: null, stageIndex: null };
-  }
-  return {
-    stageKey:   data.approvalStages?.[index]?.stageKey ?? null,
-    stageIndex: index,
-  };
 }
 
 // ─── Input types ────────────────────────────────────────────────────────────────
@@ -87,9 +75,22 @@ export interface SubmitSurveyInput {
   submittedByName: string;
 }
 
+/**
+ * What a reviewer can do, by the direction the chain is travelling.
+ *
+ *   forward  — 'approve' | 'request_changes'
+ *   backward — 'agree'   | 'disagree'   (an escalation review: do you agree
+ *              with the flag raised above you?)
+ *
+ * A decision that doesn't belong to the live direction is rejected before any
+ * write, because firestore.rules would refuse it anyway and a clear error
+ * beats a bare permission-denied.
+ */
+export type ReviewDecision = 'approve' | 'request_changes' | 'agree' | 'disagree';
+
 export interface ReviewSurveyInput {
-  decision: 'approve' | 'request_changes';
-  /** Required when decision === 'request_changes'. */
+  decision: ReviewDecision;
+  /** Required for 'request_changes' and 'agree' — both record a flag. */
   reviewNotes?: string;
   workOrderId: string;
   /**
@@ -112,6 +113,14 @@ export interface ReviewSurveyInput {
   approvalStages: ApprovalStageResult[];
   /** The live stage index, straight from the caller's snapshot. */
   currentStageIndex: number;
+  /**
+   * The direction the chain was travelling BEFORE this write, straight from
+   * the caller's snapshot. This is what selects the transition table below,
+   * exactly as firestore.rules keys isValidStageTransition on the stored
+   * value. Defaults to 'forward' for documents written before the field
+   * existed.
+   */
+  reviewDirection: ReviewDirection;
   /** Optional at every stage — an already-uploaded https URL, or null. */
   attachmentUrl?: string | null;
 }
@@ -192,11 +201,46 @@ export function useSurveyActions() {
     // Read before stripUnwritableFields removes them — the chain fields are
     // stripped from the WRITE (an engineer never rewrites the approval
     // record) but are still valid provenance for the audit snapshot.
-    const { stageKey, stageIndex } = resolveSubmittedStage(input.data);
+    // ── Restart the chain at Approver Level 1 ───────────────────────────────
+    // firestore.rules' isChainRestart requires approvalStages PRESENT and
+    // byte-identical, currentStageIndex 0, approverUid pinned to stage 0's
+    // nominated owner, and direction 'forward'. Omitting approvalStages on the
+    // theory that "unchanged means don't send it" fails the rule.
+    //
+    // The array is read from the LIVE document here, never from input.data:
+    // the engineer's wizard copy can be hours stale (a stage owner may have
+    // acted while they had it open, and an offline submission drains later
+    // still), and the equality check is against what is stored right now.
+    // Reading raw snapshot data — NOT mapSurveyReport — matters: the mapper
+    // converts actedAt Timestamps to Dates, which would not compare equal.
+    const liveSnap  = await getDoc(doc(db, 'surveyReports', surveyReportId));
+    const liveData  = liveSnap.data() ?? {};
+    const liveStages = (liveData['approvalStages'] ?? []) as { ownerUid?: string | null; ownerName?: string | null; stageKey?: string }[];
+
+    // A survey created before the chain existed has no stages to restart —
+    // leave its chain fields untouched rather than inventing one.
+    const chainRestart = liveStages.length > 0
+      ? {
+          approvalStages:    liveData['approvalStages'],
+          currentStageIndex: 0,
+          approverUid:       liveStages[0].ownerUid  ?? null,
+          approverName:      liveStages[0].ownerName ?? null,
+          reviewDirection:   'forward' as ReviewDirection,
+        }
+      : {};
+
+    // The submission answers the stage it is being handed to — Level 1, since
+    // the chain restarts there. Null for a pre-chain survey, which genuinely
+    // has no stage to name; guessing 0 would mislabel it on a document headed
+    // for government vetting.
+    const { stageKey, stageIndex } = liveStages.length > 0
+      ? { stageKey: liveStages[0].stageKey ?? null, stageIndex: 0 as number | null }
+      : { stageKey: null, stageIndex: null };
 
     const batch = writeBatch(db);
     batch.update(doc(db, 'surveyReports', surveyReportId), {
       ...safeData,
+      ...chainRestart,
       status:          'pending_approval',
       submittedBy:     input.submittedBy,
       submittedByName: input.submittedByName,
@@ -204,6 +248,7 @@ export function useSurveyActions() {
       updatedAt:       serverTimestamp(),
     });
     batch.update(doc(db, 'workOrders', input.workOrderId), {
+      ...chainRestart,
       status:    'pending_approval',
       updatedAt: serverTimestamp(),
     });
@@ -223,33 +268,42 @@ export function useSurveyActions() {
   }
 
   /**
-   * One stage's review decision on a pending_approval SurveyReport — approve
-   * (advancing the chain) or send it back with review notes. Guarded strictly
+   * One stage's decision on a pending_approval SurveyReport. Guarded strictly
    * to the LIVE stage owner (no admin fallback — see ReviewSurveyInput).
    * Online-only: no offline queue, matching reviewSiteTask.
    *
-   * On APPROVE:
-   *   - the acting stage's entry gets status/reviewNotes/attachmentUrl/actedAt;
-   *   - a NON-final stage advances currentStageIndex by one, moves
-   *     approverUid/approverName to the next stage's nominated owner, and
-   *     leaves the document at 'pending_approval' — it is still awaiting
-   *     approval, just by someone else;
-   *   - the FINAL stage sets the document to 'approved', currentStageIndex to
-   *     the chain length, and clears approverUid — nobody owns it any more.
+   * FOUR transition shapes, keyed on the direction the chain was travelling
+   * BEFORE this write. This mirrors reviewPayloads() in
+   * tests/rules/chainRoundTrip.test.mjs — that suite is the reference
+   * implementation and the regression check for every shape below, so the two
+   * must not drift.
    *
-   * On REQUEST CHANGES nothing about position or ownership moves: the flagging
-   * stage keeps the document so the engineer's resubmission comes back to the
-   * same reviewer rather than restarting the chain at stage 1.
+   *   forward + approve          -> advance one stage, or complete if last.
+   *   forward + request_changes  -> Level 1 sends it to the field; ANY HIGHER
+   *                                 stage starts the escalation cascade
+   *                                 instead: one stage DOWN, direction
+   *                                 'backward', and the top-level status stays
+   *                                 'pending_approval' so the field sees
+   *                                 nothing yet.
+   *   backward + agree           -> this reviewer also flags it. At Level 1
+   *                                 that finally reaches the field and resets
+   *                                 the direction; above it, cascade one more
+   *                                 stage down.
+   *   backward + disagree        -> bounce the flag back UP one stage AND
+   *                                 reset that stage to 'pending' so its owner
+   *                                 must reconsider. Returns the direction to
+   *                                 'forward', which is why the bounced-to
+   *                                 stage's next action needs no special case.
    *
    * The stage array is derived from input.approvalStages (the caller's live
-   * snapshot) with ONLY the acting index replaced. It is never rebuilt from
-   * SURVEY_APPROVAL_STAGES — firestore.rules compares every other entry for
-   * byte equality against what is stored and refuses the write otherwise.
+   * snapshot) with ONLY the acting index replaced — plus, on a disagree, the
+   * one index above it reset. It is never rebuilt from SURVEY_APPROVAL_STAGES:
+   * firestore.rules compares every other entry for byte equality against what
+   * is stored and refuses the write otherwise.
    *
    * One writeBatch updates surveyReports + the parent workOrders doc to the
-   * SAME status (they must never disagree — the discipline carried since
-   * task 2), and writes an immutable audit-trail snapshot to
-   * surveyReports/{id}/updates.
+   * SAME status (they must never disagree), and writes an immutable audit-trail
+   * snapshot to surveyReports/{id}/updates.
    */
   async function reviewSurvey(
     surveyReportId: string,
@@ -263,59 +317,108 @@ export function useSurveyActions() {
       throw new Error('You are not authorized to review this survey.');
     }
 
+    const direction = input.reviewDirection ?? 'forward';
+    const isForwardDecision = input.decision === 'approve' || input.decision === 'request_changes';
+    if ((direction === 'forward') !== isForwardDecision) {
+      throw new Error(
+        direction === 'backward'
+          ? 'This survey is under escalation review — agree or disagree with the flag instead.'
+          : 'This survey is not under escalation review.',
+      );
+    }
+
+    // Both flagging decisions must say why. 'agree' is a flag too: the
+    // reviewer is adding their own name to the objection travelling down.
     const trimmedNotes = input.reviewNotes?.trim() ?? '';
-    if (input.decision === 'request_changes' && !trimmedNotes) {
-      throw new Error('Review notes are required when requesting changes.');
+    const isFlag = input.decision === 'request_changes' || input.decision === 'agree';
+    if (isFlag && !trimmedNotes) {
+      throw new Error('Review notes are required when sending a survey back.');
     }
 
     const stages    = input.approvalStages;
     const liveIndex = input.currentStageIndex;
-    if (liveIndex < 0 || liveIndex >= stages.length) {
+    const lastIndex = stages.length - 1;
+    if (liveIndex < 0 || liveIndex > lastIndex) {
       throw new Error('This survey is not awaiting a review decision.');
     }
+    if (input.decision === 'disagree' && liveIndex >= lastIndex) {
+      throw new Error('There is no stage above this one to send the flag back to.');
+    }
 
-    const reviewNotes = input.decision === 'request_changes' ? trimmedNotes : (trimmedNotes || null);
-    const isFinalStage = liveIndex === stages.length - 1;
+    const reviewNotes = isFlag ? trimmedNotes : (trimmedNotes || null);
 
-    // Only the acting entry is replaced; every other element is carried
-    // through by reference so it serialises byte-identically to what is
+    // ── Where the document goes next ────────────────────────────────────────
+    const toField = {
+      status:            'changes_requested' as WorkOrderStatus,
+      currentStageIndex: 0,
+      approverUid:       stages[0].ownerUid,
+      approverName:      stages[0].ownerName,
+      reviewDirection:   'forward' as ReviewDirection,
+    };
+    const complete = {
+      status:            'approved' as WorkOrderStatus,
+      currentStageIndex: stages.length,
+      approverUid:       null,
+      approverName:      null,
+      reviewDirection:   'forward' as ReviewDirection,
+    };
+    const up = (dir: ReviewDirection) => ({
+      status:            'pending_approval' as WorkOrderStatus,
+      currentStageIndex: liveIndex + 1,
+      approverUid:       stages[liveIndex + 1].ownerUid,
+      approverName:      stages[liveIndex + 1].ownerName,
+      reviewDirection:   dir,
+    });
+    const down = (dir: ReviewDirection) => ({
+      status:            'pending_approval' as WorkOrderStatus,
+      currentStageIndex: liveIndex - 1,
+      approverUid:       stages[liveIndex - 1].ownerUid,
+      approverName:      stages[liveIndex - 1].ownerName,
+      reviewDirection:   dir,
+    });
+
+    const advance =
+      direction === 'forward'
+        ? (input.decision === 'approve'
+            ? (liveIndex === lastIndex ? complete : up('forward'))
+            : (liveIndex === 0 ? toField : down('backward')))
+        : (input.decision === 'agree'
+            ? (liveIndex === 0 ? toField : down('backward'))
+            : up('forward'));
+
+    // What this reviewer records against their OWN stage.
+    const ownStatus: ApprovalStageResult['status'] =
+      direction === 'forward'
+        ? (input.decision === 'approve' ? 'approved' : 'changes_requested')
+        : (input.decision === 'agree'   ? 'changes_requested' : 'approved');
+
+    // Only the acting entry is replaced — plus, on a disagree, the stage above
+    // it, reset to the exact shape isResetToPending permits: identity and
+    // ownership pinned, the three result fields cleared. Every other element is
+    // carried through by reference so it serialises byte-identically to what is
     // stored. actedAt is a client Date by necessity — Firestore rejects
     // serverTimestamp() inside an array element (see ApprovalStageResult).
-    const approvalStages: ApprovalStageResult[] = stages.map((stage, i) =>
-      i === liveIndex
-        ? {
-            ...stage,
-            status:        input.decision === 'approve' ? 'approved' : 'changes_requested',
-            reviewNotes,
-            attachmentUrl: input.attachmentUrl ?? null,
-            actedAt:       new Date(),
-          }
-        : stage,
-    );
-
-    // Where the document goes next.
-    const advance =
-      input.decision === 'request_changes'
-        ? {
-            // Flagging stage keeps it — resume-at-flagging-stage.
-            status:            'changes_requested' as WorkOrderStatus,
-            currentStageIndex: liveIndex,
-            approverUid:       input.approverUid,
-            approverName:      stages[liveIndex].ownerName,
-          }
-        : isFinalStage
-        ? {
-            status:            'approved' as WorkOrderStatus,
-            currentStageIndex: stages.length,
-            approverUid:       null,
-            approverName:      null,
-          }
-        : {
-            status:            'pending_approval' as WorkOrderStatus,
-            currentStageIndex: liveIndex + 1,
-            approverUid:       stages[liveIndex + 1].ownerUid,
-            approverName:      stages[liveIndex + 1].ownerName,
-          };
+    const approvalStages: ApprovalStageResult[] = stages.map((stage, i) => {
+      if (i === liveIndex) {
+        return {
+          ...stage,
+          status:        ownStatus,
+          reviewNotes,
+          attachmentUrl: input.attachmentUrl ?? null,
+          actedAt:       new Date(),
+        };
+      }
+      if (input.decision === 'disagree' && i === liveIndex + 1) {
+        return {
+          ...stage,
+          status:        'pending',
+          reviewNotes:   null,
+          attachmentUrl: null,
+          actedAt:       null,
+        };
+      }
+      return stage;
+    });
 
     const batch = writeBatch(db);
     batch.update(doc(db, 'surveyReports', surveyReportId), {
@@ -344,7 +447,7 @@ export function useSurveyActions() {
       // trustworthy record of when it happened (unlike the stage's actedAt).
       stageKey:   stages[liveIndex].stageKey,
       stageIndex: liveIndex,
-      ...(input.decision === 'request_changes' ? { reviewNotes } : {}),
+      ...(reviewNotes ? { reviewNotes } : {}),
       ...(input.attachmentUrl ? { attachmentUrl: input.attachmentUrl } : {}),
     });
 
@@ -358,7 +461,7 @@ export function useSurveyActions() {
         userName:       currentUser.name,
         action:         'REVIEW_SURVEY',
         detail:
-          `${input.decision === 'approve' ? 'Approved' : 'Requested changes on'} ` +
+          `${REVIEW_DECISION_AUDIT_VERB[input.decision]} ` +
           `"${stages[liveIndex].stageLabel}" of survey ${surveyReportId}`,
         surveyReportId,
         workOrderId:    input.workOrderId,

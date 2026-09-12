@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Pencil } from 'lucide-react';
+import { AlertTriangle, CornerUpRight, Pencil } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -64,12 +64,15 @@ function WorkOrderHistoryRow({
   canReassign,
   onOpen,
   onReassign,
+  onJump,
 }: {
   workOrder:   WorkOrder;
   /** False for a read-only viewer — Reassign is not rendered. */
   canReassign: boolean;
   onOpen:      () => void;
   onReassign:  () => void;
+  /** Admin-only; undefined hides the control (non-admin, or survey never submitted). */
+  onJump?:     () => void;
 }) {
   // One-time getDoc, not a listener — this is historical display data on an
   // already-reviewed (or not-yet-reviewed) record, not something the drawer
@@ -130,7 +133,20 @@ function WorkOrderHistoryRow({
       )}
 
       {canReassign && (
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
+          {/* Admin override: move the review to any stage, bypassing normal
+              progression. Hidden until the survey has actually been submitted. */}
+          {onJump && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs gap-1.5"
+              onClick={(e) => { e.stopPropagation(); onJump(); }}
+            >
+              <CornerUpRight className="h-3 w-3" />
+              Move Stage
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -142,6 +158,121 @@ function WorkOrderHistoryRow({
           </Button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Move-stage dialog (admin override) ───────────────────────────────────────
+//
+// Jumps a submitted survey's review straight to any stage, bypassing normal
+// progression. Deliberately a separate dialog from Reassign: that one changes
+// WHO owns a stage, this one changes WHICH stage is live. Conflating them
+// would make an admin fixing a typo'd owner one mis-click from rewinding a
+// review.
+//
+// Admin-only, and the caller additionally hides it for a survey still 'open' —
+// nothing has been submitted, so there is no review to move.
+
+function JumpToStageDialog({
+  workOrder,
+  onClose,
+}: {
+  workOrder: WorkOrder;
+  onClose:   () => void;
+}) {
+  const { jumpToApprovalStage } = useWorkOrderActions();
+  const { showToast }           = useToast();
+
+  const stages = workOrder.approvalStages ?? [];
+  const [target, setTarget] = useState<number>(workOrder.currentStageIndex);
+  const [saving, setSaving] = useState(false);
+
+  const selected   = stages[target];
+  const unchanged  = target === workOrder.currentStageIndex;
+  const noOwner    = !!selected && !selected.ownerUid;
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await jumpToApprovalStage(workOrder.id, workOrder.id, target);
+      showToast(
+        `Review moved to ${stages[target]?.stageLabel ?? `stage ${target + 1}`} — ${
+          stages[target]?.ownerName ?? 'its owner'
+        } must now act`,
+        'success',
+      );
+      onClose();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not move the review', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4">
+      <div className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl bg-white p-4 shadow-xl max-h-[90vh] overflow-y-auto">
+        <h3 className="text-base font-bold text-gray-900">Move Review Stage</h3>
+        <p className="mt-0.5 text-xs text-gray-500">
+          {workOrder.workOrderCode} · currently with{' '}
+          {stages[workOrder.currentStageIndex]?.stageLabel ?? 'no stage'}
+        </p>
+
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-2.5">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+          <p className="text-xs text-amber-800">
+            This bypasses normal progression and clears the target stage&apos;s previous
+            decision so its owner reviews afresh. Any escalation in progress is ended.
+          </p>
+        </div>
+
+        <div className="mt-3 flex flex-col gap-1.5">
+          {stages.map((stage, i) => {
+            const isLive = i === workOrder.currentStageIndex;
+            return (
+              <label
+                key={stage.stageKey}
+                className={cn(
+                  'flex items-center gap-3 rounded-lg border p-2.5 cursor-pointer transition-colors',
+                  target === i ? 'border-brand-blue bg-blue-50' : 'border-gray-200 hover:bg-gray-50',
+                )}
+              >
+                <input
+                  type="radio"
+                  name="jump-stage"
+                  checked={target === i}
+                  onChange={() => setTarget(i)}
+                  className="h-4 w-4 shrink-0 text-brand-blue focus:ring-brand-blue"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-gray-800">
+                    {i + 1}. {stage.stageLabel}
+                    {isLive && <span className="ml-1.5 text-[10px] font-normal text-gray-400">current</span>}
+                  </span>
+                  <span className="block truncate text-xs text-gray-500">
+                    {stage.ownerName ?? 'No owner assigned'}
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+
+        {noOwner && (
+          <p className="mt-2 text-xs text-brand-red">
+            That stage has no owner — assign one with Reassign first.
+          </p>
+        )}
+
+        <div className="mt-4 flex justify-end gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="button" size="sm" onClick={handleSave} disabled={saving || unchanged || noOwner}>
+            {saving ? 'Moving…' : 'Move Review Here'}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -348,10 +479,14 @@ export function SiteWorkOrdersSection({ siteId, onNavigateAway }: SiteWorkOrders
   const { currentUser } = useAuthStore();
   const { workOrders, loading } = useSiteWorkOrders(siteId);
   const [reassignTarget, setReassignTarget] = useState<WorkOrder | null>(null);
+  const [jumpTarget,     setJumpTarget]     = useState<WorkOrder | null>(null);
 
   // A viewer sees the same history (including the no-approver warning) but
   // cannot reassign — that writes to workOrders and surveyReports.
   const canReassign = currentUser?.role === 'admin';
+  // Same gate as Reassign — admin only. No approver, however senior, may
+  // move a review off its normal progression.
+  const canJump = currentUser?.role === 'admin';
 
   function openReview(workOrder: WorkOrder) {
     onNavigateAway?.();
@@ -386,6 +521,7 @@ export function SiteWorkOrdersSection({ siteId, onNavigateAway }: SiteWorkOrders
               canReassign={canReassign}
               onOpen={() => openReview(wo)}
               onReassign={() => setReassignTarget(wo)}
+              onJump={canJump && wo.status !== 'open' ? () => setJumpTarget(wo) : undefined}
             />
           ))}
         </div>
@@ -396,6 +532,13 @@ export function SiteWorkOrdersSection({ siteId, onNavigateAway }: SiteWorkOrders
           workOrder={reassignTarget}
           open={!!reassignTarget}
           onClose={() => setReassignTarget(null)}
+        />
+      )}
+
+      {jumpTarget && (
+        <JumpToStageDialog
+          workOrder={jumpTarget}
+          onClose={() => setJumpTarget(null)}
         />
       )}
     </div>

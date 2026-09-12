@@ -1026,11 +1026,17 @@ export interface SurveyReport {
  */
 export interface SurveyUpdate {
   id: string;
-  action: 'submit' | 'approve' | 'request_changes';
+  /**
+   * 'agree'/'disagree' are ESCALATION-REVIEW decisions: a stage agreeing with,
+   * or disagreeing with, a flag raised above it while the chain travels
+   * backward. They are distinct from approve/request_changes so the History
+   * section can say what actually happened.
+   */
+  action: 'submit' | 'approve' | 'request_changes' | 'agree' | 'disagree';
   actorUid: string;
   actorName: string;
   createdAt: Date;
-  /** Only present for request_changes. */
+  /** Present for request_changes and agree — both record a flag. */
   reviewNotes?: string;
   /**
    * Which stage of the approval chain this action belonged to. Written for

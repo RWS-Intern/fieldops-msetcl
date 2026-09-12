@@ -323,5 +323,75 @@ export function useWorkOrderActions() {
     });
   }
 
-  return { createWorkOrder, reassignWorkOrder, reassignApprovalStageOwner };
+  /**
+   * Moves a submitted survey's review straight to any stage, bypassing normal
+   * progression — the admin override.
+   *
+   * Needs no rules change: the admin branch on both collections is a bare
+   * isAdmin() with no field fence, so this shape is already permitted (proved
+   * by the admin-jump assertions in tests/rules/chainV2.test.mjs, including
+   * that a non-admin — even a nominated stage owner — is refused). assertAdmin
+   * below is the client-side half of that, giving a clear error instead of a
+   * bare permission-denied.
+   *
+   * Writes exactly: currentStageIndex = N, approverUid/Name -> stage N's
+   * owner, approvalStages[N].status = 'pending', reviewDirection = 'forward'.
+   * Resetting the target stage to pending is what makes the jump meaningful —
+   * jumping to a stage that still reads 'approved' would leave the reviewer
+   * looking at their own stale verdict.
+   *
+   * Only for a survey that has been submitted at least once: a status of
+   * 'open' means nothing has been sent for review, so there is no review to
+   * move.
+   */
+  async function jumpToApprovalStage(
+    workOrderId:    string,
+    surveyReportId: string,
+    stageIndex:     number,
+  ): Promise<void> {
+    assertAdmin();
+
+    const workOrderRef    = doc(db, 'workOrders', workOrderId);
+    const surveyReportRef = doc(db, 'surveyReports', surveyReportId);
+
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(workOrderRef);
+      if (!snap.exists()) throw new Error(`Work order ${workOrderId} not found`);
+
+      const data    = snap.data();
+      const current = (data['approvalStages'] as ApprovalStageResult[] | undefined) ?? [];
+      if (stageIndex < 0 || stageIndex >= current.length) {
+        throw new Error('That approval stage does not exist on this survey.');
+      }
+      if (data['status'] === 'open') {
+        throw new Error('This survey has not been submitted yet — there is no review to move.');
+      }
+      if (!current[stageIndex].ownerUid) {
+        throw new Error(
+          `"${current[stageIndex].stageLabel}" has no owner — assign one before jumping to it.`,
+        );
+      }
+
+      const approvalStages = current.map((stage, i) =>
+        i === stageIndex
+          ? { ...stage, status: 'pending' as const, reviewNotes: null, attachmentUrl: null, actedAt: null }
+          : stage,
+      );
+
+      const patch = {
+        approvalStages,
+        currentStageIndex: stageIndex,
+        approverUid:       current[stageIndex].ownerUid,
+        approverName:      current[stageIndex].ownerName,
+        reviewDirection:   'forward' as const,
+        status:            'pending_approval' as const,
+        updatedAt:         serverTimestamp(),
+      };
+
+      tx.update(workOrderRef,    patch);
+      tx.update(surveyReportRef, patch);
+    });
+  }
+
+  return { createWorkOrder, reassignWorkOrder, reassignApprovalStageOwner, jumpToApprovalStage };
 }
