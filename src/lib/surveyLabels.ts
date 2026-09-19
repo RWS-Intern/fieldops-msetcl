@@ -4,7 +4,7 @@ import type {
   SurveyBoqChecks,
   SurveyVoltageLevel, StoredVoltageLevel,
   SurveyDcVoltage, SurveyRelayType, SurveyCapacitorBank,
-  TapPositionConnectionType, McbSlot,
+  TapPositionConnectionType, McbPoleType,
 } from '@/types';
 
 /**
@@ -92,7 +92,7 @@ export const PROTOCOL_LABELS: Record<DeviceProtocol, string> = {
 };
 
 /** Spare-MCB pole type, ACDB and DCDB alike. */
-export const MCB_POLE_TYPE_LABELS: Record<NonNullable<McbSlot['poleType']>, string> = {
+export const MCB_POLE_TYPE_LABELS: Record<McbPoleType, string> = {
   single: 'Single Pole',
   double: 'Double Pole',
 };

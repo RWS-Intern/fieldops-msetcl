@@ -31,13 +31,14 @@ export function LegacyVoltageBanner({ survey }: { survey: SurveyReport }) {
           Some answers no longer have a field of their own
         </p>
         <p className="mt-1 text-xs text-amber-800">
-          Two things changed shape after this survey was started: 66kV and 33kV became separate
-          voltage levels, and the asset counts became a per-voltage-level grid. The old answers
+          Parts of this form changed shape after the survey was started: 66kV and 33kV became
+          separate voltage levels, the asset counts became a per-voltage-level grid, and the
+          ACDB/DCDB section became a direct count instead of ten numbered slots. The old answers
           are still stored, but the form has no field for them any more — so those places will
           look unanswered. <strong>Before submitting</strong>, work through the list below and
-          re-enter each one: pick the correct 66&nbsp;kV or 33&nbsp;kV value, and split each old
-          total across the levels it actually covers. Every old value is shown beside its field
-          for reference.
+          re-enter each one: pick the correct 66&nbsp;kV or 33&nbsp;kV value, split each old total
+          across the levels it actually covers, and re-enter the ACDB/DCDB figures. Every old
+          value is shown beside its field for reference.
         </p>
 
         <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-amber-700">

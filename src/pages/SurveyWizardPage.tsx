@@ -4,7 +4,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { AlertTriangle, Clock } from 'lucide-react';
 import { db } from '@/firebase/config';
 import { useAuthStore }         from '@/store/authStore';
-import { useSurveyReport }      from '@/hooks/useSurveyReport';
+import { useSurveyReport, normaliseRestoredDraft } from '@/hooks/useSurveyReport';
 import { useSurveyActions }     from '@/hooks/useSurveyActions';
 import {
   useSurveySubmitQueue,
@@ -228,7 +228,10 @@ export function SurveyWizardPage() {
       try {
         const draft = await loadDraft(survey.workOrderId);
         if (draft) {
-          setSurveyData({ ...survey, ...draft.data });
+          // Normalised, never spread raw: a draft saved before a field existed
+          // would otherwise restore that field as undefined and crash the
+          // wizard's render body. See normaliseRestoredDraft.
+          setSurveyData(normaliseRestoredDraft(survey, draft.data));
           setStepIndex(draft.stepIndex);
           setDraftInfo({ updatedAt: draft.updatedAt });
         } else {

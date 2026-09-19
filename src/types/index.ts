@@ -878,19 +878,48 @@ export interface SurveyCableRun {
 }
 
 /**
- * How many spare-MCB rows each board has. FIXED, not user-addable: the paper
- * form has exactly this many rows on each of the ACDB and DCDB tables, and a
- * surveyor ticking off slots against the board expects the same count.
- * Exported so the factory, the read mapper and the step all size themselves
- * from one place — same discipline as SURVEY_VOLTAGE_LEVELS.
+ * @deprecated Length of the superseded fixed-slot arrays — see the note on
+ * SurveyAcdcMcbDetails.acdbMcbSlots. Retained only so those arrays keep their
+ * shape on read; nothing new should size itself from this.
  */
 export const ACDC_MCB_SLOT_COUNT = 10;
 
-/** One spare-MCB slot on a distribution board. */
+export type McbPoleType = 'single' | 'double';
+
+/**
+ * @deprecated One slot of the superseded fixed-10 table. Kept because stored
+ * documents may still hold these; nothing writes them any more.
+ */
 export interface McbSlot {
-  poleType: 'single' | 'double' | null;
+  poleType: McbPoleType | null;
   /** Free text — carries its unit/notation as written, e.g. "16 A", "6/10". */
   ratingA:  string | null;
+}
+
+/**
+ * One distribution board's MCB detail, matching the filled MSETCL example's
+ * table 12: two rows under the same three columns (pole type, rating, remarks).
+ *
+ * The two rows are stored as INDEPENDENT facts, exactly as the document lays
+ * them out. Whether the "utilised" MCB is one of the spares counted above it,
+ * or a separate thing entirely, is not determinable from one filled example —
+ * so no relationship is modelled or enforced between them. Easy to tighten
+ * once someone with the master spec confirms the intent; impossible to undo a
+ * wrong assumption baked into stored data.
+ */
+export interface AcdcMcbBoardDetail {
+  /** "Nos." — how many spare MCBs are available on this board. */
+  spareMcbCount:   number | null;
+  spareMcbPole:    McbPoleType | null;
+  /** Free text — carries its unit as written, e.g. "16 A". */
+  spareMcbRating:  string | null;
+  spareMcbRemarks: string | null;
+
+  /** The second row's own answer: which MCB will be reused, if any. */
+  mcbUtilisedForNetworkPanel: string | null;
+  utilisedMcbPole:    McbPoleType | null;
+  utilisedMcbRating:  string | null;
+  utilisedMcbRemarks: string | null;
 }
 
 /**
@@ -903,13 +932,28 @@ export interface McbSlot {
  * Both exist deliberately; neither replaces the other.
  */
 export interface SurveyAcdcMcbDetails {
-  /** Always exactly ACDC_MCB_SLOT_COUNT entries — 230V AC board. */
-  acdbMcbSlots:             McbSlot[];
+  /** 230V AC board. */
+  acdb: AcdcMcbBoardDetail;
+  /** 110/220V DC board — the voltage corrected against the filled example. */
+  dcdb: AcdcMcbBoardDetail;
+
   /** Free text — carries units, same reasoning as MVA Rating. */
   dcdbChargerOutputVoltage: string | null;
   dcdbBatteryOutputVoltage: string | null;
-  /** Always exactly ACDC_MCB_SLOT_COUNT entries — 48V DC board. */
-  dcdbMcbSlots:             McbSlot[];
+
+  /**
+   * @deprecated The fixed 10-slot tables the two board details above replaced.
+   *
+   * Dead but deliberately present: these were live, editable inputs from the
+   * round that added this step, so an in-progress survey may hold real
+   * per-slot pole types and ratings. Deleting them would orphan that silently.
+   * Nothing writes them any more; they are read only so the old entries can be
+   * shown back for manual re-entry — never auto-mapped, because ten
+   * individually-numbered slots carry no clean translation into one aggregate
+   * count. Remove once every in-progress survey has been re-entered.
+   */
+  acdbMcbSlots: McbSlot[];
+  dcdbMcbSlots: McbSlot[];
 }
 
 /** Sections E–G of the survey form — one set per site (not a repeatable group). */

@@ -1,7 +1,7 @@
 import { SURVEY_APPROVAL_STAGES, deriveStageOwnerUids } from '@/lib/approvalStages';
 import {
   SURVEY_VOLTAGE_LEVELS,
-  LEGACY_COMBINED_VOLTAGE_LEVEL, ACDC_MCB_SLOT_COUNT,
+  LEGACY_COMBINED_VOLTAGE_LEVEL,
 } from '@/types';
 import type {
   SurveyBoqLine,
@@ -16,7 +16,7 @@ import type {
   SurveyVoltageLevel,
   SurveySiteChecklist,
   SurveyAcdcMcbDetails,
-  McbSlot,
+  AcdcMcbBoardDetail,
   SurveyDcVoltage,
 } from '@/types';
 
@@ -245,14 +245,28 @@ function createEmptyAssetCounts(): SurveyAssetCounts {
  * default: the rows exist whether or not anyone fills them, exactly as they do
  * on the paper form.
  */
-function createEmptyAcdcMcbDetails(): SurveyAcdcMcbDetails {
-  const emptySlots = (): McbSlot[] =>
-    Array.from({ length: ACDC_MCB_SLOT_COUNT }, () => ({ poleType: null, ratingA: null }));
+function createEmptyBoardDetail(): AcdcMcbBoardDetail {
   return {
-    acdbMcbSlots:             emptySlots(),
+    spareMcbCount:   null,
+    spareMcbPole:    null,
+    spareMcbRating:  null,
+    spareMcbRemarks: null,
+    mcbUtilisedForNetworkPanel: null,
+    utilisedMcbPole:    null,
+    utilisedMcbRating:  null,
+    utilisedMcbRemarks: null,
+  };
+}
+
+function createEmptyAcdcMcbDetails(): SurveyAcdcMcbDetails {
+  return {
+    acdb: createEmptyBoardDetail(),
+    dcdb: createEmptyBoardDetail(),
     dcdbChargerOutputVoltage: null,
     dcdbBatteryOutputVoltage: null,
-    dcdbMcbSlots:             emptySlots(),
+    // Superseded fixed-slot arrays — seeded empty, never populated again.
+    acdbMcbSlots: [],
+    dcdbMcbSlots: [],
   };
 }
 

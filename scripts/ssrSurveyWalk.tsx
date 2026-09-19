@@ -146,13 +146,20 @@ function buildPopulatedSurvey(): SurveyReport {
 
   // ACDB / DCDB — PARTIALLY filled on purpose: a few slots answered, the rest
   // left null, so both the filled and the unanswered ("—") render paths run.
-  survey.acdcMcbDetails.acdbMcbSlots[0] = { poleType: 'single', ratingA: '16 A' };
-  survey.acdcMcbDetails.acdbMcbSlots[1] = { poleType: 'double', ratingA: '32 A' };
-  survey.acdcMcbDetails.acdbMcbSlots[4] = { poleType: 'single', ratingA: '6 A' };
-  survey.acdcMcbDetails.dcdbChargerOutputVoltage = '48 V';
-  survey.acdcMcbDetails.dcdbBatteryOutputVoltage = '46.5 V';
-  survey.acdcMcbDetails.dcdbMcbSlots[0] = { poleType: 'double', ratingA: '10 A' };
-  survey.acdcMcbDetails.dcdbMcbSlots[3] = { poleType: 'single', ratingA: '6 A' };
+  // ACDB / DCDB — the two-row board detail. Partially filled on purpose so
+  // both the answered and the unanswered render paths run.
+  survey.acdcMcbDetails.acdb.spareMcbCount   = 3;
+  survey.acdcMcbDetails.acdb.spareMcbPole    = 'double';
+  survey.acdcMcbDetails.acdb.spareMcbRating  = '32 A';
+  survey.acdcMcbDetails.acdb.spareMcbRemarks = 'In main ACDB, lower tier.';
+  survey.acdcMcbDetails.acdb.mcbUtilisedForNetworkPanel = 'Yes — spare way 4';
+  survey.acdcMcbDetails.acdb.utilisedMcbPole   = 'single';
+  survey.acdcMcbDetails.acdb.utilisedMcbRating = '16 A';
+  survey.acdcMcbDetails.dcdbChargerOutputVoltage = '220 V';
+  survey.acdcMcbDetails.dcdbBatteryOutputVoltage = '218 V';
+  survey.acdcMcbDetails.dcdb.spareMcbCount  = 2;
+  survey.acdcMcbDetails.dcdb.spareMcbPole   = 'double';
+  survey.acdcMcbDetails.dcdb.spareMcbRating = '10 A';
   // One photo WITH a remark and one WITHOUT, so both branches of the optional
   // remark render (and the preview's omit-when-empty path) are exercised.
   survey.sitePhotos.push({
@@ -203,6 +210,42 @@ function buildLegacySurvey(): SurveyReport {
   survey.assetCounts.transformerCount   = 5;
   survey.assetCounts.busCount           = 2;
   survey.assetCounts.capacitorBankCount = 1;
+  // One filled slot on each superseded 10-slot board table.
+  survey.acdcMcbDetails.acdbMcbSlots = [
+    { poleType: 'single', ratingA: '16 A' },
+    { poleType: null, ratingA: null },
+  ];
+  survey.acdcMcbDetails.dcdbMcbSlots = [
+    { poleType: null, ratingA: null },
+    { poleType: 'double', ratingA: '10 A' },
+  ];
+  return survey;
+}
+
+/**
+ * A THIRD fixture: a survey shaped like a STALE LOCAL DRAFT — one saved before
+ * the recent structural changes, so the fields added since are genuinely
+ * ABSENT keys, not null values.
+ *
+ * This is exactly the object a restored IndexedDB draft produced in
+ * production, and `Object.values(undefined)` on it crashed the wizard's render
+ * body. Deleting the keys (rather than setting them null) is the whole point:
+ * a null-valued field would never have reproduced the bug.
+ */
+function buildStaleDraftSurvey(): SurveyReport {
+  const survey = buildPopulatedSurvey();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const counts = survey.assetCounts as any;
+  delete counts.busesByVoltage;
+  delete counts.capacitorBanksByVoltage;
+  delete counts.transformersByVoltage;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const acdc = survey.acdcMcbDetails as any;
+  delete acdc.acdb;
+  delete acdc.dcdb;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const checklist = survey.siteChecklist as any;
+  delete checklist.acDcSupply;
   return survey;
 }
 
@@ -268,8 +311,8 @@ export function runSurveyWalk(): number {
     console.log(`  ${cleanOk ? 'ok  ' : 'FAIL'} clean survey: NOT flagged (${cleanHits.length} hits)`);
     if (!cleanOk) failures++;
 
-    const legacyOk = surveyHasLegacyVoltageData(legacy) === true && legacyHits.length === 7;
-    console.log(`  ${legacyOk ? 'ok  ' : 'FAIL'} legacy survey: flagged, ${legacyHits.length} hits (expected 7)`);
+    const legacyOk = surveyHasLegacyVoltageData(legacy) === true && legacyHits.length === 9;
+    console.log(`  ${legacyOk ? 'ok  ' : 'FAIL'} legacy survey: flagged, ${legacyHits.length} hits (expected 9)`);
     if (!legacyOk) failures++;
     legacyHits.forEach((h) => console.log(`         - ${h.section}: ${h.label}${h.value ? ` (was ${h.value})` : ''}`));
 
@@ -305,6 +348,31 @@ export function runSurveyWalk(): number {
     } catch (err) {
       failures++;
       console.log(`  FAIL ${label} [legacy]: ${(err as Error).message}`);
+    }
+  }
+
+  console.log('\n── stale-draft shape (fields genuinely ABSENT, not null) ──');
+  const stale = buildStaleDraftSurvey();
+  try {
+    // The exact call that crashed production: the wizard runs this in its
+    // render body on EVERY render, so an undefined record takes down the whole
+    // wizard rather than one step.
+    const issues = validateSurvey(stale);
+    const statuses = getStepStatuses(stale);
+    console.log(`  ok   validateSurvey/getStepStatuses survive a stale draft (${issues.length} issues, ${statuses.length} statuses)`);
+  } catch (err) {
+    failures++;
+    console.log(`  FAIL render-body calls threw on a stale draft: ${(err as Error).message}`);
+  }
+
+  const staleProps: SurveyStepProps = { ...props, survey: stale };
+  for (const [label, Component] of STEPS) {
+    try {
+      renderToStaticMarkup(<Component {...staleProps} />);
+      console.log(`  ok   ${label}`);
+    } catch (err) {
+      failures++;
+      console.log(`  FAIL ${label} [stale draft]: ${(err as Error).message}`);
     }
   }
 

@@ -34,6 +34,22 @@ import type {
 
 const DC_UNSPECIFIED = 'unspecified';
 
+/**
+ * Fallback for a nested group a stale local draft may not have at all.
+ *
+ * A draft saved before siteChecklist.acDcSupply existed restores without it,
+ * and the shallow merge keeps the gap — so every read below would throw. The
+ * draft-restore path now normalises, but this makes the component safe against
+ * ANY caller, which is the guarantee worth having in a step that a field
+ * expert reaches mid-survey.
+ */
+const EMPTY_AC_DC: SurveyAcDcSupply = {
+  ac230vAvailable:         null,
+  dcBreakerVoltageByLevel: {} as SurveyAcDcSupply['dcBreakerVoltageByLevel'],
+  distanceToAcdbM:         null,
+  distanceToDcdbM:         null,
+};
+
 /** Blank clears to null, never 0 — an unmeasured distance is not zero metres. */
 function toMetres(raw: string): number | null {
   return raw === '' ? null : Math.max(0, Number(raw));
@@ -43,6 +59,7 @@ function toMetres(raw: string): number | null {
 export function StepInfrastructure({ survey, onChange, readOnly }: SurveyStepProps) {
   const infra     = survey.infrastructure;
   const checklist = survey.siteChecklist;
+  const acDc      = checklist.acDcSupply ?? EMPTY_AC_DC;
 
   function patchInfra(patch: Partial<SurveyInfrastructure>) {
     onChange({ infrastructure: { ...infra, ...patch } });
@@ -53,19 +70,19 @@ export function StepInfrastructure({ survey, onChange, readOnly }: SurveyStepPro
   // Each nested group spreads its own current value, so a partial edit never
   // drops a sibling field.
   function patchComms(patch: Partial<SurveyCommunicationEquipment>) {
-    patchChecklist({ communication: { ...checklist.communication, ...patch } });
+    patchChecklist({ communication: { ...(checklist.communication ?? {}), ...patch } } as Partial<SurveySiteChecklist>);
   }
   function patchAcDc(patch: Partial<SurveyAcDcSupply>) {
-    patchChecklist({ acDcSupply: { ...checklist.acDcSupply, ...patch } });
+    patchChecklist({ acDcSupply: { ...acDc, ...patch } });
   }
   function patchSld(patch: Partial<SurveySldDetails>) {
-    patchChecklist({ sld: { ...checklist.sld, ...patch } });
+    patchChecklist({ sld: { ...(checklist.sld ?? {}), ...patch } } as Partial<SurveySiteChecklist>);
   }
   function patchEarthing(patch: Partial<SurveyEarthingDetails>) {
-    patchChecklist({ earthing: { ...checklist.earthing, ...patch } });
+    patchChecklist({ earthing: { ...(checklist.earthing ?? {}), ...patch } } as Partial<SurveySiteChecklist>);
   }
   function patchStorage(patch: Partial<SurveyStorageDetails>) {
-    patchChecklist({ storage: { ...checklist.storage, ...patch } });
+    patchChecklist({ storage: { ...(checklist.storage ?? {}), ...patch } } as Partial<SurveySiteChecklist>);
   }
 
   return (
@@ -96,7 +113,7 @@ export function StepInfrastructure({ survey, onChange, readOnly }: SurveyStepPro
           <Input
             id="distToRtu"
             type="number" inputMode="decimal" disabled={readOnly}
-            value={checklist.communication.distanceToProposedRtuLocationM ?? ''}
+            value={checklist.communication?.distanceToProposedRtuLocationM ?? ''}
             onChange={(e) => patchComms({ distanceToProposedRtuLocationM: toMetres(e.target.value) })}
           />
         </div>
@@ -107,7 +124,7 @@ export function StepInfrastructure({ survey, onChange, readOnly }: SurveyStepPro
             <Input
               id="channelType"
               disabled={readOnly}
-              value={checklist.communication.channelType ?? ''}
+              value={checklist.communication?.channelType ?? ''}
               onChange={(e) => patchComms({ channelType: e.target.value || null })}
             />
           </div>
@@ -116,7 +133,7 @@ export function StepInfrastructure({ survey, onChange, readOnly }: SurveyStepPro
             <Input
               id="channelMake"
               disabled={readOnly}
-              value={checklist.communication.channelMake ?? ''}
+              value={checklist.communication?.channelMake ?? ''}
               onChange={(e) => patchComms({ channelMake: e.target.value || null })}
             />
           </div>
@@ -124,7 +141,7 @@ export function StepInfrastructure({ survey, onChange, readOnly }: SurveyStepPro
 
         <TriStateToggle
           label="Cable route already exists for the communication cable?"
-          value={checklist.communication.cableRouteExists}
+          value={checklist.communication?.cableRouteExists}
           onChange={(v) => patchComms({ cableRouteExists: v })}
           readOnly={readOnly}
         />
@@ -138,7 +155,7 @@ export function StepInfrastructure({ survey, onChange, readOnly }: SurveyStepPro
 
         <TriStateToggle
           label="230V AC supply available?"
-          value={checklist.acDcSupply.ac230vAvailable}
+          value={acDc.ac230vAvailable}
           onChange={(v) => patchAcDc({ ac230vAvailable: v })}
           readOnly={readOnly}
         />
@@ -156,10 +173,10 @@ export function StepInfrastructure({ survey, onChange, readOnly }: SurveyStepPro
                 </Label>
                 <Select
                   disabled={readOnly}
-                  value={checklist.acDcSupply.dcBreakerVoltageByLevel[level] ?? DC_UNSPECIFIED}
+                  value={acDc.dcBreakerVoltageByLevel?.[level] ?? DC_UNSPECIFIED}
                   onValueChange={(v) => patchAcDc({
                     dcBreakerVoltageByLevel: {
-                      ...checklist.acDcSupply.dcBreakerVoltageByLevel,
+                      ...(acDc.dcBreakerVoltageByLevel ?? {}),
                       [level]: v === DC_UNSPECIFIED ? null : (v as SurveyDcVoltage),
                     },
                   })}
@@ -180,7 +197,7 @@ export function StepInfrastructure({ survey, onChange, readOnly }: SurveyStepPro
         {/* A pre-split DC breaker voltage is still stored under the combined
             key and has no picker of its own — surface it for re-entry. */}
         <LegacyVoltageValueNote
-          value={checklist.acDcSupply.dcBreakerVoltageByLevel[LEGACY_COMBINED_VOLTAGE_LEVEL]}
+          value={acDc.dcBreakerVoltageByLevel?.[LEGACY_COMBINED_VOLTAGE_LEVEL] ?? null}
         />
 
         <div className="grid grid-cols-2 gap-3">
@@ -189,7 +206,7 @@ export function StepInfrastructure({ survey, onChange, readOnly }: SurveyStepPro
             <Input
               id="distAcdb"
               type="number" inputMode="decimal" disabled={readOnly}
-              value={checklist.acDcSupply.distanceToAcdbM ?? ''}
+              value={acDc.distanceToAcdbM ?? ''}
               onChange={(e) => patchAcDc({ distanceToAcdbM: toMetres(e.target.value) })}
             />
           </div>
@@ -198,7 +215,7 @@ export function StepInfrastructure({ survey, onChange, readOnly }: SurveyStepPro
             <Input
               id="distDcdb"
               type="number" inputMode="decimal" disabled={readOnly}
-              value={checklist.acDcSupply.distanceToDcdbM ?? ''}
+              value={acDc.distanceToDcdbM ?? ''}
               onChange={(e) => patchAcDc({ distanceToDcdbM: toMetres(e.target.value) })}
             />
           </div>
@@ -270,25 +287,25 @@ export function StepInfrastructure({ survey, onChange, readOnly }: SurveyStepPro
 
         <TriStateToggle
           label="SLD drawn and confirmed?"
-          value={checklist.sld.sldDrawnAndConfirmed}
+          value={checklist.sld?.sldDrawnAndConfirmed}
           onChange={(v) => patchSld({ sldDrawnAndConfirmed: v })}
           readOnly={readOnly}
         />
         <TriStateToggle
           label="All equipment types shown on the SLD?"
-          value={checklist.sld.allEquipmentTypesShownOnSld}
+          value={checklist.sld?.allEquipmentTypesShownOnSld}
           onChange={(v) => patchSld({ allEquipmentTypesShownOnSld: v })}
           readOnly={readOnly}
         />
         <TriStateToggle
           label="Earthing mat extended to the control room?"
-          value={checklist.earthing.matExtendedToControlRoom}
+          value={checklist.earthing?.matExtendedToControlRoom}
           onChange={(v) => patchEarthing({ matExtendedToControlRoom: v })}
           readOnly={readOnly}
         />
         <TriStateToggle
           label="Earthing mat intact?"
-          value={checklist.earthing.matIntact}
+          value={checklist.earthing?.matIntact}
           onChange={(v) => patchEarthing({ matIntact: v })}
           readOnly={readOnly}
         />
@@ -356,14 +373,14 @@ export function StepInfrastructure({ survey, onChange, readOnly }: SurveyStepPro
 
         <TriStateToggle
           label="Site access available?"
-          value={checklist.storage.siteAccessAvailable}
+          value={checklist.storage?.siteAccessAvailable}
           onChange={(v) => patchStorage({ siteAccessAvailable: v })}
           readOnly={readOnly}
         />
         <div className="flex flex-col gap-1">
           <TriStateToggle
             label="Storage space available for the RTU panel?"
-            value={checklist.storage.storageSpaceForRtuPanel}
+            value={checklist.storage?.storageSpaceForRtuPanel}
             onChange={(v) => patchStorage({ storageSpaceForRtuPanel: v })}
             readOnly={readOnly}
           />
@@ -375,13 +392,13 @@ export function StepInfrastructure({ survey, onChange, readOnly }: SurveyStepPro
         </div>
         <TriStateToggle
           label="Space available for unloading?"
-          value={checklist.storage.spaceForUnloading}
+          value={checklist.storage?.spaceForUnloading}
           onChange={(v) => patchStorage({ spaceForUnloading: v })}
           readOnly={readOnly}
         />
         <TriStateToggle
           label="Install space available for F-RTU / switch / MFM + CMR?"
-          value={checklist.storage.installSpaceForFrtuSwitchMfmCmr}
+          value={checklist.storage?.installSpaceForFrtuSwitchMfmCmr}
           onChange={(v) => patchStorage({ installSpaceForFrtuSwitchMfmCmr: v })}
           readOnly={readOnly}
         />

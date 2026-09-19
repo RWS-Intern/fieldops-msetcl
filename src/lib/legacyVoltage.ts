@@ -6,7 +6,8 @@ import type { StoredVoltageLevel, SurveyReport } from '@/types';
  * field of their own:
  *   - levels recorded before 66/33kV was split into two;
  *   - the flat transformer/bus/capacitor-bank totals the 4 x 7 asset grid
- *     replaced.
+ *     replaced;
+ *   - the fixed 10-slot ACDB/DCDB MCB tables the two board details replaced.
  *
  * Nothing here migrates anything. A feeder's real level, a DC breaker voltage
  * or a bay count can genuinely differ between 66kV and 33kV, so copying the
@@ -25,7 +26,7 @@ export interface LegacyVoltageHit {
   /** Which section, for the banner's summary line. */
   section: 'Feeder List' | 'CRP Relay Details' | 'Transformer Details'
          | 'Capacitor Banks' | 'DC breaker voltage' | 'Bay counts'
-         | 'Asset totals';
+         | 'Asset totals' | 'ACDB/DCDB slots';
   /** How that one entry identifies itself, e.g. a bay name. */
   label: string;
   /** The old value as recorded, where there is one worth showing back. */
@@ -89,6 +90,23 @@ export function findLegacyVoltageData(survey: SurveyReport): LegacyVoltageHit[] 
   ];
   for (const [label, value] of totals) {
     if (value != null) hits.push({ section: 'Asset totals', label, value: String(value) });
+  }
+
+  // The fixed 10-slot MCB tables the two board details replaced. A slot counts
+  // as answered if either column was filled.
+  const boards: [string, typeof survey.acdcMcbDetails.acdbMcbSlots][] = [
+    ['ACDB', survey.acdcMcbDetails.acdbMcbSlots],
+    ['DCDB', survey.acdcMcbDetails.dcdbMcbSlots],
+  ];
+  for (const [board, slots] of boards) {
+    slots.forEach((slot, i) => {
+      if (slot.poleType === null && slot.ratingA === null) return;
+      hits.push({
+        section: 'ACDB/DCDB slots',
+        label:   `${board} MCB ${i + 1}`,
+        value:   [slot.poleType, slot.ratingA].filter(Boolean).join(', ') || undefined,
+      });
+    });
   }
 
   return hits;

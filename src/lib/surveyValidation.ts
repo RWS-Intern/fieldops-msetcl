@@ -456,16 +456,26 @@ function isInfrastructureTouched(infra: SurveyInfrastructure): boolean {
  */
 // Takes `object`, not Record<string, unknown> — a TS interface has no index
 // signature, so the nominal group types don't satisfy Record.
-function isAnyValueSet(group: object): boolean {
+function isAnyValueSet(group: object | undefined | null): boolean {
+  if (!group) return false;
   return Object.values(group).some((v) => v !== null && v !== undefined && v !== '');
+}
+
+/** True if any level of a per-voltage record holds an answer. Undefined-safe. */
+function hasAnyCount(record: Record<string, number | null> | undefined | null): boolean {
+  return !!record && Object.values(record).some((n) => n != null);
 }
 
 function isAssetCountsTouched(counts: SurveyAssetCounts): boolean {
   return (
-    Object.values(counts.baysByVoltage).some((n) => n != null) ||
-    Object.values(counts.busesByVoltage).some((n) => n != null) ||
-    Object.values(counts.capacitorBanksByVoltage).some((n) => n != null) ||
-    Object.values(counts.transformersByVoltage).some((n) => n != null) ||
+    // hasAnyCount, not Object.values directly: getStepStatuses runs in
+    // SurveyWizardPage's RENDER BODY on every render, so an undefined record
+    // here takes down the whole wizard, not just one step. A draft restored
+    // from IndexedDB can predate any of these fields existing.
+    hasAnyCount(counts.baysByVoltage) ||
+    hasAnyCount(counts.busesByVoltage) ||
+    hasAnyCount(counts.capacitorBanksByVoltage) ||
+    hasAnyCount(counts.transformersByVoltage) ||
     // The superseded flat totals still count as "touched" — an in-progress
     // survey that answered them has not left this step untouched.
     counts.transformerCount   != null ||
@@ -525,7 +535,7 @@ export function getStepStatuses(survey: SurveyReport): StepStatus[] {
     // BOQ — notApplicable counts as touched: ticking it is an answer. Either
     // quantity column counts; an answered "existing & usable" is a real
     // survey observation even with the supply column still blank.
-    Object.values(survey.boqChecks).some(Boolean) ||
+    isAnyValueSet(survey.boqChecks) ||
       survey.boqSupply.some(isBoqLineTouched),
     // Sign-off
     !!survey.signOff.msetclEngineerName?.trim() ||

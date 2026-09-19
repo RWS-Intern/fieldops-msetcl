@@ -50,10 +50,15 @@ function toCount(raw: string): number | null {
 const ASSET_GRID_COLS = 'grid grid-cols-[7.5rem_repeat(7,minmax(3.25rem,1fr))] items-center gap-1.5';
 
 /**
- * Sum of the answered levels only — null until at least one is filled, so a
- * half-filled row never shows a misleadingly low total against the site master.
+ * Sum of the answered levels only — null until at least one is filled.
+ *
+ * DEFENSIVE on the record itself: a draft restored from IndexedDB can predate
+ * a field existing, and a shallow spread replaces the whole parent object, so
+ * `record` genuinely arrives undefined rather than empty. Object.values()
+ * throws on undefined, which is what crashed the wizard in production.
  */
-function sumAnswered(record: Record<string, number | null>): number | null {
+function sumAnswered(record: Record<string, number | null> | undefined | null): number | null {
+  if (!record) return null;
   const answered = Object.values(record).filter((n): n is number => n != null);
   return answered.length > 0 ? answered.reduce((sum, n) => sum + n, 0) : null;
 }
@@ -185,7 +190,10 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
    * level is always a current one, so nothing can write the legacy key here.
    */
   function updateCountCell(row: AssetCountRowKey, level: SurveyVoltageLevel, value: number | null) {
-    updateAssetCounts({ [row]: { ...counts[row], [level]: value } } as Partial<SurveyAssetCounts>);
+    // `?? {}` is not cosmetic: spreading undefined does NOT throw, it silently
+    // yields an object holding only this one level — quietly discarding every
+    // other level's answer. A stale draft can make counts[row] undefined.
+    updateAssetCounts({ [row]: { ...(counts[row] ?? {}), [level]: value } } as Partial<SurveyAssetCounts>);
   }
 
   const contact     = survey.contactDetails;
@@ -555,7 +563,7 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
                     inputMode="numeric"
                     disabled={readOnly}
                     aria-label={`${ASSET_COUNT_ROW_LABELS[row]} at ${VOLTAGE_LEVEL_LABELS[level]}`}
-                    value={counts[row][level] ?? ''}
+                    value={counts[row]?.[level] ?? ''}
                     onChange={(e) => updateCountCell(row, level, toCount(e.target.value))}
                   />
                 ))}
@@ -566,7 +574,7 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
 
         {/* A pre-split bay count is still stored under the combined key and has
             no column of its own — surface it so it can be re-entered. */}
-        <LegacyVoltageValueNote value={counts.baysByVoltage[LEGACY_COMBINED_VOLTAGE_LEVEL]} />
+        <LegacyVoltageValueNote value={counts.baysByVoltage?.[LEGACY_COMBINED_VOLTAGE_LEVEL] ?? null} />
 
         {/* The three flat totals this grid replaces. Read-only, shown only when
             one actually holds an answer, and NEVER auto-distributed: a single

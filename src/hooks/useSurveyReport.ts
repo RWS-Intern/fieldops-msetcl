@@ -5,18 +5,33 @@ import { DERIVED_ITEM_KEYS } from '@/lib/boqDerivation';
 import { SURVEY_APPROVAL_STAGES, findApprovalStage } from '@/lib/approvalStages';
 import {
   SURVEY_VOLTAGE_LEVELS,
-  LEGACY_COMBINED_VOLTAGE_LEVEL, ACDC_MCB_SLOT_COUNT,
+  LEGACY_COMBINED_VOLTAGE_LEVEL,
 } from '@/types';
 import type {
   SurveyReport, SurveyFeederEntry, SurveyRelayEntry,
   SurveyTransformerEntry, SurveyCapacitorBank, SurveyCableRun, SurveyBoqLine,
   SurveyBoqChecks, SurveyContactDetails, SurveyControlRoom, SurveyAssetCounts,
-  SurveySiteChecklist, SurveyAcdcMcbDetails, McbSlot,
+  SurveySiteChecklist, SurveyAcdcMcbDetails, AcdcMcbBoardDetail, McbSlot,
   SurveyDcVoltage, SurveyVoltageLevel,
   ApprovalStageResult, WorkOrderStatus,
 } from '@/types';
 
 // ─── Mapper ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Reads a date from EITHER a Firestore Timestamp or a real Date.
+ *
+ * The Date branch is what lets mapSurveyReport double as the normaliser for a
+ * locally-restored draft: IndexedDB structured-clone preserves Date objects,
+ * which have no .toDate(), so a Timestamp-only read would silently null every
+ * date on a restored draft.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toDate(value: any): Date | null {
+  if (!value) return null;
+  if (typeof value.toDate === 'function') return value.toDate();
+  return value instanceof Date ? value : null;
+}
 
 // Field-by-field defaults (not a whole-element pass-through) so a feeder/relay/
 // cable-run written before a field existed — or one whose value was never
@@ -52,32 +67,48 @@ const BAY_COUNT_KEYS = [...SURVEY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL]
 const DC_BREAKER_KEYS = [...SURVEY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL] as const;
 
 /**
- * A board's spare-MCB slots, ALWAYS at full length.
+ * The SUPERSEDED fixed-slot array, read back as stored.
  *
- * Built from ACDC_MCB_SLOT_COUNT rather than from what is stored — same shape
- * as mapByVoltage above, and for the same reason: a document written with
- * fewer slots (an older build, a partial write) would otherwise render a short
- * table, and the surveyor would silently lose rows that exist on the paper
- * form. Extra stored slots beyond the count are dropped rather than widening
- * the table past what the form has.
+ * No longer padded to a fixed length — nothing renders it as a table any more.
+ * It is read only so a pre-change answer can be detected and shown back, so
+ * what matters is preserving exactly what is there, not a tidy shape.
  */
-function mapMcbSlots(
+function mapLegacyMcbSlots(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   raw: any[] | undefined,
 ): McbSlot[] {
-  return Array.from({ length: ACDC_MCB_SLOT_COUNT }, (_, i) => ({
-    poleType: raw?.[i]?.poleType ?? null,
-    ratingA:  raw?.[i]?.ratingA  ?? null,
+  if (!Array.isArray(raw)) return [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return raw.map((slot: Record<string, any>) => ({
+    poleType: slot?.['poleType'] ?? null,
+    ratingA:  slot?.['ratingA']  ?? null,
   }));
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapBoardDetail(raw: Record<string, any> | undefined): AcdcMcbBoardDetail {
+  return {
+    spareMcbCount:   raw?.['spareMcbCount']   ?? null,
+    spareMcbPole:    raw?.['spareMcbPole']    ?? null,
+    spareMcbRating:  raw?.['spareMcbRating']  ?? null,
+    spareMcbRemarks: raw?.['spareMcbRemarks'] ?? null,
+    mcbUtilisedForNetworkPanel: raw?.['mcbUtilisedForNetworkPanel'] ?? null,
+    utilisedMcbPole:    raw?.['utilisedMcbPole']    ?? null,
+    utilisedMcbRating:  raw?.['utilisedMcbRating']  ?? null,
+    utilisedMcbRemarks: raw?.['utilisedMcbRemarks'] ?? null,
+  };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapAcdcMcbDetails(raw: Record<string, any> | undefined): SurveyAcdcMcbDetails {
   return {
-    acdbMcbSlots:             mapMcbSlots(raw?.['acdbMcbSlots']),
+    acdb: mapBoardDetail(raw?.['acdb']),
+    dcdb: mapBoardDetail(raw?.['dcdb']),
     dcdbChargerOutputVoltage: raw?.['dcdbChargerOutputVoltage'] ?? null,
     dcdbBatteryOutputVoltage: raw?.['dcdbBatteryOutputVoltage'] ?? null,
-    dcdbMcbSlots:             mapMcbSlots(raw?.['dcdbMcbSlots']),
+    // Superseded, read only so it can be surfaced for manual re-entry.
+    acdbMcbSlots: mapLegacyMcbSlots(raw?.['acdbMcbSlots']),
+    dcdbMcbSlots: mapLegacyMcbSlots(raw?.['dcdbMcbSlots']),
   };
 }
 
@@ -182,7 +213,7 @@ function mapContactDetails(raw: Record<string, any> | undefined): SurveyContactD
     address:                         raw?.['address']                         ?? null,
     circle:                          raw?.['circle']                          ?? null,
     division:                        raw?.['division']                        ?? null,
-    commissionedDate:                raw?.['commissionedDate']?.toDate?.()    ?? null,
+    commissionedDate:                toDate(raw?.['commissionedDate']),
     nearestRailwayStationOrLandmark: raw?.['nearestRailwayStationOrLandmark'] ?? null,
   };
 }
@@ -325,7 +356,7 @@ function mapApprovalStage(raw: Record<string, any>, index: number): ApprovalStag
     ownerName:     raw['ownerName']     ?? null,
     reviewNotes:   raw['reviewNotes']   ?? null,
     attachmentUrl: raw['attachmentUrl'] ?? null,
-    actedAt:       raw['actedAt']?.toDate?.() ?? null,
+    actedAt:       toDate(raw['actedAt']),
   };
 }
 
@@ -370,7 +401,7 @@ export function mapSurveyReport(id: string, data: Record<string, any>): SurveyRe
     // when every review moved one way, which is exactly 'forward'.
     reviewDirection: data['reviewDirection'] ?? 'forward',
 
-    surveyDate:     data['surveyDate']?.toDate?.() ?? null,
+    surveyDate:     toDate(data['surveyDate']),
     location:       data['location']
       ? { lat: data['location'].latitude ?? data['location'].lat, lng: data['location'].longitude ?? data['location'].lng }
       : null,
@@ -438,15 +469,38 @@ export function mapSurveyReport(id: string, data: Record<string, any>): SurveyRe
 
     submittedBy:     data['submittedBy']     ?? null,
     submittedByName: data['submittedByName'] ?? null,
-    submittedAt:     data['submittedAt']?.toDate?.() ?? null,
+    submittedAt:     toDate(data['submittedAt']),
     status:          (data['status'] ?? 'open') as WorkOrderStatus,
     reviewNotes:     data['reviewNotes']     ?? null,
     reviewedBy:      data['reviewedBy']      ?? null,
     reviewedByName:  data['reviewedByName']  ?? null,
-    reviewedAt:      data['reviewedAt']?.toDate?.() ?? null,
-    createdAt:       data['createdAt']?.toDate?.() ?? new Date(),
-    updatedAt:       data['updatedAt']?.toDate?.() ?? new Date(),
+    reviewedAt:      toDate(data['reviewedAt']),
+    createdAt:       toDate(data['createdAt']) ?? new Date(),
+    updatedAt:       toDate(data['updatedAt']) ?? new Date(),
   };
+}
+
+/**
+ * Merges a locally-restored draft over the server copy and runs the result
+ * through the SAME field-defaulting a Firestore read gets.
+ *
+ * THIS IS THE FIX FOR A WHOLE CLASS OF CRASH, not one field. Drafts are stored
+ * as a raw object in IndexedDB and restored with no defaulting at all, and the
+ * merge is a SHALLOW spread — so a draft saved before a nested field existed
+ * replaces its whole parent, and every field added since is simply absent.
+ * `Object.values(undefined)` then throws, which is what took the wizard down
+ * in production; quieter variants (a spread of undefined silently dropping
+ * sibling values) are the same bug without the stack trace.
+ *
+ * Passing the merged object back through mapSurveyReport fixes all of them at
+ * once: every field a fresh read would default, a restored draft now defaults
+ * too. Any field added in future is covered automatically, with no new guard.
+ */
+export function normaliseRestoredDraft(
+  serverSurvey: SurveyReport,
+  draftData:    Partial<SurveyReport>,
+): SurveyReport {
+  return mapSurveyReport(serverSurvey.id, { ...serverSurvey, ...draftData });
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────

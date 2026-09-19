@@ -23,7 +23,7 @@ import type {
   SurveyReport, SurveyFeederEntry, SurveyRelayEntry, SurveyTransformerEntry,
   SurveyCapacitorBank, SurveyCableRun, SurveyInfrastructure, SurveyBoqLine,
   SurveySignOff, SurveyContactDetails, SurveyControlRoom, SurveyAssetCounts,
-  SurveySiteChecklist, SurveyAcdcMcbDetails, McbSlot,
+  SurveySiteChecklist, SurveyAcdcMcbDetails, AcdcMcbBoardDetail, McbSlot, McbPoleType,
 } from '@/types';
 
 // Every enum label and checklist wording comes from src/lib/surveyLabels.ts —
@@ -188,7 +188,9 @@ function AssetCountsBlock({
   // Sum of the levels actually answered — null until at least one is, so a
   // half-filled row never flags a misleadingly large discrepancy against the
   // site master. Same rule as the Site & Visit step's own hint.
-  const sumAnswered = (record: Record<string, number | null>): number | null => {
+  // Defensive on the record itself — see the note on the step's own copy.
+  const sumAnswered = (record: Record<string, number | null> | undefined | null): number | null => {
+    if (!record) return null;
     const answered = Object.values(record).filter((n): n is number => n != null);
     return answered.length > 0 ? answered.reduce((sum, n) => sum + n, 0) : null;
   };
@@ -207,7 +209,7 @@ function AssetCountsBlock({
       ? `Site master says ${siteMaster.numPowerTransformers}`
       : null;
 
-  const legacyBays = counts.baysByVoltage[LEGACY_COMBINED_VOLTAGE_LEVEL];
+  const legacyBays = counts.baysByVoltage?.[LEGACY_COMBINED_VOLTAGE_LEVEL] ?? null;
 
   return (
     <div className="flex flex-col gap-1">
@@ -231,7 +233,7 @@ function AssetCountsBlock({
               <span className="text-xs font-medium text-gray-600">{ASSET_COUNT_ROW_LABELS[row]}</span>
               {SURVEY_VOLTAGE_LEVELS.map((level) => (
                 <span key={level} className="text-center text-xs text-gray-800">
-                  {dash(counts[row][level])}
+                  {dash(counts[row]?.[level])}
                 </span>
               ))}
             </div>
@@ -382,6 +384,10 @@ function InfrastructureSection({
   infra:     SurveyInfrastructure;
   checklist: SurveySiteChecklist;
 }) {
+  // Bound once so the truthiness check narrows it — a `?.` chain followed by
+  // a non-null assertion is exactly the pattern the linter rejects.
+  const legacyDcBreaker = checklist.acDcSupply?.dcBreakerVoltageByLevel?.[LEGACY_COMBINED_VOLTAGE_LEVEL] ?? null;
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
@@ -390,26 +396,26 @@ function InfrastructureSection({
         <div className="grid grid-cols-2 gap-2">
           <Field
             label="Distance to proposed RTU location"
-            value={checklist.communication.distanceToProposedRtuLocationM != null
-              ? `${checklist.communication.distanceToProposedRtuLocationM} m`
+            value={checklist.communication?.distanceToProposedRtuLocationM != null
+              ? `${checklist.communication?.distanceToProposedRtuLocationM} m`
               : '—'}
           />
-          <Field label="Channel type" value={dash(checklist.communication.channelType)} />
-          <Field label="Channel make" value={dash(checklist.communication.channelMake)} />
+          <Field label="Channel type" value={dash(checklist.communication?.channelType)} />
+          <Field label="Channel make" value={dash(checklist.communication?.channelMake)} />
         </div>
         <TriField
           label="Cable route already exists for the communication cable"
-          value={checklist.communication.cableRouteExists}
+          value={checklist.communication?.cableRouteExists}
         />
       </div>
 
       <div className="flex flex-col gap-1">
         <SubHeading>AC / DC Supply</SubHeading>
-        <TriField label="230V AC supply available" value={checklist.acDcSupply.ac230vAvailable} />
+        <TriField label="230V AC supply available" value={checklist.acDcSupply?.ac230vAvailable} />
         {/* Per voltage level, replacing the old single shared multi-select. */}
         <div className="grid grid-cols-2 gap-2">
           {SURVEY_VOLTAGE_LEVELS.map((level) => {
-            const dc = checklist.acDcSupply.dcBreakerVoltageByLevel[level];
+            const dc = checklist.acDcSupply?.dcBreakerVoltageByLevel?.[level];
             return (
               <Field
                 key={level}
@@ -418,22 +424,20 @@ function InfrastructureSection({
               />
             );
           })}
-          {checklist.acDcSupply.dcBreakerVoltageByLevel[LEGACY_COMBINED_VOLTAGE_LEVEL] && (
+          {legacyDcBreaker && (
             <Field
               label={`DC breaker voltage before the split (${LEGACY_COMBINED_VOLTAGE_LABEL})`}
-              value={DC_VOLTAGE_LABELS[
-                checklist.acDcSupply.dcBreakerVoltageByLevel[LEGACY_COMBINED_VOLTAGE_LEVEL]!
-              ]}
+              value={DC_VOLTAGE_LABELS[legacyDcBreaker]}
               flag="Not yet re-entered against 66 kV or 33 kV"
             />
           )}
           <Field
             label="Distance to ACDB"
-            value={checklist.acDcSupply.distanceToAcdbM != null ? `${checklist.acDcSupply.distanceToAcdbM} m` : '—'}
+            value={checklist.acDcSupply?.distanceToAcdbM != null ? `${checklist.acDcSupply?.distanceToAcdbM} m` : '—'}
           />
           <Field
             label="Distance to DCDB"
-            value={checklist.acDcSupply.distanceToDcdbM != null ? `${checklist.acDcSupply.distanceToDcdbM} m` : '—'}
+            value={checklist.acDcSupply?.distanceToDcdbM != null ? `${checklist.acDcSupply?.distanceToDcdbM} m` : '—'}
           />
         </div>
         <TriField label="Spare MCBs / feeders" value={infra.spareMcbs} />
@@ -450,10 +454,10 @@ function InfrastructureSection({
 
       <div className="flex flex-col gap-1">
         <SubHeading>SLD, Earthing &amp; Lightning Protection</SubHeading>
-        <TriField label="SLD drawn and confirmed" value={checklist.sld.sldDrawnAndConfirmed} />
-        <TriField label="All equipment types shown on the SLD" value={checklist.sld.allEquipmentTypesShownOnSld} />
-        <TriField label="Earthing mat extended to the control room" value={checklist.earthing.matExtendedToControlRoom} />
-        <TriField label="Earthing mat intact" value={checklist.earthing.matIntact} />
+        <TriField label="SLD drawn and confirmed" value={checklist.sld?.sldDrawnAndConfirmed} />
+        <TriField label="All equipment types shown on the SLD" value={checklist.sld?.allEquipmentTypesShownOnSld} />
+        <TriField label="Earthing mat extended to the control room" value={checklist.earthing?.matExtendedToControlRoom} />
+        <TriField label="Earthing mat intact" value={checklist.earthing?.matIntact} />
         <TriField
           label="Lightning protection extended to the control room"
           value={checklist.lightningProtectionToControlRoom}
@@ -473,59 +477,96 @@ function InfrastructureSection({
 
       <div className="flex flex-col gap-1">
         <SubHeading>Temporary Storage / Holding Area</SubHeading>
-        <TriField label="Site access available" value={checklist.storage.siteAccessAvailable} />
-        <TriField label="Storage space available for the RTU panel" value={checklist.storage.storageSpaceForRtuPanel} />
-        <TriField label="Space available for unloading" value={checklist.storage.spaceForUnloading} />
+        <TriField label="Site access available" value={checklist.storage?.siteAccessAvailable} />
+        <TriField label="Storage space available for the RTU panel" value={checklist.storage?.storageSpaceForRtuPanel} />
+        <TriField label="Space available for unloading" value={checklist.storage?.spaceForUnloading} />
         <TriField
           label="Install space available for F-RTU / switch / MFM + CMR"
-          value={checklist.storage.installSpaceForFrtuSwitchMfmCmr}
+          value={checklist.storage?.installSpaceForFrtuSwitchMfmCmr}
         />
       </div>
     </div>
   );
 }
 
+/** Column template shared by the board tables' heading and their two rows. */
+const BOARD_GRID_COLS = 'grid grid-cols-[9rem_1fr_1fr_1.4fr] gap-2';
+
+/** Fallback for a board a stale local draft predates — see the step's copy. */
+const EMPTY_BOARD_PREVIEW: AcdcMcbBoardDetail = {
+  spareMcbCount: null, spareMcbPole: null, spareMcbRating: null, spareMcbRemarks: null,
+  mcbUtilisedForNetworkPanel: null, utilisedMcbPole: null,
+  utilisedMcbRating: null, utilisedMcbRemarks: null,
+};
+
 /**
- * One board's spare-MCB table, read-only. Every slot renders, filled or not:
- * an unanswered way shows "—" in both cells, so a reviewer can tell a slot
- * nobody looked at from one recorded as empty — the same rule every other
- * unanswered field in this preview follows.
+ * One board's MCB detail, read-only — the same two rows the step captures.
+ * Unset cells show "—" so a genuinely unanswered field stays distinct from one
+ * answered as blank, the rule the rest of this preview follows.
  */
-function McbTablePreview({ title, slots }: { title: string; slots: McbSlot[] }) {
+function BoardDetailPreview({ title, detail }: { title: string; detail: AcdcMcbBoardDetail }) {
+  const rows: [string, string, McbPoleType | null, string | null, string | null][] = [
+    ['Spare MCBs (Nos.)', dash(detail.spareMcbCount), detail.spareMcbPole, detail.spareMcbRating, detail.spareMcbRemarks],
+    ['MCB for network panel supply', dash(detail.mcbUtilisedForNetworkPanel), detail.utilisedMcbPole, detail.utilisedMcbRating, detail.utilisedMcbRemarks],
+  ];
+
   return (
     <div className="flex flex-col gap-1">
       <SubHeading>{title}</SubHeading>
-      <div className="grid grid-cols-[3.5rem_1fr_1fr] gap-2 border-b border-gray-300 pb-1 text-[10px] uppercase tracking-wide text-gray-400">
-        <span>Slot</span><span>Pole type</span><span>Rating (A)</span>
-      </div>
-      {slots.map((slot, i) => (
-        <div
-          key={i}
-          className="grid grid-cols-[3.5rem_1fr_1fr] gap-2 break-inside-avoid border-b border-gray-100 py-1 text-xs"
-        >
-          <span className="font-mono text-gray-400">MCB {i + 1}</span>
-          <span className="text-gray-800">
-            {slot.poleType ? MCB_POLE_TYPE_LABELS[slot.poleType] : '—'}
-          </span>
-          <span className="text-gray-800">{dash(slot.ratingA)}</span>
+      <div className="overflow-x-auto">
+        <div className="min-w-[28rem]">
+          <div className={`${BOARD_GRID_COLS} border-b border-gray-300 pb-1 text-[10px] uppercase tracking-wide text-gray-400`}>
+            <span /><span>Single / Double Pole</span><span>Rating (A)</span><span>Remarks</span>
+          </div>
+          {rows.map(([label, answer, pole, rating, remarks]) => (
+            <div key={label} className={`${BOARD_GRID_COLS} break-inside-avoid border-b border-gray-100 py-1 text-xs`}>
+              <span className="text-gray-600">
+                <span className="font-medium">{label}</span>
+                <span className="block text-gray-800">{answer}</span>
+              </span>
+              <span className="text-gray-800">{pole ? MCB_POLE_TYPE_LABELS[pole] : '—'}</span>
+              <span className="text-gray-800">{dash(rating)}</span>
+              <span className="text-gray-800">{dash(remarks)}</span>
+            </div>
+          ))}
         </div>
-      ))}
+      </div>
     </div>
+  );
+}
+
+/** Superseded fixed-slot entries, shown so a reviewer knows they are pending. */
+function LegacySlotsPreview({ label, slots }: { label: string; slots: McbSlot[] }) {
+  const filled = slots
+    .map((slot, i) => ({ n: i + 1, ...slot }))
+    .filter((slot) => slot.poleType !== null || slot.ratingA !== null);
+  if (filled.length === 0) return null;
+
+  return (
+    <Field
+      label={`${label} slots recorded before this section changed`}
+      value={filled
+        .map((s) => `MCB ${s.n}: ${s.poleType ? MCB_POLE_TYPE_LABELS[s.poleType] : '—'}${s.ratingA ? `, ${s.ratingA}` : ''}`)
+        .join(' · ')}
+      flag="Not yet re-entered above"
+    />
   );
 }
 
 function AcdcDetailsSection({ details }: { details: SurveyAcdcMcbDetails }) {
   return (
     <div className="flex flex-col gap-3">
-      <McbTablePreview title="ACDB — Spare MCBs (230V AC)" slots={details.acdbMcbSlots} />
+      <BoardDetailPreview title="ACDB (230V AC)" detail={details.acdb ?? EMPTY_BOARD_PREVIEW} />
+      <LegacySlotsPreview label="ACDB" slots={details.acdbMcbSlots ?? []} />
       <div className="flex flex-col gap-1">
-        <SubHeading>DCDB Details</SubHeading>
+        <SubHeading>DCDB Details (110 / 220V DC)</SubHeading>
         <div className="grid grid-cols-2 gap-2">
           <Field label="Charger O/P Voltage" value={dash(details.dcdbChargerOutputVoltage)} />
           <Field label="Battery O/P Voltage" value={dash(details.dcdbBatteryOutputVoltage)} />
         </div>
       </div>
-      <McbTablePreview title="DCDB — Spare MCBs (48V DC)" slots={details.dcdbMcbSlots} />
+      <BoardDetailPreview title="DCDB (110 / 220V DC)" detail={details.dcdb ?? EMPTY_BOARD_PREVIEW} />
+      <LegacySlotsPreview label="DCDB" slots={details.dcdbMcbSlots ?? []} />
     </div>
   );
 }
