@@ -29,6 +29,7 @@ import { StepCapacitorBanks } from '@/components/survey/steps/StepCapacitorBanks
 import { StepTransformerDetails } from '@/components/survey/steps/StepTransformerDetails';
 import { StepInfrastructure } from '@/components/survey/steps/StepInfrastructure';
 import { StepAcdcDetails }    from '@/components/survey/steps/StepAcdcDetails';
+import { LegacyVoltageBanner } from '@/components/survey/LegacyVoltageBanner';
 import { StepCableRuns }      from '@/components/survey/steps/StepCableRuns';
 import { StepPhotos }         from '@/components/survey/steps/StepPhotos';
 import { StepBoq }            from '@/components/survey/steps/StepBoq';
@@ -568,6 +569,10 @@ export function SurveyWizardPage() {
           })}
         </div>
       </div>
+
+      {/* Pre-split voltage data — rendered here, ABOVE the step content, so it
+          appears on every step rather than only on the affected sections. */}
+      <LegacyVoltageBanner survey={surveyData} />
 
       {/* Step content */}
       <div className="flex-1 rounded-lg border border-gray-100 bg-white p-4 shadow-sm min-h-[200px]">

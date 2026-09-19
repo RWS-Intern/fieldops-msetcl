@@ -10,6 +10,7 @@ import {
   VOLTAGE_LEVEL_LABELS, RELAY_TYPE_LABELS, PROTOCOL_LABELS,
 } from '@/lib/surveyLabels';
 import { SURVEY_VOLTAGE_LEVELS } from '@/types';
+import { LegacyVoltageNote } from '@/components/survey/LegacyVoltageNote';
 import type { SurveyStepProps } from './StepProps';
 import type {
   SurveyRelayEntry, SurveyVoltageLevel, SurveyRelayType, DeviceProtocol,
@@ -77,6 +78,10 @@ export function StepRelayDetails({ survey, onChange, readOnly, onReplacePhotoRef
                 ))}
               </SelectContent>
             </Select>
+            {/* The stored value is the pre-split combined one, so the picker
+                above reads as unanswered. Show what was actually recorded
+                rather than leaving the surveyor to guess. */}
+            <LegacyVoltageNote level={relay.nominalVoltage} />
           </div>
         </div>
 

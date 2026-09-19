@@ -5,9 +5,10 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { VOLTAGE_LEVEL_LABELS, CAPACITOR_CONTROL_TYPE_LABELS } from '@/lib/surveyLabels';
+import { VOLTAGE_LEVEL_LABELS, storedVoltageLabel, CAPACITOR_CONTROL_TYPE_LABELS } from '@/lib/surveyLabels';
 import type { CapacitorControlType } from '@/lib/surveyLabels';
 import { SURVEY_VOLTAGE_LEVELS } from '@/types';
+import { LegacyVoltageNote } from '@/components/survey/LegacyVoltageNote';
 import type { SurveyStepProps } from './StepProps';
 import type { SurveyCapacitorBank, SurveyVoltageLevel } from '@/types';
 
@@ -26,7 +27,7 @@ function createCapacitorBank(): SurveyCapacitorBank {
 
 function renderBankSummary(bank: SurveyCapacitorBank, index: number) {
   const label = bank.bankNumber.trim() || `Capacitor bank #${index + 1}`;
-  const voltageLabel = bank.voltageLevel ? VOLTAGE_LEVEL_LABELS[bank.voltageLevel] : '—';
+  const voltageLabel = bank.voltageLevel ? storedVoltageLabel(bank.voltageLevel) : '—';
   const countLabel = bank.numberOfBanks != null ? ` · ${bank.numberOfBanks} bank${bank.numberOfBanks === 1 ? '' : 's'}` : '';
 
   return (
@@ -76,6 +77,10 @@ export function StepCapacitorBanks({ survey, onChange, readOnly }: SurveyStepPro
                 ))}
               </SelectContent>
             </Select>
+            {/* The stored value is the pre-split combined one, so the picker
+                above reads as unanswered. Show what was actually recorded
+                rather than leaving the surveyor to guess. */}
+            <LegacyVoltageNote level={bank.voltageLevel} />
           </div>
         </div>
 

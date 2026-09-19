@@ -8,8 +8,9 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { VOLTAGE_LEVEL_LABELS } from '@/lib/surveyLabels';
+import { VOLTAGE_LEVEL_LABELS, storedVoltageLabel } from '@/lib/surveyLabels';
 import { SURVEY_VOLTAGE_LEVELS } from '@/types';
+import { LegacyVoltageNote } from '@/components/survey/LegacyVoltageNote';
 import type { SurveyStepProps } from './StepProps';
 import type { SurveyFeederEntry, SurveyVoltageLevel } from '@/types';
 
@@ -41,9 +42,7 @@ function createFeeder(): SurveyFeederEntry {
  */
 function renderFeederSummary(feeder: SurveyFeederEntry, index: number) {
   const label = feeder.bayName.trim() || `Feeder #${index + 1}`;
-  const voltageLabel = feeder.nominalVoltage
-    ? VOLTAGE_LEVEL_LABELS[feeder.nominalVoltage]
-    : '—';
+  const voltageLabel = feeder.nominalVoltage ? storedVoltageLabel(feeder.nominalVoltage) : '—';
 
   const counts = [
     feeder.mfmRequired         != null ? `MFM ${feeder.mfmRequired}`   : null,
@@ -93,6 +92,10 @@ export function StepFeederList({ survey, onChange, readOnly, onReplacePhotoRef }
                 ))}
               </SelectContent>
             </Select>
+            {/* The stored value is the pre-split combined one, so the picker
+                above reads as unanswered. Show what was actually recorded
+                rather than leaving the surveyor to guess. */}
+            <LegacyVoltageNote level={feeder.nominalVoltage} />
           </div>
         </div>
 

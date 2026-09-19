@@ -505,16 +505,54 @@ export interface WorkOrder {
 // answer. Never default a count to 0.
 
 /**
- * Voltage buckets used across the feeder list, transformers, capacitor banks
- * and the per-level DC breaker voltages.
+ * Substation voltage levels, as offered by every equipment-level picker
+ * (feeder, relay, transformer, capacitor bank) and by the DC breaker voltage.
  *
- * '66_33' is one bucket covering 66kV and 33kV, per the official checklist's
- * own grouping — NOT two separate levels.
+ * 66 and 33 are SEPARATE levels. They were one combined '66_33' bucket until
+ * the supervisor split them; see LEGACY_COMBINED_VOLTAGE_LEVEL below for what
+ * that means for surveys answered before the split.
  */
-export type SurveyVoltageLevel = '132' | '110' | '100' | '66_33';
+export type SurveyVoltageLevel = '132' | '110' | '100' | '66' | '33' | '22' | '11';
 
 export const SURVEY_VOLTAGE_LEVELS: readonly SurveyVoltageLevel[] =
-  ['132', '110', '100', '66_33'];
+  ['132', '110', '100', '66', '33', '22', '11'];
+
+/**
+ * The levels the ASSET COUNTS section asks for — deliberately five, not seven.
+ *
+ * The paper form counts bays at 132/110/100/66/33 only; 22kV and 11kV exist as
+ * equipment voltages but have no bay-count row. Kept as its own list rather
+ * than a slice of the above so adding a level to one never silently adds it to
+ * the other.
+ */
+export type SurveyBayVoltageLevel = '132' | '110' | '100' | '66' | '33';
+
+export const SURVEY_BAY_VOLTAGE_LEVELS: readonly SurveyBayVoltageLevel[] =
+  ['132', '110', '100', '66', '33'];
+
+/**
+ * The pre-split combined value, '66_33'.
+ *
+ * NOT a current option — nothing writes it and no picker offers it. It exists
+ * only so surveys answered before the split can be DETECTED and their old
+ * answers shown back to the surveyor for manual re-entry.
+ *
+ * Deliberately never auto-migrated: a feeder's real level, or a DC breaker
+ * voltage, can genuinely differ between 66kV and 33kV, so copying the combined
+ * value into either would write a confidently wrong answer onto a document
+ * that governs a government submission. A visible gap is the safer failure.
+ */
+export const LEGACY_COMBINED_VOLTAGE_LEVEL = '66_33';
+export type LegacyVoltageLevel = typeof LEGACY_COMBINED_VOLTAGE_LEVEL;
+
+/**
+ * A voltage level as it may be found IN STORED DATA: a current level, or the
+ * legacy combined value on a survey answered before the split. Every field
+ * that reads a stored level is typed with this, so TypeScript forces each
+ * display site to decide what to do about a legacy value rather than silently
+ * mislabelling it.
+ */
+export type StoredVoltageLevel = SurveyVoltageLevel | LegacyVoltageLevel;
 
 /** DC breaker voltage options — the same domain the old shared multi-select used. */
 export type SurveyDcVoltage = '110' | '48' | '24';
@@ -548,7 +586,7 @@ export type DeviceProtocol = 'modbus' | 'iec_61850' | 'iec_103' | 'serial' | 'no
 export interface SurveyFeederEntry {
   uid: string;                  // client-generated id for list keys / edits
   bayName: string;
-  nominalVoltage: SurveyVoltageLevel | null;
+  nominalVoltage: StoredVoltageLevel | null;
   feederOrTransformerDescription: string | null;
   cableTrenchLengthM: number | null;
   panelSpaceAvailable: boolean | null;
@@ -584,7 +622,7 @@ export type SurveyRelayType = 'electro_mechanical' | 'static' | 'numeric';
 export interface SurveyRelayEntry {
   uid: string;
   bayName: string;
-  nominalVoltage: SurveyVoltageLevel | null;
+  nominalVoltage: StoredVoltageLevel | null;
   relayMakeModel: string | null;
   relayType: SurveyRelayType | null;
   protocol: DeviceProtocol | null;
@@ -608,7 +646,7 @@ export interface SurveyRelayEntry {
 export interface SurveyCapacitorBank {
   uid: string;
   bankNumber: string;
-  voltageLevel: SurveyVoltageLevel | null;
+  voltageLevel: StoredVoltageLevel | null;
   numberOfBanks: number | null;
   controlType: 'auto' | 'manual' | null;
   /** Nameplate rating as transcribed, e.g. "5 MVAR" — text, not a number. */
@@ -638,7 +676,7 @@ export type TapPositionConnectionType = 'resistance' | 'lamp';
 export interface SurveyTransformerEntry {
   uid: string;
   transformerNumber: string;
-  voltageLevel: SurveyVoltageLevel | null;
+  voltageLevel: StoredVoltageLevel | null;
   mvaRating: string | null;
   rtccHighStep: string | null;
   rtccLowStep: string | null;
@@ -715,7 +753,13 @@ export interface SurveyControlRoom {
  */
 export interface SurveyAssetCounts {
   /** Bay count per voltage level — keyed so a new level needs no new field. */
-  baysByVoltage: Record<SurveyVoltageLevel, number | null>;
+  /**
+   * Keyed by the five bay levels PLUS the legacy combined key, which is only
+   * ever read (to show a surveyor what they recorded before the split) and
+   * never written by the form. Keeping it in the record type rather than
+   * dropping it on read is what makes the old answer recoverable.
+   */
+  baysByVoltage: Record<SurveyBayVoltageLevel | LegacyVoltageLevel, number | null>;
   transformerCount: number | null;
   busCount: number | null;
   capacitorBankCount: number | null;
@@ -746,7 +790,8 @@ export interface SurveyCommunicationEquipment {
  */
 export interface SurveyAcDcSupply {
   ac230vAvailable: boolean | null;
-  dcBreakerVoltageByLevel: Record<SurveyVoltageLevel, SurveyDcVoltage | null>;
+  /** Seven current levels plus the read-only legacy key — see baysByVoltage. */
+  dcBreakerVoltageByLevel: Record<SurveyVoltageLevel | LegacyVoltageLevel, SurveyDcVoltage | null>;
   distanceToAcdbM: number | null;
   distanceToDcdbM: number | null;
 }

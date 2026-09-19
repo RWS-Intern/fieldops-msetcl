@@ -6,7 +6,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { DC_VOLTAGE_LABELS, VOLTAGE_LEVEL_LABELS } from '@/lib/surveyLabels';
-import { SURVEY_VOLTAGE_LEVELS } from '@/types';
+import { SURVEY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL } from '@/types';
+import { LegacyVoltageValueNote } from '@/components/survey/LegacyVoltageNote';
 import type { SurveyStepProps } from './StepProps';
 import type {
   SurveyInfrastructure, SurveySiteChecklist, SurveyCommunicationEquipment,
@@ -175,6 +176,12 @@ export function StepInfrastructure({ survey, onChange, readOnly }: SurveyStepPro
             ))}
           </div>
         </div>
+
+        {/* A pre-split DC breaker voltage is still stored under the combined
+            key and has no picker of its own — surface it for re-entry. */}
+        <LegacyVoltageValueNote
+          value={checklist.acDcSupply.dcBreakerVoltageByLevel[LEGACY_COMBINED_VOLTAGE_LEVEL]}
+        />
 
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">

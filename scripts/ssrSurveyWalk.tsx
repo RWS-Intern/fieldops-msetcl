@@ -42,6 +42,9 @@ import { StepPhotos } from '@/components/survey/steps/StepPhotos';
 import { StepBoq } from '@/components/survey/steps/StepBoq';
 import { StepSignOff } from '@/components/survey/steps/StepSignOff';
 import type { SurveyStepProps } from '@/components/survey/steps/StepProps';
+import { LEGACY_COMBINED_VOLTAGE_LEVEL } from '@/types';
+import { surveyHasLegacyVoltageData, findLegacyVoltageData } from '@/lib/legacyVoltage';
+import { LegacyVoltageBanner } from '@/components/survey/LegacyVoltageBanner';
 import type { SurveyReport } from '@/types';
 
 /** A survey with one entry in every repeatable group — not an empty state. */
@@ -82,7 +85,7 @@ function buildPopulatedSurvey(): SurveyReport {
     remarks: null, photos: [],
   });
   survey.capacitorBanks.push({
-    uid: 'c1', bankNumber: 'CB-1', voltageLevel: '66_33', numberOfBanks: 3,
+    uid: 'c1', bankNumber: 'CB-1', voltageLevel: '33', numberOfBanks: 3,
     controlType: 'auto', ratingPerBank: '5 MVAR',
     workingStatus: '2 of 3 in service', remarks: null,
   });
@@ -113,7 +116,8 @@ function buildPopulatedSurvey(): SurveyReport {
   survey.siteChecklist.communication.cableRouteExists      = true;
   survey.siteChecklist.acDcSupply.ac230vAvailable          = true;
   survey.siteChecklist.acDcSupply.dcBreakerVoltageByLevel['132'] = '110';
-  survey.siteChecklist.acDcSupply.dcBreakerVoltageByLevel['66_33'] = '48';
+  survey.siteChecklist.acDcSupply.dcBreakerVoltageByLevel['66'] = '48';
+  survey.siteChecklist.acDcSupply.dcBreakerVoltageByLevel['11'] = '24';
   survey.siteChecklist.acDcSupply.distanceToAcdbM          = 12;
   survey.siteChecklist.acDcSupply.distanceToDcdbM          = 18;
   survey.siteChecklist.sld.sldDrawnAndConfirmed            = true;
@@ -178,6 +182,22 @@ function buildPopulatedSurvey(): SurveyReport {
   return survey;
 }
 
+/**
+ * A SECOND fixture: the same survey with pre-split values deliberately left in
+ * place, exercising the legacy-detection banner and the old-value context.
+ *
+ * Nothing in the app can produce these values any more — only stored documents
+ * carry them, which is exactly the case being covered.
+ */
+function buildLegacySurvey(): SurveyReport {
+  const survey = buildPopulatedSurvey();
+  survey.feeders[0].nominalVoltage = LEGACY_COMBINED_VOLTAGE_LEVEL;
+  survey.capacitorBanks[0].voltageLevel = LEGACY_COMBINED_VOLTAGE_LEVEL;
+  survey.siteChecklist.acDcSupply.dcBreakerVoltageByLevel[LEGACY_COMBINED_VOLTAGE_LEVEL] = '48';
+  survey.assetCounts.baysByVoltage[LEGACY_COMBINED_VOLTAGE_LEVEL] = 3;
+  return survey;
+}
+
 const STEPS: readonly [string, React.ComponentType<SurveyStepProps>][] = [
   ['1. Site & Visit',        StepSiteVisit],
   ['2. Feeder List',         StepFeederList],
@@ -230,6 +250,33 @@ export function runSurveyWalk(): number {
     console.log(`  FAIL validateSurvey/getStepStatuses: ${(err as Error).message}`);
   }
 
+  console.log('\n── legacy 66/33kV detection ──');
+  try {
+    const legacy     = buildLegacySurvey();
+    const cleanHits  = findLegacyVoltageData(survey);
+    const legacyHits = findLegacyVoltageData(legacy);
+
+    const cleanOk = surveyHasLegacyVoltageData(survey) === false && cleanHits.length === 0;
+    console.log(`  ${cleanOk ? 'ok  ' : 'FAIL'} clean survey: NOT flagged (${cleanHits.length} hits)`);
+    if (!cleanOk) failures++;
+
+    const legacyOk = surveyHasLegacyVoltageData(legacy) === true && legacyHits.length === 4;
+    console.log(`  ${legacyOk ? 'ok  ' : 'FAIL'} legacy survey: flagged, ${legacyHits.length} hits (expected 4)`);
+    if (!legacyOk) failures++;
+    legacyHits.forEach((h) => console.log(`         - ${h.section}: ${h.label}${h.value ? ` (was ${h.value})` : ''}`));
+
+    // Absent entirely when clean, present when affected — the two states the
+    // supervisor asked to see proven, not asserted.
+    const cleanBanner  = renderToStaticMarkup(<LegacyVoltageBanner survey={survey} />);
+    const legacyBanner = renderToStaticMarkup(<LegacyVoltageBanner survey={legacy} />);
+    const bannerOk = cleanBanner === '' && legacyBanner.includes('recorded before 66/33kV was split');
+    console.log(`  ${bannerOk ? 'ok  ' : 'FAIL'} banner: absent when clean (${cleanBanner.length} chars), present when legacy (${legacyBanner.length} chars)`);
+    if (!bannerOk) failures++;
+  } catch (err) {
+    failures++;
+    console.log(`  FAIL legacy detection: ${(err as Error).message}`);
+  }
+
   console.log('\n── step-by-step walk (each rendered with real data) ──');
   for (const [label, Component] of STEPS) {
     try {
@@ -238,6 +285,18 @@ export function runSurveyWalk(): number {
     } catch (err) {
       failures++;
       console.log(`  FAIL ${label}: ${(err as Error).message}`);
+    }
+  }
+
+  console.log('\n── step walk with PRE-SPLIT data (legacy context must render) ──');
+  const legacyProps: SurveyStepProps = { ...props, survey: buildLegacySurvey() };
+  for (const [label, Component] of STEPS) {
+    try {
+      const html = renderToStaticMarkup(<Component {...legacyProps} />);
+      console.log(`  ok   ${label}  (${html.length} chars rendered)`);
+    } catch (err) {
+      failures++;
+      console.log(`  FAIL ${label} [legacy]: ${(err as Error).message}`);
     }
   }
 

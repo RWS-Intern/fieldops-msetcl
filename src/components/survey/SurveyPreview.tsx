@@ -9,11 +9,14 @@ import { formatMetresAsKm } from '@/lib/units';
 import {
   VOLTAGE_LEVEL_LABELS, BAY_COUNT_LABELS, RELAY_TYPE_LABELS, PROTOCOL_LABELS,
   CAPACITOR_CONTROL_TYPE_LABELS, TRAYS_LABELS,
-  DC_VOLTAGE_LABELS, MCB_POLE_TYPE_LABELS, BOQ_CHECK_LABELS,
+  DC_VOLTAGE_LABELS, MCB_POLE_TYPE_LABELS, BOQ_CHECK_LABELS, storedVoltageLabel,
+  LEGACY_COMBINED_VOLTAGE_LABEL,
 } from '@/lib/surveyLabels';
 import { SurveyPhotoThumb } from './SurveyPhotoThumb';
 import { SignaturePad } from './SignaturePad';
-import { SURVEY_VOLTAGE_LEVELS } from '@/types';
+import {
+  SURVEY_VOLTAGE_LEVELS, SURVEY_BAY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL,
+} from '@/types';
 import type { BoqMasterItem } from '@/lib/boqMaster';
 import type {
   SurveyReport, SurveyFeederEntry, SurveyRelayEntry, SurveyTransformerEntry,
@@ -117,7 +120,9 @@ function EntryCard({ title, children }: { title: string; children: ReactNode }) 
 }
 
 function voltageLabel(level: SurveyFeederEntry['nominalVoltage']): string {
-  return level ? VOLTAGE_LEVEL_LABELS[level] : '—';
+  // storedVoltageLabel, not VOLTAGE_LEVEL_LABELS: a value read from a document
+  // may be the pre-split combined one, which has no entry in the picker map.
+  return level ? storedVoltageLabel(level) : '—';
 }
 
 // ─── Site & Visit ──────────────────────────────────────────────────────────────
@@ -182,7 +187,7 @@ function AssetCountsBlock({
   // Sum of the levels actually answered — null until at least one is, so a
   // half-filled group never flags a misleadingly large discrepancy against
   // the site master. Same rule as the Site & Visit step's own hint.
-  const answered = SURVEY_VOLTAGE_LEVELS
+  const answered = SURVEY_BAY_VOLTAGE_LEVELS
     .map((level) => counts.baysByVoltage[level])
     .filter((n): n is number => n != null);
   const totalBays = answered.length > 0 ? answered.reduce((sum, n) => sum + n, 0) : null;
@@ -202,10 +207,17 @@ function AssetCountsBlock({
     <div className="flex flex-col gap-1">
       <SubHeading>Asset Counts</SubHeading>
       <div className="grid grid-cols-2 gap-2">
-        {SURVEY_VOLTAGE_LEVELS.map((level) => (
+        {SURVEY_BAY_VOLTAGE_LEVELS.map((level) => (
           <Field key={level} label={BAY_COUNT_LABELS[level]} value={dash(counts.baysByVoltage[level])} />
         ))}
         <Field label="Total Bays (sum of answered levels)" value={dash(totalBays)} flag={bayFlag} />
+        {counts.baysByVoltage[LEGACY_COMBINED_VOLTAGE_LEVEL] != null && (
+          <Field
+            label={`Bays recorded before the split (${LEGACY_COMBINED_VOLTAGE_LABEL})`}
+            value={String(counts.baysByVoltage[LEGACY_COMBINED_VOLTAGE_LEVEL])}
+            flag="Not yet re-entered against 66 kV or 33 kV"
+          />
+        )}
         <Field label="Number of Transformers" value={dash(counts.transformerCount)} flag={transformerFlag} />
         <Field label="Number of Buses" value={dash(counts.busCount)} />
         <Field label="Number of Capacitor Banks" value={dash(counts.capacitorBankCount)} />
@@ -360,6 +372,15 @@ function InfrastructureSection({
               />
             );
           })}
+          {checklist.acDcSupply.dcBreakerVoltageByLevel[LEGACY_COMBINED_VOLTAGE_LEVEL] && (
+            <Field
+              label={`DC breaker voltage before the split (${LEGACY_COMBINED_VOLTAGE_LABEL})`}
+              value={DC_VOLTAGE_LABELS[
+                checklist.acDcSupply.dcBreakerVoltageByLevel[LEGACY_COMBINED_VOLTAGE_LEVEL]!
+              ]}
+              flag="Not yet re-entered against 66 kV or 33 kV"
+            />
+          )}
           <Field
             label="Distance to ACDB"
             value={checklist.acDcSupply.distanceToAcdbM != null ? `${checklist.acDcSupply.distanceToAcdbM} m` : '—'}

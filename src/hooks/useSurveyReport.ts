@@ -3,13 +3,16 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { DERIVED_ITEM_KEYS } from '@/lib/boqDerivation';
 import { SURVEY_APPROVAL_STAGES, findApprovalStage } from '@/lib/approvalStages';
-import { SURVEY_VOLTAGE_LEVELS, ACDC_MCB_SLOT_COUNT } from '@/types';
+import {
+  SURVEY_VOLTAGE_LEVELS, SURVEY_BAY_VOLTAGE_LEVELS,
+  LEGACY_COMBINED_VOLTAGE_LEVEL, ACDC_MCB_SLOT_COUNT,
+} from '@/types';
 import type {
   SurveyReport, SurveyFeederEntry, SurveyRelayEntry,
   SurveyTransformerEntry, SurveyCapacitorBank, SurveyCableRun, SurveyBoqLine,
   SurveyBoqChecks, SurveyContactDetails, SurveyControlRoom, SurveyAssetCounts,
   SurveySiteChecklist, SurveyAcdcMcbDetails, McbSlot,
-  SurveyVoltageLevel, SurveyDcVoltage,
+  SurveyDcVoltage,
   ApprovalStageResult, WorkOrderStatus,
 } from '@/types';
 
@@ -31,14 +34,21 @@ import type {
  * level list was shorter still yields a complete record, and an unknown level
  * left over from an older list is dropped rather than widening the type.
  */
-function mapByVoltage<T>(
+function mapByVoltage<K extends string, T>(
+  levels: readonly K[],
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   raw: Record<string, any> | undefined,
-): Record<SurveyVoltageLevel, T | null> {
+): Record<K, T | null> {
   return Object.fromEntries(
-    SURVEY_VOLTAGE_LEVELS.map((level) => [level, raw?.[level] ?? null]),
-  ) as Record<SurveyVoltageLevel, T | null>;
+    levels.map((level) => [level, raw?.[level] ?? null]),
+  ) as Record<K, T | null>;
 }
+
+// The key lists the two per-level records are built from. Each carries the
+// LEGACY key so a pre-split answer survives the read and can be shown back —
+// dropping it here is what would make those answers vanish.
+const BAY_COUNT_KEYS = [...SURVEY_BAY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL] as const;
+const DC_BREAKER_KEYS = [...SURVEY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL] as const;
 
 /**
  * A board's spare-MCB slots, ALWAYS at full length.
@@ -199,7 +209,7 @@ function mapControlRoom(raw: Record<string, any> | undefined): SurveyControlRoom
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapAssetCounts(raw: Record<string, any> | undefined): SurveyAssetCounts {
   return {
-    baysByVoltage:      mapByVoltage<number>(raw?.['baysByVoltage']),
+    baysByVoltage:      mapByVoltage<typeof BAY_COUNT_KEYS[number], number>(BAY_COUNT_KEYS, raw?.['baysByVoltage']),
     transformerCount:   raw?.['transformerCount']   ?? null,
     busCount:           raw?.['busCount']           ?? null,
     capacitorBankCount: raw?.['capacitorBankCount'] ?? null,
@@ -218,7 +228,8 @@ function mapSiteChecklist(raw: Record<string, any> | undefined): SurveySiteCheck
     },
     acDcSupply: {
       ac230vAvailable:         raw?.['acDcSupply']?.ac230vAvailable ?? null,
-      dcBreakerVoltageByLevel: mapByVoltage<SurveyDcVoltage>(raw?.['acDcSupply']?.dcBreakerVoltageByLevel),
+      dcBreakerVoltageByLevel: mapByVoltage<typeof DC_BREAKER_KEYS[number], SurveyDcVoltage>(
+        DC_BREAKER_KEYS, raw?.['acDcSupply']?.dcBreakerVoltageByLevel),
       distanceToAcdbM:         raw?.['acDcSupply']?.distanceToAcdbM ?? null,
       distanceToDcdbM:         raw?.['acDcSupply']?.distanceToDcdbM ?? null,
     },

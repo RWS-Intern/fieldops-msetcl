@@ -10,6 +10,7 @@ import { Button }           from '@/components/ui/button';
 import { Textarea }         from '@/components/ui/textarea';
 import { Skeleton }         from '@/components/ui/skeleton';
 import { SurveyPreview }    from '@/components/survey/SurveyPreview';
+import { LegacyVoltageBanner } from '@/components/survey/LegacyVoltageBanner';
 import { uploadToCloudinary } from '@/utils/uploadToCloudinary';
 import { findApprovalStage } from '@/lib/approvalStages';
 import { cn } from '@/lib/utils';
@@ -622,6 +623,10 @@ export function ApproverSurveyReviewPage() {
         currentStageIndex={survey.currentStageIndex}
         docStatus={survey.status}
       />
+
+      {/* Same pre-split notice the field expert sees, so a reviewer looking at
+          one of these two surveys knows why voltage fields read as unanswered. */}
+      <LegacyVoltageBanner survey={survey} />
 
       {/* Only while the flag is cascading down — carries the objection's own
           notes so whoever must agree or disagree can actually read it. */}

@@ -1,7 +1,9 @@
+import { LEGACY_COMBINED_VOLTAGE_LEVEL } from '@/types';
 import type {
   DeviceProtocol, SurveyCableRun,
   SurveyBoqChecks,
-  SurveyVoltageLevel, SurveyDcVoltage, SurveyRelayType, SurveyCapacitorBank,
+  SurveyVoltageLevel, SurveyBayVoltageLevel, StoredVoltageLevel,
+  SurveyDcVoltage, SurveyRelayType, SurveyCapacitorBank,
   TapPositionConnectionType, McbSlot,
 } from '@/types';
 
@@ -23,35 +25,48 @@ import type {
 
 /**
  * Nominal voltage, used by the Feeder List, CRP Relay Details, Transformer
- * Details, Capacitor Bank Details and the per-level asset counts / DC breaker
- * pickers — every one of them offers the same four options, so they share one
- * map rather than each spelling out "66 / 33 kV".
+ * Details, Capacitor Bank Details and the DC breaker picker — every one of
+ * them offers the same seven options, so they share one map.
  *
- * 66 and 33 are ONE option, not two: the source checklist buckets them
- * together (see SurveyVoltageLevel).
+ * 66 and 33 are SEPARATE entries: the combined bucket was split on supervisor
+ * instruction (see LEGACY_COMBINED_VOLTAGE_LEVEL in src/types).
  */
 export const VOLTAGE_LEVEL_LABELS: Record<SurveyVoltageLevel, string> = {
-  '132':   '132 kV',
-  '110':   '110 kV',
-  '100':   '100 kV',
-  '66_33': '66 / 33 kV',
+  '132': '132 kV',
+  '110': '110 kV',
+  '100': '100 kV',
+  '66':  '66 kV',
+  '33':  '33 kV',
+  '22':  '22 kV',
+  '11':  '11 kV',
 };
+
+/** How the pre-split combined value reads wherever it is shown back. */
+export const LEGACY_COMBINED_VOLTAGE_LABEL = 'combined 66 / 33 kV';
+
+/**
+ * Renders any STORED level for display, including the legacy combined value.
+ * Use this wherever the value came out of a document rather than out of a
+ * picker — it is the one place that knows how to name '66_33'.
+ */
+export function storedVoltageLabel(level: StoredVoltageLevel): string {
+  return level === LEGACY_COMBINED_VOLTAGE_LEVEL
+    ? LEGACY_COMBINED_VOLTAGE_LABEL
+    : VOLTAGE_LEVEL_LABELS[level];
+}
 
 /**
  * The bay-count row labels, VERBATIM from the source document — including its
- * unspaced "132kV" and the "(If any)" qualifier on the combined 66/33 row.
+ * unspaced "132kV". FIVE rows: the form has no 22kV or 11kV bay count.
  *
- * A separate map rather than `Number of Bays on ${VOLTAGE_LEVEL_LABELS[l]}`
- * because the document's wording differs from the generic picker labels in
- * both spacing and that qualifier, and this text appears on a page an MSETCL
- * engineer signs. Lives here, not in the step, so SurveyPreview renders the
- * identical wording when it's rewritten — the parity rule above.
+ * Lives here, not in the step, so SurveyPreview renders identical wording.
  */
-export const BAY_COUNT_LABELS: Record<SurveyVoltageLevel, string> = {
-  '132':   'Number of Bays on 132kV',
-  '110':   'Number of Bays on 110kV',
-  '100':   'Number of Bays on 100kV',
-  '66_33': 'Number of Bays on 66 or 33kV (If any)',
+export const BAY_COUNT_LABELS: Record<SurveyBayVoltageLevel, string> = {
+  '132': 'Number of Bays on 132kV',
+  '110': 'Number of Bays on 110kV',
+  '100': 'Number of Bays on 100kV',
+  '66':  'Number of Bays on 66kV',
+  '33':  'Number of Bays on 33kV',
 };
 
 // ─── CRP Relay Details ──────────────────────────────────────────────────────────

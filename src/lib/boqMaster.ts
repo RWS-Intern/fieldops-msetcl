@@ -1,5 +1,8 @@
 import { SURVEY_APPROVAL_STAGES, deriveStageOwnerUids } from '@/lib/approvalStages';
-import { SURVEY_VOLTAGE_LEVELS, ACDC_MCB_SLOT_COUNT } from '@/types';
+import {
+  SURVEY_VOLTAGE_LEVELS, SURVEY_BAY_VOLTAGE_LEVELS,
+  LEGACY_COMBINED_VOLTAGE_LEVEL, ACDC_MCB_SLOT_COUNT,
+} from '@/types';
 import type {
   SurveyBoqLine,
   SurveyBoqChecks,
@@ -13,7 +16,6 @@ import type {
   SurveySiteChecklist,
   SurveyAcdcMcbDetails,
   McbSlot,
-  SurveyVoltageLevel,
   SurveyDcVoltage,
 } from '@/types';
 
@@ -185,11 +187,15 @@ export function createEmptyBoqLines(): { boqSupply: SurveyBoqLine[]; boqService:
  * Per-voltage-level record with every level unanswered. Built from
  * SURVEY_VOLTAGE_LEVELS so adding a level needs no change here.
  */
-function emptyByVoltage<T>(): Record<SurveyVoltageLevel, T | null> {
-  return Object.fromEntries(
-    SURVEY_VOLTAGE_LEVELS.map((lvl) => [lvl, null]),
-  ) as Record<SurveyVoltageLevel, T | null>;
+function emptyByVoltage<K extends string, T>(levels: readonly K[]): Record<K, T | null> {
+  return Object.fromEntries(levels.map((lvl) => [lvl, null])) as Record<K, T | null>;
 }
+
+// Both records include the LEGACY key, seeded null. A new survey never has a
+// pre-split answer, but keeping the key present makes the record total — so
+// every read site can index it without an undefined check.
+const BAY_COUNT_KEYS = [...SURVEY_BAY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL] as const;
+const DC_BREAKER_KEYS = [...SURVEY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL] as const;
 
 function createEmptyContactDetails(): SurveyContactDetails {
   return {
@@ -222,7 +228,7 @@ function createEmptyControlRoom(): SurveyControlRoom {
 /** Counts start null, never 0 — see the null-vs-zero note in src/types. */
 function createEmptyAssetCounts(): SurveyAssetCounts {
   return {
-    baysByVoltage:      emptyByVoltage<number>(),
+    baysByVoltage:      emptyByVoltage<typeof BAY_COUNT_KEYS[number], number>(BAY_COUNT_KEYS),
     transformerCount:   null,
     busCount:           null,
     capacitorBankCount: null,
@@ -256,7 +262,7 @@ function createEmptySiteChecklist(): SurveySiteChecklist {
     },
     acDcSupply: {
       ac230vAvailable:         null,
-      dcBreakerVoltageByLevel: emptyByVoltage<SurveyDcVoltage>(),
+      dcBreakerVoltageByLevel: emptyByVoltage<typeof DC_BREAKER_KEYS[number], SurveyDcVoltage>(DC_BREAKER_KEYS),
       distanceToAcdbM:         null,
       distanceToDcdbM:         null,
     },

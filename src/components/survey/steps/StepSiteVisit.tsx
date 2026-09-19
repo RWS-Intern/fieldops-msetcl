@@ -7,8 +7,9 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TriStateToggle } from '@/components/survey/TriStateToggle';
+import { LegacyVoltageValueNote } from '@/components/survey/LegacyVoltageNote';
 import { BAY_COUNT_LABELS } from '@/lib/surveyLabels';
-import { SURVEY_VOLTAGE_LEVELS } from '@/types';
+import { SURVEY_BAY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL } from '@/types';
 import type { SurveyStepProps } from './StepProps';
 import type {
   SurveyContactDetails, SurveyControlRoom, SurveyAssetCounts,
@@ -142,7 +143,7 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
   // per-voltage counts, since that is what replaced the single total. The sum
   // stays null until at least one level is answered, so a partially-filled
   // group never shows a misleadingly low discrepancy.
-  const answeredBayCounts = SURVEY_VOLTAGE_LEVELS
+  const answeredBayCounts = SURVEY_BAY_VOLTAGE_LEVELS
     .map((level) => survey.assetCounts.baysByVoltage[level])
     .filter((n): n is number => n != null);
   const totalBaysAnswered = answeredBayCounts.length > 0
@@ -479,12 +480,13 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
         <h3 className="text-base font-semibold text-gray-900">Asset Counts</h3>
 
         <div className="flex flex-col gap-1.5">
-          {/* Driven by SURVEY_VOLTAGE_LEVELS so adding a level is a one-place
+          {/* Driven by SURVEY_BAY_VOLTAGE_LEVELS — FIVE rows, not seven: the
+              form has no 22kV or 11kV bay count. Adding a level is a one-place
               change — never a new hard-coded input here. Labels come from
               BAY_COUNT_LABELS, which carries the document's verbatim row
               wording rather than the generic voltage-picker text. */}
           <div className="grid grid-cols-2 gap-3">
-            {SURVEY_VOLTAGE_LEVELS.map((level) => (
+            {SURVEY_BAY_VOLTAGE_LEVELS.map((level) => (
               <div key={level} className="flex flex-col gap-1">
                 <Label htmlFor={`bays-${level}`} className="text-xs font-normal text-gray-600">
                   {BAY_COUNT_LABELS[level]}
@@ -503,6 +505,9 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
               </div>
             ))}
           </div>
+          {/* A pre-split bay count is still stored under the combined key and
+              has no row of its own — surface it so it can be re-entered. */}
+          <LegacyVoltageValueNote value={counts.baysByVoltage[LEGACY_COMBINED_VOLTAGE_LEVEL]} />
           {siteMaster?.totalBays != null && (
             <p className="text-xs text-gray-400">
               Master total: {siteMaster.totalBays}

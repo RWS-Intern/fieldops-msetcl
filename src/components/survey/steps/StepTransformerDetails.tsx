@@ -7,8 +7,9 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { VOLTAGE_LEVEL_LABELS, TAP_POSITION_CONNECTION_TYPE_LABELS } from '@/lib/surveyLabels';
+import { VOLTAGE_LEVEL_LABELS, storedVoltageLabel, TAP_POSITION_CONNECTION_TYPE_LABELS } from '@/lib/surveyLabels';
 import { SURVEY_VOLTAGE_LEVELS } from '@/types';
+import { LegacyVoltageNote } from '@/components/survey/LegacyVoltageNote';
 import type { SurveyStepProps } from './StepProps';
 import type {
   SurveyTransformerEntry, SurveyVoltageLevel, TapPositionConnectionType,
@@ -33,7 +34,7 @@ function createTransformer(): SurveyTransformerEntry {
 
 function renderTransformerSummary(tx: SurveyTransformerEntry, index: number) {
   const label = tx.transformerNumber.trim() || `Transformer #${index + 1}`;
-  const voltageLabel = tx.voltageLevel ? VOLTAGE_LEVEL_LABELS[tx.voltageLevel] : '—';
+  const voltageLabel = tx.voltageLevel ? storedVoltageLabel(tx.voltageLevel) : '—';
   const rating = tx.mvaRating?.trim();
 
   return (
@@ -77,6 +78,10 @@ export function StepTransformerDetails({ survey, onChange, readOnly }: SurveySte
                 ))}
               </SelectContent>
             </Select>
+            {/* The stored value is the pre-split combined one, so the picker
+                above reads as unanswered. Show what was actually recorded
+                rather than leaving the surveyor to guess. */}
+            <LegacyVoltageNote level={tx.voltageLevel} />
           </div>
         </div>
 
