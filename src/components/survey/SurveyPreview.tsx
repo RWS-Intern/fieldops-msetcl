@@ -7,7 +7,8 @@ import { SUPPLY_BOQ_MASTER } from '@/lib/boqMaster';
 import { SURVEY_PHOTO_SLOTS, validateSurvey } from '@/lib/surveyValidation';
 import { formatMetresAsKm } from '@/lib/units';
 import {
-  VOLTAGE_LEVEL_LABELS, BAY_COUNT_LABELS, RELAY_TYPE_LABELS, PROTOCOL_LABELS,
+  VOLTAGE_LEVEL_LABELS, ASSET_COUNT_ROWS, ASSET_COUNT_ROW_LABELS,
+  RELAY_TYPE_LABELS, PROTOCOL_LABELS,
   CAPACITOR_CONTROL_TYPE_LABELS, TRAYS_LABELS,
   DC_VOLTAGE_LABELS, MCB_POLE_TYPE_LABELS, BOQ_CHECK_LABELS, storedVoltageLabel,
   LEGACY_COMBINED_VOLTAGE_LABEL,
@@ -15,7 +16,7 @@ import {
 import { SurveyPhotoThumb } from './SurveyPhotoThumb';
 import { SignaturePad } from './SignaturePad';
 import {
-  SURVEY_VOLTAGE_LEVELS, SURVEY_BAY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL,
+  SURVEY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL,
 } from '@/types';
 import type { BoqMasterItem } from '@/lib/boqMaster';
 import type {
@@ -185,12 +186,15 @@ function AssetCountsBlock({
   siteMaster?: { totalBays: number | null; numPowerTransformers: number | null } | null;
 }) {
   // Sum of the levels actually answered — null until at least one is, so a
-  // half-filled group never flags a misleadingly large discrepancy against
-  // the site master. Same rule as the Site & Visit step's own hint.
-  const answered = SURVEY_BAY_VOLTAGE_LEVELS
-    .map((level) => counts.baysByVoltage[level])
-    .filter((n): n is number => n != null);
-  const totalBays = answered.length > 0 ? answered.reduce((sum, n) => sum + n, 0) : null;
+  // half-filled row never flags a misleadingly large discrepancy against the
+  // site master. Same rule as the Site & Visit step's own hint.
+  const sumAnswered = (record: Record<string, number | null>): number | null => {
+    const answered = Object.values(record).filter((n): n is number => n != null);
+    return answered.length > 0 ? answered.reduce((sum, n) => sum + n, 0) : null;
+  };
+
+  const totalBays = sumAnswered(counts.baysByVoltage);
+  const totalTransformers = sumAnswered(counts.transformersByVoltage);
 
   const bayFlag =
     siteMaster?.totalBays != null && totalBays != null && siteMaster.totalBays !== totalBays
@@ -198,33 +202,75 @@ function AssetCountsBlock({
       : null;
   const transformerFlag =
     siteMaster?.numPowerTransformers != null &&
-    counts.transformerCount != null &&
-    siteMaster.numPowerTransformers !== counts.transformerCount
+    totalTransformers != null &&
+    siteMaster.numPowerTransformers !== totalTransformers
       ? `Site master says ${siteMaster.numPowerTransformers}`
       : null;
+
+  const legacyBays = counts.baysByVoltage[LEGACY_COMBINED_VOLTAGE_LEVEL];
 
   return (
     <div className="flex flex-col gap-1">
       <SubHeading>Asset Counts</SubHeading>
-      <div className="grid grid-cols-2 gap-2">
-        {SURVEY_BAY_VOLTAGE_LEVELS.map((level) => (
-          <Field key={level} label={BAY_COUNT_LABELS[level]} value={dash(counts.baysByVoltage[level])} />
-        ))}
-        <Field label="Total Bays (sum of answered levels)" value={dash(totalBays)} flag={bayFlag} />
-        {counts.baysByVoltage[LEGACY_COMBINED_VOLTAGE_LEVEL] != null && (
-          <Field
-            label={`Bays recorded before the split (${LEGACY_COMBINED_VOLTAGE_LABEL})`}
-            value={String(counts.baysByVoltage[LEGACY_COMBINED_VOLTAGE_LEVEL])}
-            flag="Not yet re-entered against 66 kV or 33 kV"
-          />
-        )}
-        <Field label="Number of Transformers" value={dash(counts.transformerCount)} flag={transformerFlag} />
-        <Field label="Number of Buses" value={dash(counts.busCount)} />
-        <Field label="Number of Capacitor Banks" value={dash(counts.capacitorBankCount)} />
+
+      {/* The same 4 x 7 grid the step renders, read-only. Scrolls rather than
+          wrapping, so the column-to-level alignment survives a narrow screen
+          and a printed page. */}
+      <div className="overflow-x-auto">
+        <div className="min-w-[34rem]">
+          <div className={ASSET_GRID_COLS}>
+            <span className="text-[10px] uppercase tracking-wide text-gray-400">Asset</span>
+            {SURVEY_VOLTAGE_LEVELS.map((level) => (
+              <span key={level} className="text-center text-[10px] uppercase tracking-wide text-gray-400">
+                {VOLTAGE_LEVEL_LABELS[level]}
+              </span>
+            ))}
+          </div>
+          {ASSET_COUNT_ROWS.map((row) => (
+            <div key={row} className={`${ASSET_GRID_COLS} border-b border-gray-100 py-1`}>
+              <span className="text-xs font-medium text-gray-600">{ASSET_COUNT_ROW_LABELS[row]}</span>
+              {SURVEY_VOLTAGE_LEVELS.map((level) => (
+                <span key={level} className="text-center text-xs text-gray-800">
+                  {dash(counts[row][level])}
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
+
+      <div className="mt-1 grid grid-cols-2 gap-2">
+        <Field label="Total Bays (sum of answered levels)" value={dash(totalBays)} flag={bayFlag} />
+        <Field label="Total Transformers (sum of answered levels)" value={dash(totalTransformers)} flag={transformerFlag} />
+      </div>
+
+      {/* Answers recorded before this section changed shape — shown so a
+          reviewer knows they exist and have not yet been re-entered. */}
+      {legacyBays != null && (
+        <Field
+          label={`Bays recorded before the split (${LEGACY_COMBINED_VOLTAGE_LABEL})`}
+          value={String(legacyBays)}
+          flag="Not yet re-entered against 66 kV or 33 kV"
+        />
+      )}
+      {counts.transformerCount != null && (
+        <Field label="Previously recorded total — transformers" value={String(counts.transformerCount)}
+               flag="Not yet distributed across voltage levels" />
+      )}
+      {counts.busCount != null && (
+        <Field label="Previously recorded total — buses" value={String(counts.busCount)}
+               flag="Not yet distributed across voltage levels" />
+      )}
+      {counts.capacitorBankCount != null && (
+        <Field label="Previously recorded total — capacitor banks" value={String(counts.capacitorBankCount)}
+               flag="Not yet distributed across voltage levels" />
+      )}
     </div>
   );
 }
+
+/** Column template shared by the asset grid's heading and data rows. */
+const ASSET_GRID_COLS = 'grid grid-cols-[7rem_repeat(7,minmax(2.75rem,1fr))] items-center gap-1.5';
 
 // ─── Repeatable groups ─────────────────────────────────────────────────────────
 

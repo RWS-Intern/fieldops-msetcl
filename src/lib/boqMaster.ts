@@ -1,6 +1,6 @@
 import { SURVEY_APPROVAL_STAGES, deriveStageOwnerUids } from '@/lib/approvalStages';
 import {
-  SURVEY_VOLTAGE_LEVELS, SURVEY_BAY_VOLTAGE_LEVELS,
+  SURVEY_VOLTAGE_LEVELS,
   LEGACY_COMBINED_VOLTAGE_LEVEL, ACDC_MCB_SLOT_COUNT,
 } from '@/types';
 import type {
@@ -13,6 +13,7 @@ import type {
   SurveyContactDetails,
   SurveyControlRoom,
   SurveyAssetCounts,
+  SurveyVoltageLevel,
   SurveySiteChecklist,
   SurveyAcdcMcbDetails,
   McbSlot,
@@ -194,7 +195,7 @@ function emptyByVoltage<K extends string, T>(levels: readonly K[]): Record<K, T 
 // Both records include the LEGACY key, seeded null. A new survey never has a
 // pre-split answer, but keeping the key present makes the record total — so
 // every read site can index it without an undefined check.
-const BAY_COUNT_KEYS = [...SURVEY_BAY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL] as const;
+const BAY_COUNT_KEYS = [...SURVEY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL] as const;
 const DC_BREAKER_KEYS = [...SURVEY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL] as const;
 
 function createEmptyContactDetails(): SurveyContactDetails {
@@ -228,7 +229,11 @@ function createEmptyControlRoom(): SurveyControlRoom {
 /** Counts start null, never 0 — see the null-vs-zero note in src/types. */
 function createEmptyAssetCounts(): SurveyAssetCounts {
   return {
-    baysByVoltage:      emptyByVoltage<typeof BAY_COUNT_KEYS[number], number>(BAY_COUNT_KEYS),
+    baysByVoltage:           emptyByVoltage<typeof BAY_COUNT_KEYS[number], number>(BAY_COUNT_KEYS),
+    busesByVoltage:          emptyByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS),
+    capacitorBanksByVoltage: emptyByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS),
+    transformersByVoltage:   emptyByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS),
+    // Superseded flat totals — seeded null so the stored shape stays total.
     transformerCount:   null,
     busCount:           null,
     capacitorBankCount: null,

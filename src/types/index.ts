@@ -517,18 +517,11 @@ export type SurveyVoltageLevel = '132' | '110' | '100' | '66' | '33' | '22' | '1
 export const SURVEY_VOLTAGE_LEVELS: readonly SurveyVoltageLevel[] =
   ['132', '110', '100', '66', '33', '22', '11'];
 
-/**
- * The levels the ASSET COUNTS section asks for — deliberately five, not seven.
- *
- * The paper form counts bays at 132/110/100/66/33 only; 22kV and 11kV exist as
- * equipment voltages but have no bay-count row. Kept as its own list rather
- * than a slice of the above so adding a level to one never silently adds it to
- * the other.
- */
-export type SurveyBayVoltageLevel = '132' | '110' | '100' | '66' | '33';
-
-export const SURVEY_BAY_VOLTAGE_LEVELS: readonly SurveyBayVoltageLevel[] =
-  ['132', '110', '100', '66', '33'];
+// SurveyBayVoltageLevel / SURVEY_BAY_VOLTAGE_LEVELS are GONE. They existed for
+// the brief period when bay counts were thought to be a five-level question;
+// the filled MSETCL example shows all four asset kinds counted across all seven
+// levels, so the asset-count grid now uses SURVEY_VOLTAGE_LEVELS like every
+// other voltage-keyed field.
 
 /**
  * The pre-split combined value, '66_33'.
@@ -751,15 +744,44 @@ export interface SurveyControlRoom {
  * (Site.totalBays / Site.numPowerTransformers) — a discrepancy is a survey
  * finding, not a data-entry error to silently reconcile.
  */
+/**
+ * The asset-count grid: four asset kinds counted across all seven voltage
+ * levels, matching the 4 x 7 table on the filled MSETCL example (Vashi S/S).
+ *
+ * Bays were briefly narrowed to five levels against an earlier, less complete
+ * document; that is reversed here. The widening is deliberate and one-way —
+ * `baysByVoltage` already carries real production data, so it is WIDENED in
+ * place, never rebuilt, and it keeps the legacy combined key exactly as the
+ * 66/33kV split left it.
+ */
 export interface SurveyAssetCounts {
-  /** Bay count per voltage level — keyed so a new level needs no new field. */
   /**
-   * Keyed by the five bay levels PLUS the legacy combined key, which is only
-   * ever read (to show a surveyor what they recorded before the split) and
-   * never written by the form. Keeping it in the record type rather than
-   * dropping it on read is what makes the old answer recoverable.
+   * All seven levels PLUS the legacy combined key, which is only ever read (to
+   * show a surveyor what they recorded before the 66/33 split) and never
+   * written by the form. Keeping it in the record type rather than dropping it
+   * on read is what makes that old answer recoverable.
    */
-  baysByVoltage: Record<SurveyBayVoltageLevel | LegacyVoltageLevel, number | null>;
+  baysByVoltage:           Record<SurveyVoltageLevel | LegacyVoltageLevel, number | null>;
+  /**
+   * These three are NEW per-level records. They carry no legacy key: nothing
+   * was ever counted per level for them, so there is no pre-split answer to
+   * recover — only the flat totals below, which are surfaced separately.
+   */
+  busesByVoltage:          Record<SurveyVoltageLevel, number | null>;
+  capacitorBanksByVoltage: Record<SurveyVoltageLevel, number | null>;
+  transformersByVoltage:   Record<SurveyVoltageLevel, number | null>;
+
+  /**
+   * @deprecated FLAT TOTALS, superseded by the three per-level records above.
+   *
+   * Dead but deliberately present: these were live inputs on the Site & Visit
+   * step from Phase 2b until this change, so an in-progress survey may hold a
+   * real answer in any of them. Deleting them would orphan that data silently.
+   * Nothing writes them any more; they are read only to show the old total
+   * back for a human to distribute across the levels — never auto-redistributed,
+   * because "5 transformers" carries no information about which levels they sit
+   * at. Remove once every in-progress survey has been re-entered.
+   */
   transformerCount: number | null;
   busCount: number | null;
   capacitorBankCount: number | null;

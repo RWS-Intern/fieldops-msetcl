@@ -28,15 +28,16 @@ export function LegacyVoltageBanner({ survey }: { survey: SurveyReport }) {
       <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
       <div className="min-w-0">
         <p className="text-sm font-semibold text-amber-900">
-          Some answers were recorded before 66/33kV was split into two levels
+          Some answers no longer have a field of their own
         </p>
         <p className="mt-1 text-xs text-amber-800">
-          66kV and 33kV are now separate voltage levels. The old combined answers are still
-          stored, but the form no longer shows them as a selectable option — so the fields below
-          will look unanswered. <strong>Before submitting</strong>, check every voltage-level
-          dropdown, the DC breaker voltage rows and the bay counts, and re-enter the correct
-          66&nbsp;kV or 33&nbsp;kV value. The old value is shown beside each affected field for
-          reference.
+          Two things changed shape after this survey was started: 66kV and 33kV became separate
+          voltage levels, and the asset counts became a per-voltage-level grid. The old answers
+          are still stored, but the form has no field for them any more — so those places will
+          look unanswered. <strong>Before submitting</strong>, work through the list below and
+          re-enter each one: pick the correct 66&nbsp;kV or 33&nbsp;kV value, and split each old
+          total across the levels it actually covers. Every old value is shown beside its field
+          for reference.
         </p>
 
         <p className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-amber-700">

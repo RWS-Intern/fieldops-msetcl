@@ -8,11 +8,14 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TriStateToggle } from '@/components/survey/TriStateToggle';
 import { LegacyVoltageValueNote } from '@/components/survey/LegacyVoltageNote';
-import { BAY_COUNT_LABELS } from '@/lib/surveyLabels';
-import { SURVEY_BAY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL } from '@/types';
+import {
+  VOLTAGE_LEVEL_LABELS, ASSET_COUNT_ROWS, ASSET_COUNT_ROW_LABELS,
+} from '@/lib/surveyLabels';
+import type { AssetCountRowKey } from '@/lib/surveyLabels';
+import { SURVEY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL } from '@/types';
 import type { SurveyStepProps } from './StepProps';
 import type {
-  SurveyContactDetails, SurveyControlRoom, SurveyAssetCounts,
+  SurveyContactDetails, SurveyControlRoom, SurveyAssetCounts, SurveyVoltageLevel,
 } from '@/types';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
@@ -41,6 +44,34 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
  */
 function toCount(raw: string): number | null {
   return raw === '' ? null : Math.max(0, Number(raw));
+}
+
+/** Column template shared by the grid's heading row and its four data rows. */
+const ASSET_GRID_COLS = 'grid grid-cols-[7.5rem_repeat(7,minmax(3.25rem,1fr))] items-center gap-1.5';
+
+/**
+ * Sum of the answered levels only — null until at least one is filled, so a
+ * half-filled row never shows a misleadingly low total against the site master.
+ */
+function sumAnswered(record: Record<string, number | null>): number | null {
+  const answered = Object.values(record).filter((n): n is number => n != null);
+  return answered.length > 0 ? answered.reduce((sum, n) => sum + n, 0) : null;
+}
+
+/**
+ * One superseded flat total, shown back for manual distribution.
+ *
+ * Renders nothing when the old field is empty — which is every survey except
+ * any in-progress one that answered it before the grid existed.
+ */
+function LegacyTotalNote({ label, value }: { label: string; value: number | null }) {
+  if (value == null) return null;
+  return (
+    <p className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+      Previously recorded total for {label}: <strong>{value}</strong> — please distribute across
+      the voltage levels above. This total is no longer used.
+    </p>
+  );
 }
 
 // ─── Step ─────────────────────────────────────────────────────────────────────
@@ -143,12 +174,19 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
   // per-voltage counts, since that is what replaced the single total. The sum
   // stays null until at least one level is answered, so a partially-filled
   // group never shows a misleadingly low discrepancy.
-  const answeredBayCounts = SURVEY_BAY_VOLTAGE_LEVELS
-    .map((level) => survey.assetCounts.baysByVoltage[level])
-    .filter((n): n is number => n != null);
-  const totalBaysAnswered = answeredBayCounts.length > 0
-    ? answeredBayCounts.reduce((sum, n) => sum + n, 0)
-    : null;
+  const totalBaysAnswered = sumAnswered(survey.assetCounts.baysByVoltage);
+  const totalTransformersAnswered = sumAnswered(survey.assetCounts.transformersByVoltage);
+
+  /**
+   * Writes one cell of the asset grid.
+   *
+   * The cast is needed because `row` indexes a union of two record types
+   * (bays carries the extra legacy key) — the spread itself is exact, and the
+   * level is always a current one, so nothing can write the legacy key here.
+   */
+  function updateCountCell(row: AssetCountRowKey, level: SurveyVoltageLevel, value: number | null) {
+    updateAssetCounts({ [row]: { ...counts[row], [level]: value } } as Partial<SurveyAssetCounts>);
+  }
 
   const contact     = survey.contactDetails;
   const controlRoom = survey.controlRoom;
@@ -475,80 +513,84 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
         />
       </div>
 
-      {/* ── Asset Counts ─────────────────────────────────────────────────── */}
+      {/* ── Asset Counts — the document's own 4 x 7 table ───────────────── */}
       <div className="flex flex-col gap-3">
         <h3 className="text-base font-semibold text-gray-900">Asset Counts</h3>
+        <p className="text-xs text-gray-400">
+          Four asset kinds across all seven voltage levels, matching the table on the paper form.
+          Leave a cell blank where the level does not apply — blank means &ldquo;not counted&rdquo;,
+          not zero.
+        </p>
 
-        <div className="flex flex-col gap-1.5">
-          {/* Driven by SURVEY_BAY_VOLTAGE_LEVELS — FIVE rows, not seven: the
-              form has no 22kV or 11kV bay count. Adding a level is a one-place
-              change — never a new hard-coded input here. Labels come from
-              BAY_COUNT_LABELS, which carries the document's verbatim row
-              wording rather than the generic voltage-picker text. */}
-          <div className="grid grid-cols-2 gap-3">
-            {SURVEY_BAY_VOLTAGE_LEVELS.map((level) => (
-              <div key={level} className="flex flex-col gap-1">
-                <Label htmlFor={`bays-${level}`} className="text-xs font-normal text-gray-600">
-                  {BAY_COUNT_LABELS[level]}
-                </Label>
-                <Input
-                  id={`bays-${level}`}
-                  type="number" inputMode="numeric" disabled={readOnly}
-                  value={counts.baysByVoltage[level] ?? ''}
-                  onChange={(e) => updateAssetCounts({
-                    baysByVoltage: {
-                      ...counts.baysByVoltage,
-                      [level]: toCount(e.target.value),
-                    },
-                  })}
-                />
+        {/* Horizontally scrollable: eight columns cannot fit a phone, and
+            shrinking the inputs to fit would make them unusable one-handed.
+            Same container pattern as the ACDB/DCDB step's MCB tables. */}
+        <div className="overflow-x-auto">
+          <div className="min-w-[40rem] flex flex-col gap-1.5 rounded-lg border border-gray-100 p-2">
+            {/* Column headings once — the level is stated per column, not per input. */}
+            <div className={ASSET_GRID_COLS}>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                Asset
+              </span>
+              {SURVEY_VOLTAGE_LEVELS.map((level) => (
+                <span
+                  key={level}
+                  className="text-center text-[10px] font-semibold uppercase tracking-wide text-gray-400"
+                >
+                  {VOLTAGE_LEVEL_LABELS[level]}
+                </span>
+              ))}
+            </div>
+
+            {ASSET_COUNT_ROWS.map((row) => (
+              <div key={row} className={ASSET_GRID_COLS}>
+                <span className="text-xs font-medium text-gray-600">
+                  {ASSET_COUNT_ROW_LABELS[row]}
+                </span>
+                {SURVEY_VOLTAGE_LEVELS.map((level) => (
+                  <Input
+                    key={level}
+                    className="h-9 text-center"
+                    type="number"
+                    inputMode="numeric"
+                    disabled={readOnly}
+                    aria-label={`${ASSET_COUNT_ROW_LABELS[row]} at ${VOLTAGE_LEVEL_LABELS[level]}`}
+                    value={counts[row][level] ?? ''}
+                    onChange={(e) => updateCountCell(row, level, toCount(e.target.value))}
+                  />
+                ))}
               </div>
             ))}
           </div>
-          {/* A pre-split bay count is still stored under the combined key and
-              has no row of its own — surface it so it can be re-entered. */}
-          <LegacyVoltageValueNote value={counts.baysByVoltage[LEGACY_COMBINED_VOLTAGE_LEVEL]} />
-          {siteMaster?.totalBays != null && (
-            <p className="text-xs text-gray-400">
-              Master total: {siteMaster.totalBays}
-              {totalBaysAnswered != null && ` · counted so far: ${totalBaysAnswered}`}
-            </p>
-          )}
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="transformerCount">Number of Transformers</Label>
-            <Input
-              id="transformerCount"
-              type="number" inputMode="numeric" disabled={readOnly}
-              value={counts.transformerCount ?? ''}
-              onChange={(e) => updateAssetCounts({ transformerCount: toCount(e.target.value) })}
-            />
+        {/* A pre-split bay count is still stored under the combined key and has
+            no column of its own — surface it so it can be re-entered. */}
+        <LegacyVoltageValueNote value={counts.baysByVoltage[LEGACY_COMBINED_VOLTAGE_LEVEL]} />
+
+        {/* The three flat totals this grid replaces. Read-only, shown only when
+            one actually holds an answer, and NEVER auto-distributed: a single
+            total carries no information about which levels it belongs to. */}
+        <LegacyTotalNote label="transformers" value={counts.transformerCount} />
+        <LegacyTotalNote label="buses" value={counts.busCount} />
+        <LegacyTotalNote label="capacitor banks" value={counts.capacitorBankCount} />
+
+        {(siteMaster?.totalBays != null || siteMaster?.numPowerTransformers != null) && (
+          <div className="flex flex-col gap-0.5">
+            {siteMaster?.totalBays != null && (
+              <p className="text-xs text-gray-400">
+                Master total bays: {siteMaster.totalBays}
+                {totalBaysAnswered != null && ` · counted so far: ${totalBaysAnswered}`}
+              </p>
+            )}
             {siteMaster?.numPowerTransformers != null && (
-              <p className="text-xs text-gray-400">Master: {siteMaster.numPowerTransformers}</p>
+              <p className="text-xs text-gray-400">
+                Master transformers: {siteMaster.numPowerTransformers}
+                {totalTransformersAnswered != null && ` · counted so far: ${totalTransformersAnswered}`}
+              </p>
             )}
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="busCount">Number of Buses</Label>
-            <Input
-              id="busCount"
-              type="number" inputMode="numeric" disabled={readOnly}
-              value={counts.busCount ?? ''}
-              onChange={(e) => updateAssetCounts({ busCount: toCount(e.target.value) })}
-            />
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="capacitorBankCount">Number of Capacitor Banks</Label>
-          <Input
-            id="capacitorBankCount"
-            type="number" inputMode="numeric" disabled={readOnly}
-            value={counts.capacitorBankCount ?? ''}
-            onChange={(e) => updateAssetCounts({ capacitorBankCount: toCount(e.target.value) })}
-          />
-        </div>
+        )}
       </div>
 
     </div>

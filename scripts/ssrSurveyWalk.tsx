@@ -67,8 +67,11 @@ function buildPopulatedSurvey(): SurveyReport {
   survey.controlRoom.acCondition               = 'Working';
   survey.controlRoom.cableTrenchAvailable      = true;
   survey.controlRoom.cableTrenchLengthM        = 40;
-  survey.assetCounts.baysByVoltage['132']      = 4;
-  survey.assetCounts.transformerCount          = 2;
+  survey.assetCounts.baysByVoltage['132']           = 4;
+  survey.assetCounts.baysByVoltage['33']            = 6;
+  survey.assetCounts.busesByVoltage['132']          = 2;
+  survey.assetCounts.capacitorBanksByVoltage['33']  = 1;
+  survey.assetCounts.transformersByVoltage['132']   = 2;
 
   survey.feeders.push({
     uid: 'f1', bayName: 'Bay-01', nominalVoltage: '132',
@@ -195,6 +198,11 @@ function buildLegacySurvey(): SurveyReport {
   survey.capacitorBanks[0].voltageLevel = LEGACY_COMBINED_VOLTAGE_LEVEL;
   survey.siteChecklist.acDcSupply.dcBreakerVoltageByLevel[LEGACY_COMBINED_VOLTAGE_LEVEL] = '48';
   survey.assetCounts.baysByVoltage[LEGACY_COMBINED_VOLTAGE_LEVEL] = 3;
+  // The three flat totals the 4 x 7 grid replaced — an in-progress survey may
+  // hold any of them, and each must surface for manual distribution.
+  survey.assetCounts.transformerCount   = 5;
+  survey.assetCounts.busCount           = 2;
+  survey.assetCounts.capacitorBankCount = 1;
   return survey;
 }
 
@@ -260,8 +268,8 @@ export function runSurveyWalk(): number {
     console.log(`  ${cleanOk ? 'ok  ' : 'FAIL'} clean survey: NOT flagged (${cleanHits.length} hits)`);
     if (!cleanOk) failures++;
 
-    const legacyOk = surveyHasLegacyVoltageData(legacy) === true && legacyHits.length === 4;
-    console.log(`  ${legacyOk ? 'ok  ' : 'FAIL'} legacy survey: flagged, ${legacyHits.length} hits (expected 4)`);
+    const legacyOk = surveyHasLegacyVoltageData(legacy) === true && legacyHits.length === 7;
+    console.log(`  ${legacyOk ? 'ok  ' : 'FAIL'} legacy survey: flagged, ${legacyHits.length} hits (expected 7)`);
     if (!legacyOk) failures++;
     legacyHits.forEach((h) => console.log(`         - ${h.section}: ${h.label}${h.value ? ` (was ${h.value})` : ''}`));
 
@@ -269,7 +277,7 @@ export function runSurveyWalk(): number {
     // supervisor asked to see proven, not asserted.
     const cleanBanner  = renderToStaticMarkup(<LegacyVoltageBanner survey={survey} />);
     const legacyBanner = renderToStaticMarkup(<LegacyVoltageBanner survey={legacy} />);
-    const bannerOk = cleanBanner === '' && legacyBanner.includes('recorded before 66/33kV was split');
+    const bannerOk = cleanBanner === '' && legacyBanner.includes('no longer have a field of their own');
     console.log(`  ${bannerOk ? 'ok  ' : 'FAIL'} banner: absent when clean (${cleanBanner.length} chars), present when legacy (${legacyBanner.length} chars)`);
     if (!bannerOk) failures++;
   } catch (err) {

@@ -4,7 +4,7 @@ import { db } from '@/firebase/config';
 import { DERIVED_ITEM_KEYS } from '@/lib/boqDerivation';
 import { SURVEY_APPROVAL_STAGES, findApprovalStage } from '@/lib/approvalStages';
 import {
-  SURVEY_VOLTAGE_LEVELS, SURVEY_BAY_VOLTAGE_LEVELS,
+  SURVEY_VOLTAGE_LEVELS,
   LEGACY_COMBINED_VOLTAGE_LEVEL, ACDC_MCB_SLOT_COUNT,
 } from '@/types';
 import type {
@@ -12,7 +12,7 @@ import type {
   SurveyTransformerEntry, SurveyCapacitorBank, SurveyCableRun, SurveyBoqLine,
   SurveyBoqChecks, SurveyContactDetails, SurveyControlRoom, SurveyAssetCounts,
   SurveySiteChecklist, SurveyAcdcMcbDetails, McbSlot,
-  SurveyDcVoltage,
+  SurveyDcVoltage, SurveyVoltageLevel,
   ApprovalStageResult, WorkOrderStatus,
 } from '@/types';
 
@@ -47,7 +47,8 @@ function mapByVoltage<K extends string, T>(
 // The key lists the two per-level records are built from. Each carries the
 // LEGACY key so a pre-split answer survives the read and can be shown back —
 // dropping it here is what would make those answers vanish.
-const BAY_COUNT_KEYS = [...SURVEY_BAY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL] as const;
+// Bays keep the legacy combined key; the three newer records never had one.
+const BAY_COUNT_KEYS = [...SURVEY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL] as const;
 const DC_BREAKER_KEYS = [...SURVEY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL] as const;
 
 /**
@@ -210,6 +211,10 @@ function mapControlRoom(raw: Record<string, any> | undefined): SurveyControlRoom
 function mapAssetCounts(raw: Record<string, any> | undefined): SurveyAssetCounts {
   return {
     baysByVoltage:      mapByVoltage<typeof BAY_COUNT_KEYS[number], number>(BAY_COUNT_KEYS, raw?.['baysByVoltage']),
+    busesByVoltage:          mapByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS, raw?.['busesByVoltage']),
+    capacitorBanksByVoltage: mapByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS, raw?.['capacitorBanksByVoltage']),
+    transformersByVoltage:   mapByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS, raw?.['transformersByVoltage']),
+    // Superseded flat totals, still read so an old answer can be shown back.
     transformerCount:   raw?.['transformerCount']   ?? null,
     busCount:           raw?.['busCount']           ?? null,
     capacitorBankCount: raw?.['capacitorBankCount'] ?? null,

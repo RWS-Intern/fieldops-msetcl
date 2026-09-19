@@ -2,8 +2,11 @@ import { LEGACY_COMBINED_VOLTAGE_LEVEL } from '@/types';
 import type { StoredVoltageLevel, SurveyReport } from '@/types';
 
 /**
- * Detection and read-back for surveys answered BEFORE 66/33kV was split into
- * two separate levels.
+ * Detection and read-back for answers that a STRUCTURE CHANGE left without a
+ * field of their own:
+ *   - levels recorded before 66/33kV was split into two;
+ *   - the flat transformer/bus/capacitor-bank totals the 4 x 7 asset grid
+ *     replaced.
  *
  * Nothing here migrates anything. A feeder's real level, a DC breaker voltage
  * or a bay count can genuinely differ between 66kV and 33kV, so copying the
@@ -21,7 +24,8 @@ export function isLegacyVoltage(level: StoredVoltageLevel | null | undefined): b
 export interface LegacyVoltageHit {
   /** Which section, for the banner's summary line. */
   section: 'Feeder List' | 'CRP Relay Details' | 'Transformer Details'
-         | 'Capacitor Banks' | 'DC breaker voltage' | 'Bay counts';
+         | 'Capacitor Banks' | 'DC breaker voltage' | 'Bay counts'
+         | 'Asset totals';
   /** How that one entry identifies itself, e.g. a bay name. */
   label: string;
   /** The old value as recorded, where there is one worth showing back. */
@@ -73,6 +77,18 @@ export function findLegacyVoltageData(survey: SurveyReport): LegacyVoltageHit[] 
   const legacyBays = survey.assetCounts.baysByVoltage[LEGACY_COMBINED_VOLTAGE_LEVEL];
   if (legacyBays != null) {
     hits.push({ section: 'Bay counts', label: 'Combined 66/33kV row', value: String(legacyBays) });
+  }
+
+  // The three flat totals the 4 x 7 asset grid replaced. Same class of problem
+  // and same remedy: the answer is still stored, no longer has a field of its
+  // own, and only a human can say which voltage levels it belongs to.
+  const totals: [string, number | null][] = [
+    ['Transformers total', survey.assetCounts.transformerCount],
+    ['Buses total',        survey.assetCounts.busCount],
+    ['Capacitor banks total', survey.assetCounts.capacitorBankCount],
+  ];
+  for (const [label, value] of totals) {
+    if (value != null) hits.push({ section: 'Asset totals', label, value: String(value) });
   }
 
   return hits;

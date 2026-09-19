@@ -2,7 +2,7 @@ import { LEGACY_COMBINED_VOLTAGE_LEVEL } from '@/types';
 import type {
   DeviceProtocol, SurveyCableRun,
   SurveyBoqChecks,
-  SurveyVoltageLevel, SurveyBayVoltageLevel, StoredVoltageLevel,
+  SurveyVoltageLevel, StoredVoltageLevel,
   SurveyDcVoltage, SurveyRelayType, SurveyCapacitorBank,
   TapPositionConnectionType, McbSlot,
 } from '@/types';
@@ -56,18 +56,24 @@ export function storedVoltageLabel(level: StoredVoltageLevel): string {
 }
 
 /**
- * The bay-count row labels, VERBATIM from the source document — including its
- * unspaced "132kV". FIVE rows: the form has no 22kV or 11kV bay count.
- *
- * Lives here, not in the step, so SurveyPreview renders identical wording.
+ * The asset-count grid's ROW labels. The columns are voltage levels, so the
+ * per-level "Number of Bays on 132kV" strings BAY_COUNT_LABELS used to hold
+ * no longer have a place to render — the grid states the level once per
+ * column instead.
  */
-export const BAY_COUNT_LABELS: Record<SurveyBayVoltageLevel, string> = {
-  '132': 'Number of Bays on 132kV',
-  '110': 'Number of Bays on 110kV',
-  '100': 'Number of Bays on 100kV',
-  '66':  'Number of Bays on 66kV',
-  '33':  'Number of Bays on 33kV',
-};
+export const ASSET_COUNT_ROW_LABELS = {
+  baysByVoltage:           'Bays',
+  busesByVoltage:          'Bus',
+  capacitorBanksByVoltage: 'Capacitor Banks',
+  transformersByVoltage:   'Transformers',
+} as const;
+
+export type AssetCountRowKey = keyof typeof ASSET_COUNT_ROW_LABELS;
+
+/** Row order, matching the source document's own table. */
+export const ASSET_COUNT_ROWS: readonly AssetCountRowKey[] = [
+  'baysByVoltage', 'busesByVoltage', 'capacitorBanksByVoltage', 'transformersByVoltage',
+];
 
 // ─── CRP Relay Details ──────────────────────────────────────────────────────────
 //

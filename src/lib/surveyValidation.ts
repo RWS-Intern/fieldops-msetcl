@@ -463,6 +463,11 @@ function isAnyValueSet(group: object): boolean {
 function isAssetCountsTouched(counts: SurveyAssetCounts): boolean {
   return (
     Object.values(counts.baysByVoltage).some((n) => n != null) ||
+    Object.values(counts.busesByVoltage).some((n) => n != null) ||
+    Object.values(counts.capacitorBanksByVoltage).some((n) => n != null) ||
+    Object.values(counts.transformersByVoltage).some((n) => n != null) ||
+    // The superseded flat totals still count as "touched" — an in-progress
+    // survey that answered them has not left this step untouched.
     counts.transformerCount   != null ||
     counts.busCount           != null ||
     counts.capacitorBankCount != null
