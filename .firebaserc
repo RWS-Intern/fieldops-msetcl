@@ -1,5 +1,6 @@
 {
   "projects": {
-    "default": "fieldops-ritesolar"
+    "default": "fieldops-ritesolar",
+    "dev": "fieldops-msetcl-dev"
   }
 }
