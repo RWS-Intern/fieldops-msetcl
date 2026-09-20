@@ -274,6 +274,23 @@ export interface ProjectV3 {
 export type SiteStatus = 'active' | 'completed' | 'on_hold';
 
 /** A physical installation site belonging to a Project. */
+/**
+ * The substation voltage classes a Site may carry (tender Annexure-II).
+ *
+ * Hoisted here so the ONE list backs all three of its consumers — the type
+ * union below, the New Site form's dropdown, and the bulk import's column
+ * validation, which previously carried its own copy. Same discipline as
+ * SURVEY_VOLTAGE_LEVELS; a second list that drifts is how a site gets created
+ * with a value the importer would have rejected.
+ *
+ * Deliberately NOT the same set as SURVEY_VOLTAGE_LEVELS: that one describes
+ * the levels present inside a substation, this one classifies the substation
+ * itself.
+ */
+export const SITE_VOLTAGE_CLASSES = ['132', '110', '100'] as const;
+
+export type SiteVoltageClass = typeof SITE_VOLTAGE_CLASSES[number];
+
 export interface Site {
   id: string;
   siteCode: string;               // e.g. "SUB-PUNE-047" — from siteNumCounter
@@ -306,7 +323,7 @@ export interface Site {
   sapCode?: string | null;
   /** MSETCL zone — allocation not yet received, so this is plain editable data, not an enum. */
   zone?: string | null;
-  voltageClass?: '132' | '110' | '100' | null;
+  voltageClass?: SiteVoltageClass | null;
   totalBays?: number | null;
   numPowerTransformers?: number | null;
   /**

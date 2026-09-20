@@ -18,13 +18,22 @@ import type {
   BulkRowResult,
   BulkUploadSummary,
 } from '@/types';
+import { SITE_VOLTAGE_CLASSES } from '@/types';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 const REQUIRED_HEADERS = ['projectCode', 'siteCode', 'siteName', 'city', 'state'];
 
-/** Valid values for the optional Annexure-II `voltageClass` column. */
-const VALID_VOLTAGE_CLASSES = ['132', '110', '100'];
+/**
+ * Valid values for the optional Annexure-II `voltageClass` column.
+ *
+ * Now read from the shared list in src/types rather than restated here — the
+ * accepted values are unchanged, and this column stays OPTIONAL. See the
+ * asymmetry note on the New Site form, which requires it: one manual site
+ * failing on a missing field is a prompt to fill it in, a 250-row spreadsheet
+ * failing on one blank cell is a wasted afternoon.
+ */
+const VALID_VOLTAGE_CLASSES: readonly string[] = SITE_VOLTAGE_CLASSES;
 
 /** Maximum rows per upload to stay within Firestore batch limits and page performance. */
 const MAX_ROWS = 1000;

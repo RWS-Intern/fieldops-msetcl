@@ -14,7 +14,7 @@ import {
 import { db } from '@/firebase/config';
 import { useAuthStore }    from '@/store/authStore';
 import { useProjectStore } from '@/store/projectStore';
-import type { SiteStatus, TaskTemplate } from '@/types';
+import type { SiteVoltageClass, SiteStatus, TaskTemplate } from '@/types';
 
 // ─── Archive helper ────────────────────────────────────────────────────────────
 
@@ -70,7 +70,7 @@ export interface CreateSiteInput {
   // ── Substation master (tender Annexure-II) — MSETCL project only, optional ──
   sapCode?:               string | null;
   zone?:                  string | null;
-  voltageClass?:          '132' | '110' | '100' | null;
+  voltageClass?:          SiteVoltageClass | null;
   totalBays?:             number | null;
   numPowerTransformers?:  number | null;
 }

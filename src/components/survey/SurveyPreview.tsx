@@ -873,8 +873,11 @@ export function SurveyPreview({
         <div className="flex flex-col gap-3">
           <SectionHeading>1. Site &amp; Visit</SectionHeading>
           <div className="grid grid-cols-2 gap-2">
+            {/* Site Code is the app's OWN identifier, not part of the MSETCL
+                document — dropped from this summary. The field itself is
+                untouched: it still drives work-order codes, search and every
+                denormalised reference, and still backs the fallback below. */}
             <Field label="Substation" value={dash(siteName || survey.siteCode)} />
-            <Field label="Site Code" value={dash(survey.siteCode)} />
             <Field label="SAP Code" value={dash(survey.sapCode)} />
             <Field label="Zone" value={dash(survey.zone)} />
             <Field label="Voltage Class" value={survey.voltageClass ? `${survey.voltageClass} kV` : '—'} />

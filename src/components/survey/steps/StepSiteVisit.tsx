@@ -211,8 +211,10 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
         <h3 className="text-base font-semibold text-gray-900">Site &amp; Visit Details</h3>
 
         <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 p-3 rounded-lg bg-gray-50 border border-gray-100">
+          {/* Site Code intentionally not shown — see the note in
+              SurveyPreview's matching summary. Display only; nothing that
+              reads survey.siteCode changed. */}
           <ReadOnlyField label="Substation" value={siteName || survey.siteCode || '—'} />
-          <ReadOnlyField label="Site Code" value={survey.siteCode || '—'} />
           <ReadOnlyField label="SAP Code" value={survey.sapCode ?? '—'} />
           <ReadOnlyField label="Zone" value={survey.zone ?? '—'} />
           <ReadOnlyField label="Voltage Class" value={survey.voltageClass ? `${survey.voltageClass} kV` : '—'} />

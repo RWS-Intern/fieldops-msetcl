@@ -18,6 +18,8 @@ import {
 import { useSiteActions }  from '@/hooks/useSiteActions';
 import { useToast }        from '@/components/ui/toast';
 import { useProjectStore } from '@/store/projectStore';
+import { SITE_VOLTAGE_CLASSES } from '@/types';
+import type { SiteVoltageClass } from '@/types';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -31,11 +33,14 @@ interface CreateSiteModalProps {
 // ─── Validation ───────────────────────────────────────────────────────────────
 
 function validate(fields: {
-  siteCode:  string;
-  siteName:  string;
-  city:      string;
-  state:     string;
-  projectId: string;
+  siteCode:     string;
+  siteName:     string;
+  city:         string;
+  state:        string;
+  projectId:    string;
+  sapCode:      string;
+  zone:         string;
+  voltageClass: string;
 }): Record<string, string> {
   const errs: Record<string, string> = {};
   if (!fields.siteCode.trim())  errs['siteCode']  = 'Site code is required';
@@ -43,6 +48,13 @@ function validate(fields: {
   if (!fields.city.trim())      errs['city']       = 'City is required';
   if (!fields.state.trim())     errs['state']      = 'State is required';
   if (!fields.projectId)        errs['projectId']  = 'Project is required';
+  // Required HERE but optional in the bulk CSV import — a deliberate
+  // asymmetry, not an oversight. Someone creating one site by hand has the
+  // substation master in front of them; a 250-row spreadsheet rejected whole
+  // over one blank cell is a far worse failure.
+  if (!fields.sapCode.trim())   errs['sapCode']      = 'SAP code is required';
+  if (!fields.zone.trim())      errs['zone']         = 'Zone is required';
+  if (!fields.voltageClass)     errs['voltageClass'] = 'Voltage class is required';
   return errs;
 }
 
@@ -73,6 +85,9 @@ export function CreateSiteModal({
   const [siteName,   setSiteName]   = useState('');
   const [city,       setCity]       = useState('');
   const [state,      setState]      = useState('');
+  const [sapCode,    setSapCode]    = useState('');
+  const [zone,       setZone]       = useState('');
+  const [voltageClass, setVoltageClass] = useState<SiteVoltageClass | ''>('');
   const [circle,     setCircle]     = useState('');
   const [division,   setDivision]   = useState('');
   const [address,    setAddress]    = useState('');
@@ -89,6 +104,9 @@ export function CreateSiteModal({
     setSiteName('');
     setCity('');
     setState('');
+    setSapCode('');
+    setZone('');
+    setVoltageClass('');
     setCircle('');
     setDivision('');
     setAddress('');
@@ -100,7 +118,9 @@ export function CreateSiteModal({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const errs = validate({ siteCode, siteName, city, state, projectId });
+    const errs = validate({
+      siteCode, siteName, city, state, projectId, sapCode, zone, voltageClass,
+    });
     if (Object.keys(errs).length > 0) { setErrors(errs); return; }
 
     // Build location — only if both lat and lng are valid finite numbers
@@ -128,6 +148,10 @@ export function CreateSiteModal({
         projectName: proj.title,
         projectCode: proj.projectCode ?? '',
         location,
+        // Written exactly as the bulk import writes them: trimmed, or null.
+        sapCode:      sapCode.trim() || null,
+        zone:         zone.trim()    || null,
+        voltageClass: voltageClass   || null,
       });
 
       showToast('Site created successfully', 'success');
@@ -189,6 +213,25 @@ export function CreateSiteModal({
             />
             {errors['siteCode'] && (
               <p className="text-xs text-red-500">{errors['siteCode']}</p>
+            )}
+          </div>
+
+          {/* SAP Code — the MSETCL-side identifier, distinct from the Site
+              Code above, which is this app's own. */}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="site-sap-code">SAP Code *</Label>
+            <Input
+              id="site-sap-code"
+              value={sapCode}
+              onChange={(e) => {
+                setSapCode(e.target.value);
+                setErrors((prev) => ({ ...prev, sapCode: '' }));
+              }}
+              placeholder="e.g. 10000123"
+              className={errors['sapCode'] ? 'border-red-400' : ''}
+            />
+            {errors['sapCode'] && (
+              <p className="text-xs text-red-500">{errors['sapCode']}</p>
             )}
           </div>
 
@@ -269,6 +312,56 @@ export function CreateSiteModal({
                 onChange={(e) => setDivision(e.target.value)}
                 placeholder="e.g. Pune Division"
               />
+            </div>
+          </div>
+
+          {/* Zone + Voltage Class — side by side */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="site-zone">Zone *</Label>
+              {/* Free text, not a dropdown: MSETCL's zone allocation has not
+                  been received, so there is no list to pick from — see the
+                  note on Site.zone. */}
+              <Input
+                id="site-zone"
+                value={zone}
+                onChange={(e) => {
+                  setZone(e.target.value);
+                  setErrors((prev) => ({ ...prev, zone: '' }));
+                }}
+                placeholder="e.g. Mumbai Zone"
+                className={errors['zone'] ? 'border-red-400' : ''}
+              />
+              {errors['zone'] && (
+                <p className="text-xs text-red-500">{errors['zone']}</p>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="site-voltage-class">Voltage Class *</Label>
+              {/* A dropdown, because this one IS constrained — the same three
+                  values the bulk import rejects anything else against. */}
+              <Select
+                value={voltageClass}
+                onValueChange={(v) => {
+                  setVoltageClass(v as SiteVoltageClass);
+                  setErrors((prev) => ({ ...prev, voltageClass: '' }));
+                }}
+              >
+                <SelectTrigger
+                  id="site-voltage-class"
+                  className={errors['voltageClass'] ? 'border-red-400' : ''}
+                >
+                  <SelectValue placeholder="Select…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {SITE_VOLTAGE_CLASSES.map((v) => (
+                    <SelectItem key={v} value={v}>{v} kV</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {errors['voltageClass'] && (
+                <p className="text-xs text-red-500">{errors['voltageClass']}</p>
+              )}
             </div>
           </div>
 
