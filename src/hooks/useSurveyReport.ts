@@ -227,9 +227,16 @@ function mapContactDetails(raw: Record<string, any> | undefined): SurveyContactD
     address:                         raw?.['address']                         ?? null,
     pinCode:                         raw?.['pinCode']                         ?? null,
     zoneName:                        raw?.['zoneName']                        ?? null,
+    // Superseded pair — read only, so an old answer can be shown back.
+    // Deliberately NOT used as a fallback for either office below.
     circle:                          raw?.['circle']                          ?? null,
     division:                        raw?.['division']                        ?? null,
-    divisionContactNo:               raw?.['divisionContactNo']               ?? null,
+    omCircle:                        raw?.['omCircle']                        ?? null,
+    omDivision:                      raw?.['omDivision']                      ?? null,
+    omDivisionContactNo:             raw?.['omDivisionContactNo']             ?? null,
+    pacCircle:                       raw?.['pacCircle']                       ?? null,
+    pacDivision:                     raw?.['pacDivision']                     ?? null,
+    pacDivisionContactNo:            raw?.['pacDivisionContactNo']            ?? null,
     commissionedDate:                toDate(raw?.['commissionedDate']),
     nearestRailwayStationOrLandmark: raw?.['nearestRailwayStationOrLandmark'] ?? null,
   };

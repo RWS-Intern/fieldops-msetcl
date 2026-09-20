@@ -210,9 +210,15 @@ function createEmptyContactDetails(): SurveyContactDetails {
     address:                         null,
     pinCode:                         null,
     zoneName:                        null,
+    // Superseded — seeded null and never written again.
     circle:                          null,
     division:                        null,
-    divisionContactNo:               null,
+    omCircle:                        null,
+    omDivision:                      null,
+    omDivisionContactNo:             null,
+    pacCircle:                       null,
+    pacDivision:                     null,
+    pacDivisionContactNo:            null,
     commissionedDate:                null,
     nearestRailwayStationOrLandmark: null,
   };

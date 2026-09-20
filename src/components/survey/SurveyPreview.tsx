@@ -128,6 +128,54 @@ function voltageLabel(level: SurveyFeederEntry['nominalVoltage']): string {
 
 // ─── Site & Visit ──────────────────────────────────────────────────────────────
 
+/** Column template shared by the Office table's header and its three rows. */
+const OFFICE_PREVIEW_COLS =
+  'grid grid-cols-[8.5rem_minmax(6rem,1fr)_minmax(6rem,1fr)] items-baseline gap-2';
+
+/**
+ * The document's Office: O&M / PAC table, previewed as the same 2-column table
+ * the form renders — two offices supporting this substation at once, not a
+ * choice between them. Always shown, including when empty: a blank column is
+ * itself information on a document an MSETCL engineer signs.
+ */
+function OfficeTable({ contact }: { contact: SurveyContactDetails }) {
+  const rows: [string, string | null, string | null][] = [
+    ['Circle Name',         contact.omCircle,             contact.pacCircle],
+    ['Division Name',       contact.omDivision,           contact.pacDivision],
+    ['Division contact No.', contact.omDivisionContactNo, contact.pacDivisionContactNo],
+  ];
+
+  return (
+    <div className="flex flex-col gap-1 break-inside-avoid">
+      <div className="overflow-x-auto">
+        <div className="min-w-[22rem] flex flex-col gap-1">
+          <div className={OFFICE_PREVIEW_COLS}>
+            <span className="text-[10px] uppercase tracking-wide text-gray-400">Office</span>
+            <span className="text-[10px] uppercase tracking-wide text-gray-400">O&amp;M</span>
+            <span className="text-[10px] uppercase tracking-wide text-gray-400">PAC</span>
+          </div>
+          {rows.map(([label, om, pac]) => (
+            <div key={label} className={OFFICE_PREVIEW_COLS}>
+              <span className="text-xs text-gray-500">{label}</span>
+              <span className="text-sm text-gray-800">{dash(om)}</span>
+              <span className="text-sm text-gray-800">{dash(pac)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Superseded single values, flagged rather than silently dropped. */}
+      {contact.circle != null && (
+        <Field label="Previously recorded — Circle" value={dash(contact.circle)}
+               flag="Not yet re-entered against O&M or PAC" />
+      )}
+      {contact.division != null && (
+        <Field label="Previously recorded — Division" value={dash(contact.division)}
+               flag="Not yet re-entered against O&M or PAC" />
+      )}
+    </div>
+  );
+}
+
 function ContactDetailsBlock({ contact }: { contact: SurveyContactDetails }) {
   return (
     <div className="flex flex-col gap-1">
@@ -140,15 +188,13 @@ function ContactDetailsBlock({ contact }: { contact: SurveyContactDetails }) {
         <Field label="Substation Telephone — Landline" value={dash(contact.substationLandline)} />
         <Field label="Substation Telephone — VOIP" value={dash(contact.substationVoip)} />
         <Field label="Zone" value={dash(contact.zoneName)} />
-        <Field label="Circle" value={dash(contact.circle)} />
-        <Field label="Division" value={dash(contact.division)} />
-        <Field label="Division contact No." value={dash(contact.divisionContactNo)} />
         <Field
           label="Commissioned Date"
           value={contact.commissionedDate ? contact.commissionedDate.toLocaleDateString() : '—'}
         />
         <Field label="Nearest Railway Station / Landmark" value={dash(contact.nearestRailwayStationOrLandmark)} />
       </div>
+      <OfficeTable contact={contact} />
       <Field label="Contact Details of Shift Operators" value={dash(contact.shiftOperatorContacts)} />
       <Field label="Address" value={dash(contact.address)} />
       <Field label="Substation PIN code" value={dash(contact.pinCode)} />
@@ -335,11 +381,26 @@ function RelayBlock({ relay, index }: { relay: SurveyRelayEntry; index: number }
         <Field label="Nominal Voltage" value={voltageLabel(relay.nominalVoltage)} />
         <Field label="Relay Make / Model" value={dash(relay.relayMakeModel)} />
         <Field label="Relay Type" value={relay.relayType ? RELAY_TYPE_LABELS[relay.relayType] : '—'} />
-        <Field label="Protocol" value={relay.protocol ? PROTOCOL_LABELS[relay.protocol] : '—'} />
-        <Field label="IP Address" value={dash(relay.ipAddress)} />
         <Field label="Optical" value={dash(relay.optical)} />
         <Field label="CT Ratio" value={dash(relay.ctRatio)} />
       </div>
+      {/* Superseded and no longer collected. Rendered only where a relay
+          actually holds one, and flagged as reference rather than as a gap —
+          there is no field to re-enter these into. */}
+      {relay.protocol != null && (
+        <Field
+          label="Previously recorded — Protocol"
+          value={PROTOCOL_LABELS[relay.protocol] ?? relay.protocol}
+          flag="No longer collected — reference only"
+        />
+      )}
+      {relay.ipAddress != null && (
+        <Field
+          label="Previously recorded — IP Address"
+          value={dash(relay.ipAddress)}
+          flag="No longer collected — reference only"
+        />
+      )}
       <Field label="Remarks" value={dash(relay.remarks)} />
       <PhotoGrid refs={relay.photos} />
     </EntryCard>

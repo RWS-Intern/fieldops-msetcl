@@ -65,7 +65,12 @@ function buildPopulatedSurvey(): SurveyReport {
   survey.contactDetails.email                  = 'vashi.ss@example.test';
   survey.contactDetails.pinCode                = '400703';
   survey.contactDetails.zoneName               = 'Mumbai Zone';
-  survey.contactDetails.divisionContactNo      = '022-27819999';
+  survey.contactDetails.omCircle               = 'Vashi O&M Circle';
+  survey.contactDetails.omDivision             = 'Vashi O&M Division';
+  survey.contactDetails.omDivisionContactNo    = '022-27819999';
+  survey.contactDetails.pacCircle              = 'Mumbai PAC Circle';
+  survey.contactDetails.pacDivision            = 'Mumbai PAC Division';
+  survey.contactDetails.pacDivisionContactNo   = '022-27817777';
   survey.contactDetails.commissionedDate       = new Date('2011-06-01');
   survey.controlRoom.layoutNotes               = 'Panels along north wall.';
   survey.controlRoom.acAvailable               = true;
@@ -93,8 +98,11 @@ function buildPopulatedSurvey(): SurveyReport {
   });
   survey.relays.push({
     uid: 'r1', bayName: 'Bay-01', nominalVoltage: '132',
-    relayMakeModel: 'ABB REL670', relayType: 'numeric', protocol: 'iec_61850',
-    ipAddress: '192.168.1.10', optical: 'yes', ctRatio: '800/1',
+    relayMakeModel: 'ABB REL670', relayType: 'numeric',
+    // Superseded and no longer collected — null on the clean fixture so it
+    // stays genuinely unflagged.
+    protocol: null, ipAddress: null,
+    optical: 'yes', ctRatio: '800/1',
     remarks: null, photos: [],
   });
   survey.capacitorBanks.push({
@@ -220,6 +228,14 @@ function buildLegacySurvey(): SurveyReport {
   survey.assetCounts.transformerCount   = 5;
   survey.assetCounts.busCount           = 2;
   survey.assetCounts.capacitorBankCount = 1;
+  // The single Circle / Division the two-office O&M/PAC table replaced.
+  survey.contactDetails.circle   = 'Vashi Circle';
+  survey.contactDetails.division = 'Vashi Division';
+  // Protocol / IP Address, which the relay step no longer asks for. These are
+  // REFERENCE hits: they must show in the banner's second list and must NOT
+  // count towards the re-enter total.
+  survey.relays[0].protocol  = 'iec_61850';
+  survey.relays[0].ipAddress = '192.168.1.10';
   // The combined MFM answer the two toggles replaced. Left set ALONGSIDE the
   // two new fields being unanswered, which is exactly how a stored document
   // written before the split looks.
@@ -327,10 +343,28 @@ export function runSurveyWalk(): number {
     console.log(`  ${cleanOk ? 'ok  ' : 'FAIL'} clean survey: NOT flagged (${cleanHits.length} hits)`);
     if (!cleanOk) failures++;
 
-    const legacyOk = surveyHasLegacyVoltageData(legacy) === true && legacyHits.length === 10;
-    console.log(`  ${legacyOk ? 'ok  ' : 'FAIL'} legacy survey: flagged, ${legacyHits.length} hits (expected 10)`);
+    // Split by kind, not just counted: a REFERENCE hit (a question that is
+    // gone, with no field to re-enter it into) must never count towards the
+    // re-enter total, or the banner could never be cleared.
+    const reenter   = legacyHits.filter((h) => h.kind !== 'reference');
+    const reference = legacyHits.filter((h) => h.kind === 'reference');
+    const legacyOk = surveyHasLegacyVoltageData(legacy) === true
+      && legacyHits.length === 13 && reenter.length === 12 && reference.length === 1;
+    console.log(`  ${legacyOk ? 'ok  ' : 'FAIL'} legacy survey: flagged, ${legacyHits.length} hits`
+      + ` — ${reenter.length} to re-enter (expected 12), ${reference.length} reference (expected 1)`);
     if (!legacyOk) failures++;
-    legacyHits.forEach((h) => console.log(`         - ${h.section}: ${h.label}${h.value ? ` (was ${h.value})` : ''}`));
+    legacyHits.forEach((h) => console.log(
+      `         - [${h.kind ?? 're-enter'}] ${h.section}: ${h.label}${h.value ? ` (was ${h.value})` : ''}`));
+
+    // A survey whose ONLY orphaned answers are reference ones must not raise
+    // the banner — nothing could ever clear it.
+    const refOnly = buildPopulatedSurvey();
+    refOnly.relays[0].protocol = 'iec_61850';
+    const refOnlyBanner = renderToStaticMarkup(<LegacyVoltageBanner survey={refOnly} />);
+    const refOnlyOk = findLegacyVoltageData(refOnly).length === 1
+      && surveyHasLegacyVoltageData(refOnly) === false && refOnlyBanner.length === 0;
+    console.log(`  ${refOnlyOk ? 'ok  ' : 'FAIL'} reference-only survey: detected but banner NOT raised`);
+    if (!refOnlyOk) failures++;
 
     // Absent entirely when clean, present when affected — the two states the
     // supervisor asked to see proven, not asserted.

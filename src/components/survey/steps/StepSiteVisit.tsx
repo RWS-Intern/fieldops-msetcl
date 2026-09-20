@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { TriStateToggle } from '@/components/survey/TriStateToggle';
-import { LegacyVoltageValueNote } from '@/components/survey/LegacyVoltageNote';
+import { LegacyVoltageValueNote, LegacyOfficeNote } from '@/components/survey/LegacyVoltageNote';
 import {
   VOLTAGE_LEVEL_LABELS, ASSET_COUNT_ROWS, ASSET_COUNT_ROW_LABELS,
 } from '@/lib/surveyLabels';
@@ -48,6 +48,10 @@ function toCount(raw: string): number | null {
 
 /** Column template shared by the grid's heading row and its four data rows. */
 const ASSET_GRID_COLS = 'grid grid-cols-[7.5rem_repeat(7,minmax(3.25rem,1fr))] items-center gap-1.5';
+
+/** Column template shared by the Office table's header and its three rows. */
+const OFFICE_GRID_COLS =
+  'grid grid-cols-[8.5rem_minmax(7rem,1fr)_minmax(7rem,1fr)] items-center gap-2';
 
 /**
  * Sum of the answered levels only — null until at least one is filled.
@@ -416,44 +420,97 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
           />
         </div>
 
-        {/* Zone / Circle / Division — outermost first, the document's order. */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ssZone">Zone Name</Label>
-            <Input
-              id="ssZone"
-              disabled={readOnly}
-              value={contact.zoneName ?? ''}
-              onChange={(e) => updateContact({ zoneName: e.target.value || null })}
-            />
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ssZone">Zone Name</Label>
+          <Input
+            id="ssZone"
+            disabled={readOnly}
+            value={contact.zoneName ?? ''}
+            onChange={(e) => updateContact({ zoneName: e.target.value || null })}
+          />
+        </div>
+
+        {/*
+          The document's "Office: O&M / PAC" table, rendered as the 2-column
+          table it actually is. O&M and PAC are two offices supporting this
+          same substation at once — NOT a classification to pick between — so
+          both columns are always present and independently fillable.
+
+          Scrolls rather than wrapping, same container pattern as the asset
+          grid and the ACDB/DCDB board tables: two columns of real inputs will
+          not fit a phone, and the row/column pairing is the whole point.
+        */}
+        <div className="flex flex-col gap-1.5">
+          <Label>Office</Label>
+          <div className="overflow-x-auto">
+            <div className="min-w-[26rem] flex flex-col gap-1.5 rounded-lg border border-gray-100 p-2">
+              <div className={OFFICE_GRID_COLS}>
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                  Office
+                </span>
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                  O&amp;M
+                </span>
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                  PAC
+                </span>
+              </div>
+
+              <div className={OFFICE_GRID_COLS}>
+                <span className="text-xs font-medium text-gray-600">Circle Name</span>
+                <Input
+                  className="h-9" disabled={readOnly}
+                  aria-label="O&M Circle Name"
+                  value={contact.omCircle ?? ''}
+                  onChange={(e) => updateContact({ omCircle: e.target.value || null })}
+                />
+                <Input
+                  className="h-9" disabled={readOnly}
+                  aria-label="PAC Circle Name"
+                  value={contact.pacCircle ?? ''}
+                  onChange={(e) => updateContact({ pacCircle: e.target.value || null })}
+                />
+              </div>
+
+              <div className={OFFICE_GRID_COLS}>
+                <span className="text-xs font-medium text-gray-600">Division Name</span>
+                <Input
+                  className="h-9" disabled={readOnly}
+                  aria-label="O&M Division Name"
+                  value={contact.omDivision ?? ''}
+                  onChange={(e) => updateContact({ omDivision: e.target.value || null })}
+                />
+                <Input
+                  className="h-9" disabled={readOnly}
+                  aria-label="PAC Division Name"
+                  value={contact.pacDivision ?? ''}
+                  onChange={(e) => updateContact({ pacDivision: e.target.value || null })}
+                />
+              </div>
+
+              <div className={OFFICE_GRID_COLS}>
+                <span className="text-xs font-medium text-gray-600">Division contact No.</span>
+                <Input
+                  className="h-9" type="tel" inputMode="tel" disabled={readOnly}
+                  aria-label="O&M Division contact No."
+                  value={contact.omDivisionContactNo ?? ''}
+                  onChange={(e) => updateContact({ omDivisionContactNo: e.target.value || null })}
+                />
+                <Input
+                  className="h-9" type="tel" inputMode="tel" disabled={readOnly}
+                  aria-label="PAC Division contact No."
+                  value={contact.pacDivisionContactNo ?? ''}
+                  onChange={(e) => updateContact({ pacDivisionContactNo: e.target.value || null })}
+                />
+              </div>
+            </div>
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ssCircle">Circle</Label>
-            <Input
-              id="ssCircle"
-              disabled={readOnly}
-              value={contact.circle ?? ''}
-              onChange={(e) => updateContact({ circle: e.target.value || null })}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ssDivision">Division</Label>
-            <Input
-              id="ssDivision"
-              disabled={readOnly}
-              value={contact.division ?? ''}
-              onChange={(e) => updateContact({ division: e.target.value || null })}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ssDivisionContactNo">Division contact No.</Label>
-            <Input
-              id="ssDivisionContactNo"
-              type="tel" inputMode="tel" disabled={readOnly}
-              value={contact.divisionContactNo ?? ''}
-              onChange={(e) => updateContact({ divisionContactNo: e.target.value || null })}
-            />
-          </div>
+
+          {/* The pre-table answers, where a survey still holds them. Shown for
+              manual re-entry into the correct column above, never auto-filed
+              into either: nothing says which office they described. */}
+          <LegacyOfficeNote label="Circle" value={contact.circle} />
+          <LegacyOfficeNote label="Division" value={contact.division} />
         </div>
 
         <div className="flex flex-col gap-1.5">

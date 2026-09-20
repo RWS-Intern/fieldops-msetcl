@@ -660,7 +660,23 @@ export interface SurveyRelayEntry {
   nominalVoltage: StoredVoltageLevel | null;
   relayMakeModel: string | null;
   relayType: SurveyRelayType | null;
+  /**
+   * @deprecated Removed from the form.
+   *
+   * Dead but deliberately present: both this and `ipAddress` below were live,
+   * editable inputs from the original build, so an in-progress survey may hold
+   * real answers. Nothing writes them any more; they are read only so a
+   * recorded value can be shown back.
+   *
+   * UNLIKE every other superseded field in this codebase, there is NO
+   * replacement field to re-enter these into — the question is simply no
+   * longer asked. So they surface as REFERENCE, never as an outstanding
+   * action: a "please re-enter this" banner for an answer with nowhere to go
+   * could never be cleared, which would train people to ignore the banner
+   * that does matter.
+   */
   protocol: DeviceProtocol | null;
+  /** @deprecated See the note on `protocol` above. */
   ipAddress: string | null;
   /**
    * UNVERIFIED FIELD SHAPE — free text was chosen because it can hold either
@@ -781,15 +797,42 @@ export interface SurveyContactDetails {
    */
   pinCode: string | null;
   /**
-   * Administrative hierarchy, outermost first: Zone contains Circle contains
-   * Division. Three separate fields because the document asks for all three by
-   * name; none is derivable from the others here.
+   * Zone is asked for once, for the substation as a whole — it is not part of
+   * the per-office table below, which starts at Circle.
    */
   zoneName: string | null;
+
+  /**
+   * @deprecated Superseded by the O&M / PAC pairs below.
+   *
+   * Dead but deliberately present: these have been live, editable inputs since
+   * the first Contact Details build, so an in-progress survey may hold real
+   * answers. They are NOT auto-split into either office — the document shows
+   * O&M and PAC as two offices supporting the same substation at once, and a
+   * single old value gives no way to tell which one it described (it may even
+   * predate the distinction). Guessing would file a real office's details
+   * under the wrong column on a document that governs a government
+   * submission. Read only, surfaced for manual re-entry.
+   */
   circle: string | null;
+  /** @deprecated See the note on `circle` above. */
   division: string | null;
-  /** "Division contact No." — the division office's line, not the station's. */
-  divisionContactNo: string | null;
+
+  /**
+   * The document's "Office: O&M / PAC" table — two offices, each with its own
+   * Circle, Division and Division contact number, both supporting this same
+   * substation simultaneously. Not a choice between two kinds of office.
+   *
+   * Six flat fields rather than a nested `{ om, pac }` pair, matching the flat
+   * style of every other field in this interface; the UI renders them as the
+   * document's own 2-column table.
+   */
+  omCircle: string | null;
+  omDivision: string | null;
+  omDivisionContactNo: string | null;
+  pacCircle: string | null;
+  pacDivision: string | null;
+  pacDivisionContactNo: string | null;
   commissionedDate: Date | null;
   nearestRailwayStationOrLandmark: string | null;
 }

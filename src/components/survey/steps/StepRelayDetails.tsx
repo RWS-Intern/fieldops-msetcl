@@ -6,14 +6,12 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import {
-  VOLTAGE_LEVEL_LABELS, RELAY_TYPE_LABELS, PROTOCOL_LABELS,
-} from '@/lib/surveyLabels';
+import { VOLTAGE_LEVEL_LABELS, RELAY_TYPE_LABELS } from '@/lib/surveyLabels';
 import { SURVEY_VOLTAGE_LEVELS } from '@/types';
-import { LegacyVoltageNote } from '@/components/survey/LegacyVoltageNote';
+import { LegacyVoltageNote, LegacyRelayNote } from '@/components/survey/LegacyVoltageNote';
 import type { SurveyStepProps } from './StepProps';
 import type {
-  SurveyRelayEntry, SurveyVoltageLevel, SurveyRelayType, DeviceProtocol,
+  SurveyRelayEntry, SurveyVoltageLevel, SurveyRelayType,
 } from '@/types';
 
 function createRelay(): SurveyRelayEntry {
@@ -23,6 +21,8 @@ function createRelay(): SurveyRelayEntry {
     nominalVoltage: null,
     relayMakeModel: null,
     relayType:      null,
+    // Superseded — seeded null and never written again, so a new relay can
+    // never acquire one. Present only so old entries keep their answer.
     protocol:       null,
     ipAddress:      null,
     optical:        null,
@@ -110,34 +110,6 @@ export function StepRelayDetails({ survey, onChange, readOnly, onReplacePhotoRef
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label>Protocol</Label>
-            <Select
-              disabled={readOnly}
-              value={relay.protocol ?? undefined}
-              onValueChange={(v) => update({ protocol: v as DeviceProtocol })}
-            >
-              <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
-              <SelectContent>
-                {(Object.keys(PROTOCOL_LABELS) as DeviceProtocol[]).map((p) => (
-                  <SelectItem key={p} value={p}>{PROTOCOL_LABELS[p]}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1.5">
-            <Label>IP Address</Label>
-            <Input
-              disabled={readOnly}
-              inputMode="numeric"
-              placeholder="e.g. 192.168.1.10"
-              value={relay.ipAddress ?? ''}
-              onChange={(e) => update({ ipAddress: e.target.value || null })}
-            />
-          </div>
           {/*
             Free text, not a yes/no toggle: unconfirmed against the source
             document (Phase 1 decision 3). Text holds either answer — a tick
@@ -152,6 +124,11 @@ export function StepRelayDetails({ survey, onChange, readOnly, onReplacePhotoRef
             />
           </div>
         </div>
+
+        {/* Protocol and IP Address used to sit here. Shown back read-only
+            where a relay still holds them — there is no field to re-enter
+            them into, so this is reference, not an outstanding action. */}
+        <LegacyRelayNote protocol={relay.protocol} ipAddress={relay.ipAddress} />
 
         <div className="flex flex-col gap-1.5">
           <Label>CT Ratio</Label>

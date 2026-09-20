@@ -8,7 +8,9 @@ import type { StoredVoltageLevel, SurveyReport } from '@/types';
  *   - the flat transformer/bus/capacitor-bank totals the 4 x 7 asset grid
  *     replaced;
  *   - the fixed 10-slot ACDB/DCDB MCB tables the two board details replaced;
- *   - the combined "MFM available & working" answer the two toggles replaced.
+ *   - the combined "MFM available & working" answer the two toggles replaced;
+ *   - the single Circle/Division the two-office O&M/PAC table replaced;
+ *   - relay Protocol / IP Address, which no longer have a field at all.
  *
  * Nothing here migrates anything. A feeder's real level, a DC breaker voltage
  * or a bay count can genuinely differ between 66kV and 33kV, so copying the
@@ -24,10 +26,23 @@ export function isLegacyVoltage(level: StoredVoltageLevel | null | undefined): b
 
 /** One place in the survey still holding a pre-split answer. */
 export interface LegacyVoltageHit {
+  /**
+   * Whether there is somewhere to put this answer.
+   *
+   * 're-enter' (the default) — the question is still asked, in a differently
+   * shaped field, so this is an outstanding action and the banner counts it.
+   *
+   * 'reference' — the question is GONE. The stored answer is shown back so it
+   * is not silently lost, but nobody can act on it, so it must never keep the
+   * banner alive: a notice that cannot be cleared is a notice people learn to
+   * ignore.
+   */
+  kind?: 're-enter' | 'reference';
   /** Which section, for the banner's summary line. */
   section: 'Feeder List' | 'CRP Relay Details' | 'Transformer Details'
          | 'Capacitor Banks' | 'DC breaker voltage' | 'Bay counts'
-         | 'Asset totals' | 'ACDB/DCDB slots' | 'MFM availability';
+         | 'Asset totals' | 'ACDB/DCDB slots' | 'MFM availability'
+         | 'Office (Circle / Division)' | 'Relay Protocol / IP';
   /** How that one entry identifies itself, e.g. a bay name. */
   label: string;
   /** The old value as recorded, where there is one worth showing back. */
@@ -67,6 +82,23 @@ export function findLegacyVoltageData(survey: SurveyReport): LegacyVoltageHit[] 
       hits.push({ section: 'CRP Relay Details', label: r.bayName?.trim() || `Relay #${i + 1}` });
     }
   });
+  // Protocol and IP Address, which the CRP Relay Details step no longer asks
+  // for. Reference only — there is no field to re-enter them into.
+  survey.relays.forEach((r, i) => {
+    const recorded = [
+      r.protocol  ? `protocol ${r.protocol}` : null,
+      r.ipAddress ? `IP ${r.ipAddress}`      : null,
+    ].filter(Boolean);
+    if (recorded.length > 0) {
+      hits.push({
+        kind:    'reference',
+        section: 'Relay Protocol / IP',
+        label:   r.bayName?.trim() || `Relay #${i + 1}`,
+        value:   recorded.join(', '),
+      });
+    }
+  });
+
   survey.transformers.forEach((t, i) => {
     if (isLegacyVoltage(t.voltageLevel)) {
       hits.push({
@@ -83,6 +115,18 @@ export function findLegacyVoltageData(survey: SurveyReport): LegacyVoltageHit[] 
       });
     }
   });
+
+  // The single Circle / Division the two-office table replaced. Each surfaces
+  // on its own: a survey may hold one without the other.
+  const office: [string, string | null][] = [
+    ['Circle',   survey.contactDetails.circle],
+    ['Division', survey.contactDetails.division],
+  ];
+  for (const [label, value] of office) {
+    if (value != null && value.trim() !== '') {
+      hits.push({ section: 'Office (Circle / Division)', label, value });
+    }
+  }
 
   const legacyDc = survey.siteChecklist.acDcSupply.dcBreakerVoltageByLevel[LEGACY_COMBINED_VOLTAGE_LEVEL];
   if (legacyDc != null) {
@@ -127,12 +171,14 @@ export function findLegacyVoltageData(survey: SurveyReport): LegacyVoltageHit[] 
 }
 
 /**
- * Whether this survey has ANY pre-split answer left.
+ * Whether this survey has any ACTIONABLE orphaned answer — one the banner
+ * should keep asking about. Reference-only hits are excluded on purpose: see
+ * the note on LegacyVoltageHit.kind.
  *
  * Cheap enough to call on every render (it walks four short arrays and reads
  * two keys), which is what lets the wizard show its banner on every step
  * rather than only on the sections that happen to be affected.
  */
 export function surveyHasLegacyVoltageData(survey: SurveyReport): boolean {
-  return findLegacyVoltageData(survey).length > 0;
+  return findLegacyVoltageData(survey).some((h) => h.kind !== 'reference');
 }
