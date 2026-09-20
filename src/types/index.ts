@@ -583,8 +583,50 @@ export interface SurveyFeederEntry {
   feederOrTransformerDescription: string | null;
   cableTrenchLengthM: number | null;
   panelSpaceAvailable: boolean | null;
+
+  /**
+   * Two separate questions, per the source document's own columns. An MFM can
+   * be present but dead, which the single combined field below could not
+   * express.
+   */
+  existingMfmAvailable: boolean | null;
+  existingMfmWorking: boolean | null;
+
+  /**
+   * @deprecated Superseded by the pair above.
+   *
+   * Dead but deliberately present: this has been a live input since the Feeder
+   * List was built, so in-progress surveys may hold real answers. It is NOT
+   * auto-split — a recorded "no" is ambiguous (not present? present but not
+   * working?) and guessing would write a wrong answer onto a document that
+   * governs a government submission. Read only, surfaced for manual re-entry.
+   */
   existingMfmAvailableWorking: boolean | null;
+
+  /**
+   * RS485 port. `existingMfmRs485Available` keeps its exact name AND meaning
+   * from before — the document simply adds a second question beside it, so
+   * this pair is purely additive and needs no migration.
+   */
   existingMfmRs485Available: boolean | null;
+  existingMfmRs485Working: boolean | null;
+
+  /** "Availability of SPACE in C&R for FRTU" */
+  frtuSpaceAvailable: boolean | null;
+  /**
+   * "CAT6 cable Length from FRTU to Bay Switch (In MTR)".
+   *
+   * PER FEEDER, and deliberately not part of the pooled Cable Runs step: that
+   * step records named routes across the station, this is one measurement
+   * belonging to this bay. Never summed into the cable-run totals.
+   */
+  cat6LengthFrtuToBaySwitchM: number | null;
+  /**
+   * "Availability of SPACE in C&R Panel to Install CMRs" — a different
+   * question from panelSpaceAvailable above, which is about the bay panel
+   * generally.
+   */
+  cmrSpaceAvailable: boolean | null;
   /** Direct surveyor entry. Summed into the MFM BOQ line's requiredToSupply. */
   mfmRequired: number | null;
   /** Direct surveyor entry. Summed into the CMR BOQ line's requiredToSupply. */
@@ -676,9 +718,21 @@ export interface SurveyTransformerEntry {
   /** "(Resistance/Lamp)" per the source document — no third option exists. */
   tapPositionConnectionType: TapPositionConnectionType | null;
   rtccPanelWorking: boolean | null;
-  existingTpiWorking: boolean | null;
+  /**
+   * The document calls this TPT throughout; it was built as "TPI". Same
+   * physical thing under two names, so the read mapper falls back to the old
+   * key and existing answers carry over silently — no ambiguity, and nothing
+   * to surface for re-entry.
+   */
+  existingTptWorking: boolean | null;
+  /**
+   * Retained untouched: this column does not appear in the filled example, so
+   * whether it still belongs is unconfirmed. Nothing new is built around it.
+   */
   existingTpi4to20mAAvailable: boolean | null;
   tptRequired: boolean | null;
+  /** "No of Required TPT" — direct entry, same pattern as MFM/CMR/FRTU. */
+  requiredTptCount: number | null;
   remarks: string | null;
 }
 

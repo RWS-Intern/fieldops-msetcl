@@ -7,7 +7,8 @@ import type { StoredVoltageLevel, SurveyReport } from '@/types';
  *   - levels recorded before 66/33kV was split into two;
  *   - the flat transformer/bus/capacitor-bank totals the 4 x 7 asset grid
  *     replaced;
- *   - the fixed 10-slot ACDB/DCDB MCB tables the two board details replaced.
+ *   - the fixed 10-slot ACDB/DCDB MCB tables the two board details replaced;
+ *   - the combined "MFM available & working" answer the two toggles replaced.
  *
  * Nothing here migrates anything. A feeder's real level, a DC breaker voltage
  * or a bay count can genuinely differ between 66kV and 33kV, so copying the
@@ -26,7 +27,7 @@ export interface LegacyVoltageHit {
   /** Which section, for the banner's summary line. */
   section: 'Feeder List' | 'CRP Relay Details' | 'Transformer Details'
          | 'Capacitor Banks' | 'DC breaker voltage' | 'Bay counts'
-         | 'Asset totals' | 'ACDB/DCDB slots';
+         | 'Asset totals' | 'ACDB/DCDB slots' | 'MFM availability';
   /** How that one entry identifies itself, e.g. a bay name. */
   label: string;
   /** The old value as recorded, where there is one worth showing back. */
@@ -48,6 +49,19 @@ export function findLegacyVoltageData(survey: SurveyReport): LegacyVoltageHit[] 
       hits.push({ section: 'Feeder List', label: f.bayName?.trim() || `Feeder #${i + 1}` });
     }
   });
+  // The combined MFM answer. Same class of problem as a combined voltage
+  // level: still stored, no longer has a field, and only the surveyor can say
+  // which half a "no" meant.
+  survey.feeders.forEach((f, i) => {
+    if (f.existingMfmAvailableWorking != null) {
+      hits.push({
+        section: 'MFM availability',
+        label:   f.bayName?.trim() || `Feeder #${i + 1}`,
+        value:   f.existingMfmAvailableWorking ? 'Yes' : 'No',
+      });
+    }
+  });
+
   survey.relays.forEach((r, i) => {
     if (isLegacyVoltage(r.nominalVoltage)) {
       hits.push({ section: 'CRP Relay Details', label: r.bayName?.trim() || `Relay #${i + 1}` });

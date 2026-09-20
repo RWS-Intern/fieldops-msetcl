@@ -76,8 +76,13 @@ function buildPopulatedSurvey(): SurveyReport {
   survey.feeders.push({
     uid: 'f1', bayName: 'Bay-01', nominalVoltage: '132',
     feederOrTransformerDescription: 'Line to Nashik', cableTrenchLengthM: 30,
-    panelSpaceAvailable: true, existingMfmAvailableWorking: true,
-    existingMfmRs485Available: false, mfmRequired: 2, cmrRequired: 1,
+    panelSpaceAvailable: true,
+    existingMfmAvailable: true, existingMfmWorking: false,
+    existingMfmAvailableWorking: null,
+    existingMfmRs485Available: true, existingMfmRs485Working: false,
+    frtuSpaceAvailable: true, cat6LengthFrtuToBaySwitchM: 45,
+    cmrSpaceAvailable: false,
+    mfmRequired: 2, cmrRequired: 1,
     ctPtRatio: '800/1', shutdownRequired: false, diStatusPoints: 12,
     frtuModulesRequired: 1, remarks: 'ok', photos: [],
   });
@@ -96,8 +101,8 @@ function buildPopulatedSurvey(): SurveyReport {
     uid: 't1', transformerNumber: 'TR-1', voltageLevel: '132',
     mvaRating: '50/63 MVA', rtccHighStep: '+9', rtccLowStep: '-9',
     tapPositionConnectionType: 'resistance', rtccPanelWorking: true,
-    existingTpiWorking: true, existingTpi4to20mAAvailable: false,
-    tptRequired: true, remarks: null,
+    existingTptWorking: true, existingTpi4to20mAAvailable: false,
+    tptRequired: true, requiredTptCount: 2, remarks: null,
   });
   // Both cable types — each is now a REQUIRED group, and each renders in its
   // own list on the step and in the preview.
@@ -210,6 +215,12 @@ function buildLegacySurvey(): SurveyReport {
   survey.assetCounts.transformerCount   = 5;
   survey.assetCounts.busCount           = 2;
   survey.assetCounts.capacitorBankCount = 1;
+  // The combined MFM answer the two toggles replaced. Left set ALONGSIDE the
+  // two new fields being unanswered, which is exactly how a stored document
+  // written before the split looks.
+  survey.feeders[0].existingMfmAvailableWorking = false;
+  survey.feeders[0].existingMfmAvailable = null;
+  survey.feeders[0].existingMfmWorking   = null;
   // One filled slot on each superseded 10-slot board table.
   survey.acdcMcbDetails.acdbMcbSlots = [
     { poleType: 'single', ratingA: '16 A' },
@@ -311,8 +322,8 @@ export function runSurveyWalk(): number {
     console.log(`  ${cleanOk ? 'ok  ' : 'FAIL'} clean survey: NOT flagged (${cleanHits.length} hits)`);
     if (!cleanOk) failures++;
 
-    const legacyOk = surveyHasLegacyVoltageData(legacy) === true && legacyHits.length === 9;
-    console.log(`  ${legacyOk ? 'ok  ' : 'FAIL'} legacy survey: flagged, ${legacyHits.length} hits (expected 9)`);
+    const legacyOk = surveyHasLegacyVoltageData(legacy) === true && legacyHits.length === 10;
+    console.log(`  ${legacyOk ? 'ok  ' : 'FAIL'} legacy survey: flagged, ${legacyHits.length} hits (expected 10)`);
     if (!legacyOk) failures++;
     legacyHits.forEach((h) => console.log(`         - ${h.section}: ${h.label}${h.value ? ` (was ${h.value})` : ''}`));
 

@@ -25,9 +25,10 @@ function createTransformer(): SurveyTransformerEntry {
     rtccLowStep:                 null,
     tapPositionConnectionType:   null,
     rtccPanelWorking:            null,
-    existingTpiWorking:          null,
+    existingTptWorking:          null,
     existingTpi4to20mAAvailable: null,
     tptRequired:                 null,
+    requiredTptCount:            null,
     remarks:                     null,
   };
 }
@@ -139,19 +140,19 @@ export function StepTransformerDetails({ survey, onChange, readOnly }: SurveySte
         />
 
         <TriStateToggle
-          label="Existing TPI working?"
-          value={tx.existingTpiWorking}
-          onChange={(v) => update({ existingTpiWorking: v })}
+          label="Existing TPT working?"
+          value={tx.existingTptWorking}
+          onChange={(v) => update({ existingTptWorking: v })}
           readOnly={readOnly}
         />
         {/*
-          An analog output can't be assessed on a TPI that isn't working, so
+          An analog output can't be assessed on a TPT that isn't working, so
           this only appears once the parent is yes. Not cleared when the
           parent flips back — same reasoning as the RS485 and AC-condition
           fields: discarding a recorded observation is worse than a hidden
           stale value the reviewer can see in context.
         */}
-        {tx.existingTpiWorking === true && (
+        {tx.existingTptWorking === true && (
           <TriStateToggle
             label="Existing TPI 4-20 mA output available?"
             value={tx.existingTpi4to20mAAvailable}
@@ -173,6 +174,17 @@ export function StepTransformerDetails({ survey, onChange, readOnly }: SurveySte
             line. That quantity is entered by hand on the BOQ step — it is not summed from here —
             so cross-check the two before signing.
           </p>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>No. of Required TPT</Label>
+          <Input
+            type="number" inputMode="numeric" disabled={readOnly}
+            value={tx.requiredTptCount ?? ''}
+            onChange={(e) => update({
+              requiredTptCount: e.target.value === '' ? null : Math.max(0, Number(e.target.value)),
+            })}
+          />
         </div>
 
         <div className="flex flex-col gap-1.5">

@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/select';
 import { VOLTAGE_LEVEL_LABELS, storedVoltageLabel } from '@/lib/surveyLabels';
 import { SURVEY_VOLTAGE_LEVELS } from '@/types';
-import { LegacyVoltageNote } from '@/components/survey/LegacyVoltageNote';
+import { LegacyVoltageNote, LegacyCombinedMfmNote } from '@/components/survey/LegacyVoltageNote';
 import type { SurveyStepProps } from './StepProps';
 import type { SurveyFeederEntry, SurveyVoltageLevel } from '@/types';
 
@@ -22,8 +22,16 @@ function createFeeder(): SurveyFeederEntry {
     feederOrTransformerDescription: null,
     cableTrenchLengthM:             null,
     panelSpaceAvailable:            null,
+    existingMfmAvailable:           null,
+    existingMfmWorking:             null,
+    // Superseded — seeded null and never written again, so a new feeder can
+    // never acquire one. Present only so old entries keep their answer.
     existingMfmAvailableWorking:    null,
     existingMfmRs485Available:      null,
+    existingMfmRs485Working:        null,
+    frtuSpaceAvailable:             null,
+    cat6LengthFrtuToBaySwitchM:     null,
+    cmrSpaceAvailable:              null,
     mfmRequired:                    null,
     cmrRequired:                    null,
     ctPtRatio:                      null,
@@ -127,24 +135,43 @@ export function StepFeederList({ survey, onChange, readOnly, onReplacePhotoRef }
         />
 
         <TriStateToggle
-          label="Existing MFM available & working?"
-          value={feeder.existingMfmAvailableWorking}
-          onChange={(v) => update({ existingMfmAvailableWorking: v })}
+          label="Existing MFM available?"
+          value={feeder.existingMfmAvailable}
+          onChange={(v) => update({ existingMfmAvailable: v })}
           readOnly={readOnly}
         />
+        <TriStateToggle
+          label="Existing MFM working?"
+          value={feeder.existingMfmWorking}
+          onChange={(v) => update({ existingMfmWorking: v })}
+          readOnly={readOnly}
+        />
+        {/* The pre-split combined answer, where a feeder still has one. Shown
+            for manual re-entry into the two toggles above, never auto-split:
+            a recorded "no" does not say which half it meant. */}
+        <LegacyCombinedMfmNote value={feeder.existingMfmAvailableWorking} />
         {/*
-          RS485 is only a meaningful question about an MFM that exists. Note the
-          answer is NOT cleared when the parent flips back to no/unanswered —
+          RS485 is only a meaningful question about an MFM that exists, so the
+          pair gates on "available" rather than the old combined field. Note the
+          answers are NOT cleared when the parent flips back to no/unanswered —
           silently discarding a recorded observation would be worse than a
           hidden stale value, and the reviewer sees the parent answer too.
         */}
-        {feeder.existingMfmAvailableWorking === true && (
-          <TriStateToggle
-            label="Existing MFM RS485 available?"
-            value={feeder.existingMfmRs485Available}
-            onChange={(v) => update({ existingMfmRs485Available: v })}
-            readOnly={readOnly}
-          />
+        {feeder.existingMfmAvailable === true && (
+          <>
+            <TriStateToggle
+              label="Existing MFM RS485 available?"
+              value={feeder.existingMfmRs485Available}
+              onChange={(v) => update({ existingMfmRs485Available: v })}
+              readOnly={readOnly}
+            />
+            <TriStateToggle
+              label="Existing MFM RS485 working?"
+              value={feeder.existingMfmRs485Working}
+              onChange={(v) => update({ existingMfmRs485Working: v })}
+              readOnly={readOnly}
+            />
+          </>
         )}
 
         <div className="grid grid-cols-2 gap-3">
@@ -223,6 +250,36 @@ export function StepFeederList({ survey, onChange, readOnly, onReplacePhotoRef }
             })}
           />
         </div>
+
+        <TriStateToggle
+          label="Space available in C&amp;R for FRTU?"
+          value={feeder.frtuSpaceAvailable}
+          onChange={(v) => update({ frtuSpaceAvailable: v })}
+          readOnly={readOnly}
+        />
+
+        {/* Per-feeder measurement, deliberately NOT part of the Cable Runs
+            step: that step records named routes across the station, this is
+            one run belonging to this bay. Never summed into those totals. */}
+        <div className="flex flex-col gap-1.5">
+          <Label>CAT6 Cable Length, FRTU to Bay Switch (m)</Label>
+          <Input
+            type="number" inputMode="decimal" disabled={readOnly}
+            value={feeder.cat6LengthFrtuToBaySwitchM ?? ''}
+            onChange={(e) => update({
+              cat6LengthFrtuToBaySwitchM: e.target.value === '' ? null : Math.max(0, Number(e.target.value)),
+            })}
+          />
+        </div>
+
+        {/* A different question from "Panel space available?" above, which is
+            about the bay panel generally rather than room for CMRs. */}
+        <TriStateToggle
+          label="Space available in C&amp;R panel to install CMRs?"
+          value={feeder.cmrSpaceAvailable}
+          onChange={(v) => update({ cmrSpaceAvailable: v })}
+          readOnly={readOnly}
+        />
 
         <PhotoCapture
           photos={feeder.photos}

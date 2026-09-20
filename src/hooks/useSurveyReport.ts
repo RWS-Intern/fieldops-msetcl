@@ -129,8 +129,17 @@ function mapFeeder(raw: Record<string, any>): SurveyFeederEntry {
     feederOrTransformerDescription: raw['feederOrTransformerDescription'] ?? null,
     cableTrenchLengthM:             raw['cableTrenchLengthM']             ?? null,
     panelSpaceAvailable:            raw['panelSpaceAvailable']            ?? null,
+    existingMfmAvailable:           raw['existingMfmAvailable']           ?? null,
+    existingMfmWorking:             raw['existingMfmWorking']             ?? null,
+    // Superseded combined field — read only, so an old answer can be shown
+    // back. Deliberately NOT used as a fallback for the two above: a combined
+    // answer cannot be split without guessing.
     existingMfmAvailableWorking:    raw['existingMfmAvailableWorking']    ?? null,
     existingMfmRs485Available:      raw['existingMfmRs485Available']      ?? null,
+    existingMfmRs485Working:        raw['existingMfmRs485Working']        ?? null,
+    frtuSpaceAvailable:             raw['frtuSpaceAvailable']             ?? null,
+    cat6LengthFrtuToBaySwitchM:     raw['cat6LengthFrtuToBaySwitchM']     ?? null,
+    cmrSpaceAvailable:              raw['cmrSpaceAvailable']              ?? null,
     mfmRequired:                    raw['mfmRequired']                    ?? null,
     cmrRequired:                    raw['cmrRequired']                    ?? null,
     ctPtRatio:                      raw['ctPtRatio']                      ?? null,
@@ -181,9 +190,12 @@ function mapTransformer(raw: Record<string, any>): SurveyTransformerEntry {
     rtccLowStep:                 raw['rtccLowStep']                 ?? null,
     tapPositionConnectionType:   raw['tapPositionConnectionType']   ?? null,
     rtccPanelWorking:            raw['rtccPanelWorking']            ?? null,
-    existingTpiWorking:          raw['existingTpiWorking']          ?? null,
+    // TPI -> TPT is a pure rename of the same physical thing, so an old answer
+    // carries forward transparently. Only the new key is ever written.
+    existingTptWorking:          raw['existingTptWorking'] ?? raw['existingTpiWorking'] ?? null,
     existingTpi4to20mAAvailable: raw['existingTpi4to20mAAvailable'] ?? null,
     tptRequired:                 raw['tptRequired']                 ?? null,
+    requiredTptCount:            raw['requiredTptCount']            ?? null,
     remarks:                     raw['remarks']                     ?? null,
   };
 }

@@ -101,11 +101,11 @@ export const SUPPLY_BOQ_MASTER: readonly BoqMasterItem[] = [
     guidance: 'Count required from panel/architecture and number of devices needing ports.' },
   { sr: 5,  itemKey: 'ethSwitch16Port',       item: 'Managed Ethernet Switch (16 port)',          unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: false,
     guidance: 'Count from total IED/device port demand at the station.' },
-  { sr: 6,  itemKey: 'networkingPanel',       item: 'Networking Panel',                           unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: false,
+  { sr: 6,  itemKey: 'networkingPanel',       item: 'Network Panel',                           unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: false,
     guidance: 'Confirm panel(s) required vs free space in existing panels; note new-panel need.' },
 
   // -- The three auto-derived lines (decision 3) --
-  { sr: 7,  itemKey: 'frtuRemoteIo',          item: 'F-RTU / Remote IO Modules',                  unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: true,  derivedFromFeederField: 'frtuModulesRequired',
+  { sr: 7,  itemKey: 'frtuRemoteIo',          item: 'FRTU',                  unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: true,  derivedFromFeederField: 'frtuModulesRequired',
     guidance: 'Suggested from the Feeder List — sum of "F-RTU modules required" across all feeders. Adjust if needed.' },
   { sr: 8,  itemKey: 'mfm',                   item: 'Multi-Function Meter (MFM)',                 unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: true,  derivedFromFeederField: 'mfmRequired',
     guidance: 'Suggested from the Feeder List — sum of "MFM required" across all feeders. Adjust if needed.' },

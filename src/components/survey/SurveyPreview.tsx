@@ -288,15 +288,34 @@ function FeederBlock({ feeder, index }: { feeder: SurveyFeederEntry; index: numb
         />
         <Field label="CT / PT Ratio" value={dash(feeder.ctPtRatio)} />
         <Field label="No. of DI Status Points" value={dash(feeder.diStatusPoints)} />
+        <Field
+          label="CAT6 Cable Length, FRTU to Bay Switch"
+          value={feeder.cat6LengthFrtuToBaySwitchM != null ? `${feeder.cat6LengthFrtuToBaySwitchM} m` : '—'}
+        />
         <Field label="MFM required" value={dash(feeder.mfmRequired)} />
         <Field label="CMR required" value={dash(feeder.cmrRequired)} />
         <Field label="No. of F-RTU / Remote-IO Modules Required" value={dash(feeder.frtuModulesRequired)} />
       </div>
       <TriField label="Panel space available" value={feeder.panelSpaceAvailable} />
-      <TriField label="Existing MFM available & working" value={feeder.existingMfmAvailableWorking} />
-      {feeder.existingMfmAvailableWorking === true && (
-        <TriField label="Existing MFM RS485 available" value={feeder.existingMfmRs485Available} />
+      <TriField label="Existing MFM available" value={feeder.existingMfmAvailable} />
+      <TriField label="Existing MFM working" value={feeder.existingMfmWorking} />
+      {feeder.existingMfmAvailable === true && (
+        <>
+          <TriField label="Existing MFM RS485 available" value={feeder.existingMfmRs485Available} />
+          <TriField label="Existing MFM RS485 working" value={feeder.existingMfmRs485Working} />
+        </>
       )}
+      {/* The pre-split combined answer, flagged rather than silently dropped,
+          so a reviewer can see this feeder still needs re-entering. */}
+      {feeder.existingMfmAvailableWorking != null && (
+        <Field
+          label="Previously recorded — MFM available &amp; working"
+          value={feeder.existingMfmAvailableWorking ? 'Yes' : 'No'}
+          flag="Not yet re-entered as two separate answers"
+        />
+      )}
+      <TriField label="Space available in C&amp;R for FRTU" value={feeder.frtuSpaceAvailable} />
+      <TriField label="Space available in C&amp;R panel to install CMRs" value={feeder.cmrSpaceAvailable} />
       <TriField label="Shutdown required" value={feeder.shutdownRequired} />
       <Field label="Remarks" value={dash(feeder.remarks)} />
       <PhotoGrid refs={feeder.photos} />
@@ -351,11 +370,12 @@ function TransformerBlock({ tx, index }: { tx: SurveyTransformerEntry; index: nu
         <Field label="Tap Position Connection Type" value={dash(tx.tapPositionConnectionType)} />
       </div>
       <TriField label="RTCC panel working" value={tx.rtccPanelWorking} />
-      <TriField label="Existing TPI working" value={tx.existingTpiWorking} />
-      {tx.existingTpiWorking === true && (
+      <TriField label="Existing TPT working" value={tx.existingTptWorking} />
+      {tx.existingTptWorking === true && (
         <TriField label="Existing TPI 4-20 mA output available" value={tx.existingTpi4to20mAAvailable} />
       )}
       <TriField label="Tap Position Transducer (TPT) required" value={tx.tptRequired} />
+      <Field label="No. of Required TPT" value={dash(tx.requiredTptCount)} />
       <Field label="Remarks" value={dash(tx.remarks)} />
     </EntryCard>
   );
