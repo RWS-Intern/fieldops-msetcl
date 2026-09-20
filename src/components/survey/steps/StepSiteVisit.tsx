@@ -316,6 +316,34 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
           </div>
         </div>
 
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ssEmail">Substation Email ID</Label>
+            <Input
+              id="ssEmail"
+              type="email" inputMode="email" disabled={readOnly}
+              value={contact.email ?? ''}
+              onChange={(e) => updateContact({ email: e.target.value || null })}
+            />
+          </div>
+          {/*
+            A THIRD number, not a duplicate of the landline/VOIP pair below:
+            the document lists it on its own row, and nothing available says
+            whether it repeats one of those. Recorded separately rather than
+            merged, so neither number can overwrite the other — see the note on
+            SurveyContactDetails.substationContactNo.
+          */}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ssContactNo">Substation contact no</Label>
+            <Input
+              id="ssContactNo"
+              type="tel" inputMode="tel" disabled={readOnly}
+              value={contact.substationContactNo ?? ''}
+              onChange={(e) => updateContact({ substationContactNo: e.target.value || null })}
+            />
+          </div>
+        </div>
+
         {/*
           The STATION's own numbers — a separate row on the document from the
           in-charge person's contact above, and the two are not
@@ -377,7 +405,28 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
           />
         </div>
 
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="ssPinCode">Substation PIN code</Label>
+          <Input
+            id="ssPinCode"
+            inputMode="numeric" disabled={readOnly}
+            placeholder="6-digit PIN"
+            value={contact.pinCode ?? ''}
+            onChange={(e) => updateContact({ pinCode: e.target.value || null })}
+          />
+        </div>
+
+        {/* Zone / Circle / Division — outermost first, the document's order. */}
         <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ssZone">Zone Name</Label>
+            <Input
+              id="ssZone"
+              disabled={readOnly}
+              value={contact.zoneName ?? ''}
+              onChange={(e) => updateContact({ zoneName: e.target.value || null })}
+            />
+          </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="ssCircle">Circle</Label>
             <Input
@@ -394,6 +443,15 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
               disabled={readOnly}
               value={contact.division ?? ''}
               onChange={(e) => updateContact({ division: e.target.value || null })}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ssDivisionContactNo">Division contact No.</Label>
+            <Input
+              id="ssDivisionContactNo"
+              type="tel" inputMode="tel" disabled={readOnly}
+              value={contact.divisionContactNo ?? ''}
+              onChange={(e) => updateContact({ divisionContactNo: e.target.value || null })}
             />
           </div>
         </div>

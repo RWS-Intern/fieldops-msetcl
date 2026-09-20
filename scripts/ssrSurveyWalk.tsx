@@ -61,6 +61,11 @@ function buildPopulatedSurvey(): SurveyReport {
   survey.contactDetails.substationInchargeName = 'A. Patil';
   survey.contactDetails.substationLandline     = '022-1234';
   survey.contactDetails.substationVoip         = '5001';
+  survey.contactDetails.substationContactNo    = '022-27812345';
+  survey.contactDetails.email                  = 'vashi.ss@example.test';
+  survey.contactDetails.pinCode                = '400703';
+  survey.contactDetails.zoneName               = 'Mumbai Zone';
+  survey.contactDetails.divisionContactNo      = '022-27819999';
   survey.contactDetails.commissionedDate       = new Date('2011-06-01');
   survey.controlRoom.layoutNotes               = 'Panels along north wall.';
   survey.controlRoom.acAvailable               = true;

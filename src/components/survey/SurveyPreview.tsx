@@ -135,10 +135,14 @@ function ContactDetailsBlock({ contact }: { contact: SurveyContactDetails }) {
       <div className="grid grid-cols-2 gap-2">
         <Field label="Name of the Substation In-charge" value={dash(contact.substationInchargeName)} />
         <Field label="Substation In-charge Contact Details" value={dash(contact.substationInchargePhone)} />
+        <Field label="Substation Email ID" value={dash(contact.email)} />
+        <Field label="Substation contact no" value={dash(contact.substationContactNo)} />
         <Field label="Substation Telephone — Landline" value={dash(contact.substationLandline)} />
         <Field label="Substation Telephone — VOIP" value={dash(contact.substationVoip)} />
+        <Field label="Zone" value={dash(contact.zoneName)} />
         <Field label="Circle" value={dash(contact.circle)} />
         <Field label="Division" value={dash(contact.division)} />
+        <Field label="Division contact No." value={dash(contact.divisionContactNo)} />
         <Field
           label="Commissioned Date"
           value={contact.commissionedDate ? contact.commissionedDate.toLocaleDateString() : '—'}
@@ -147,6 +151,7 @@ function ContactDetailsBlock({ contact }: { contact: SurveyContactDetails }) {
       </div>
       <Field label="Contact Details of Shift Operators" value={dash(contact.shiftOperatorContacts)} />
       <Field label="Address" value={dash(contact.address)} />
+      <Field label="Substation PIN code" value={dash(contact.pinCode)} />
     </div>
   );
 }

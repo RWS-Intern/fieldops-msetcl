@@ -754,13 +754,42 @@ export interface SurveyContactDetails {
   substationLandline: string | null;
   substationVoip: string | null;
   /**
+   * "Substation contact no" — its own row in the document's contact table,
+   * listed separately from the "Substation Telephone no./s" heading that the
+   * landline/VOIP pair above came from.
+   *
+   * Kept as a THIRD number rather than folded into either of those, because
+   * the document alone cannot settle whether it is the same line: it may be a
+   * general station number, a control-room number, or a duplicate of the
+   * landline. Merging it into an existing field would silently overwrite one
+   * recorded number with another; a spare field that sometimes repeats the
+   * landline costs nothing by comparison. Collapse it once someone with the
+   * master spec confirms what it is.
+   */
+  substationContactNo: string | null;
+  /** "Substation Email ID". */
+  email: string | null;
+  /**
    * Free text rather than a repeatable group: the printed form is a single
    * cell and a shift roster may list several names/numbers together.
    */
   shiftOperatorContacts: string | null;
   address: string | null;
+  /**
+   * Free text, not a number: PIN codes are digit STRINGS — a leading zero is
+   * significant and nothing here ever does arithmetic on one.
+   */
+  pinCode: string | null;
+  /**
+   * Administrative hierarchy, outermost first: Zone contains Circle contains
+   * Division. Three separate fields because the document asks for all three by
+   * name; none is derivable from the others here.
+   */
+  zoneName: string | null;
   circle: string | null;
   division: string | null;
+  /** "Division contact No." — the division office's line, not the station's. */
+  divisionContactNo: string | null;
   commissionedDate: Date | null;
   nearestRailwayStationOrLandmark: string | null;
 }
