@@ -8,6 +8,7 @@ import {
   BarChart2,
   CheckSquare,
   ClipboardCheck,
+  History,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/authStore';
 import { cn } from '@/lib/utils';
@@ -19,13 +20,15 @@ const fieldItems = [
 ];
 
 const approverItems = [
-  { to: '/dashboard',  label: 'Home',       Icon: LayoutDashboard },
-  { to: '/approvals',  label: 'Approvals',  Icon: CheckSquare },
+  { to: '/dashboard',      label: 'Home',       Icon: LayoutDashboard },
+  { to: '/approvals',      label: 'Approvals',  Icon: CheckSquare },
+  { to: '/review-history', label: 'My Reviews', Icon: History },
 ];
 
 const adminItems = [
   { to: '/dashboard',   label: 'Home',      Icon: LayoutDashboard },
   { to: '/approvals',   label: 'Approvals', Icon: CheckSquare },
+  { to: '/review-history', label: 'My Reviews', Icon: History },
   { to: '/surveys/all', label: 'Surveys',   Icon: ClipboardCheck },
   { to: '/projects',    label: 'Projects',  Icon: FolderKanban },
   { to: '/sites',       label: 'Sites',     Icon: MapPin },
@@ -33,9 +36,12 @@ const adminItems = [
   { to: '/reports',     label: 'Reports',   Icon: BarChart2 },
 ];
 
-// The read-only observer gets the admin screens minus Approvals — a viewer
-// never reviews anything. Derived from adminItems so the two stay in step.
-const viewerItems = adminItems.filter((item) => item.to !== '/approvals');
+// The read-only observer gets the admin screens minus the reviewing ones — a
+// viewer never reviews anything, and /review-history is role-gated to
+// approver + admin, so offering it here would be a link straight into a
+// refused route. Derived from adminItems so the two stay in step.
+const REVIEWER_ONLY_ROUTES = new Set(['/approvals', '/review-history']);
+const viewerItems = adminItems.filter((item) => !REVIEWER_ONLY_ROUTES.has(item.to));
 
 export function BottomNav() {
   const { currentUser } = useAuthStore();
