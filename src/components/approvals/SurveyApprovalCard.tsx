@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import type { SurveyReport } from '@/types';
 
 interface SurveyApprovalCardProps {
@@ -18,20 +19,30 @@ interface SurveyApprovalCardProps {
 // the type comment) — no per-row getDoc needed for a list like this one.
 
 export function SurveyApprovalCard({ survey, onOpen }: SurveyApprovalCardProps) {
+  const isEscalation = survey.reviewDirection === 'backward';
+
   return (
     <div
       className="flex rounded-lg border border-gray-100 bg-white shadow-sm overflow-hidden cursor-pointer hover:border-brand-blue transition-colors"
       onClick={onOpen}
     >
-      <div className="w-1.5 shrink-0 bg-violet-500" />
+      <div className={cn('w-1.5 shrink-0', isEscalation ? 'bg-amber-500' : 'bg-violet-500')} />
 
       <div className="flex-1 p-3 min-w-0">
         <div className="flex items-start justify-between gap-2 mb-0.5">
           <span className="text-sm font-bold text-gray-900 font-mono leading-snug truncate">
             {survey.siteCode}
           </span>
-          <span className="text-xs font-medium px-2 py-0.5 rounded-full shrink-0 bg-violet-100 text-violet-700">
-            Survey
+          {/* An escalation review is a different job from a normal one — you
+              are judging a colleague's disagreement, not the survey — and the
+              review page already says so once opened. Saying it HERE is what
+              makes the queue's Escalations filter correspond to something the
+              approver can see on the row. */}
+          <span className={cn(
+            'text-xs font-medium px-2 py-0.5 rounded-full shrink-0',
+            isEscalation ? 'bg-amber-100 text-amber-800' : 'bg-violet-100 text-violet-700',
+          )}>
+            {isEscalation ? 'Escalation' : 'Survey'}
           </span>
         </div>
 

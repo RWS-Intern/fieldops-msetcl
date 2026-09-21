@@ -7,6 +7,7 @@ import { SurveyApprovalCard }      from '@/components/approvals/SurveyApprovalCa
 import { ReviewSiteTaskDrawer }    from '@/components/siteTasks/ReviewSiteTaskDrawer';
 import { Skeleton }                from '@/components/ui/skeleton';
 import { Input }                  from '@/components/ui/input';
+import { FilterPills }            from '@/components/ui/filter-pills';
 import { normaliseSearchTerm }    from '@/lib/siteSearch';
 import type { SiteTask, SurveyReport } from '@/types';
 
@@ -44,12 +45,52 @@ function matchesApprovalRow(row: ApprovalRow, term: string): boolean {
   return haystack.some((field) => (field ?? '').toLowerCase().includes(term));
 }
 
+/**
+ * What this queue can usefully be split by.
+ *
+ * NOT by decision: everything here is pending by definition, so
+ * Approved/Changes Requested — the right split on the history page — would
+ * describe nothing.
+ *
+ * The three buckets are MUTUALLY EXCLUSIVE and sum to All, which is why
+ * 'survey' means a forward-travelling survey rather than "every survey":
+ * overlapping pills whose counts do not add up invite the reader to think one
+ * of them is wrong.
+ *
+ *   survey     — a normal review: you are judging the survey itself.
+ *   escalation — reviewDirection === 'backward'. You are NOT reviewing the
+ *                survey; a stage below you disagreed and you are being asked
+ *                to agree or disagree with them. ApproverSurveyReviewPage
+ *                already treats this as a different job entirely — different
+ *                banner, and different buttons ("Agree" / "Disagree, approve
+ *                as-is" instead of "Request Changes" / "Approve") — but until
+ *                now the queue gave no hint before you opened the row.
+ *   siteTask   — a different review flow altogether (drawer, not page).
+ */
+type QueueFilter = 'all' | 'survey' | 'escalation' | 'siteTask';
+
+// "Escalations" matches EscalationBanner's own wording ("Escalation review")
+// rather than inventing a second term for it.
+const QUEUE_PILLS: readonly { key: QueueFilter; label: string }[] = [
+  { key: 'all',         label: 'All'         },
+  { key: 'survey',      label: 'Surveys'     },
+  { key: 'escalation',  label: 'Escalations' },
+  { key: 'siteTask',    label: 'Site Tasks'  },
+];
+
+/** Which single bucket a row belongs to. */
+function bucketOf(row: ApprovalRow): Exclude<QueueFilter, 'all'> {
+  if (row.kind === 'siteTask') return 'siteTask';
+  return row.survey.reviewDirection === 'backward' ? 'escalation' : 'survey';
+}
+
 export function ApprovalsPage() {
   const navigate = useNavigate();
   const { queue: siteTaskQueue, loading: siteTaskLoading } = useApprovalQueue();
   const { queue: surveyQueue,   loading: surveyLoading }   = useSurveyApprovalQueue();
   const [selectedTask, setSelectedTask] = useState<SiteTask | null>(null);
   const [search, setSearch] = useState('');
+  const [kind,   setKind]   = useState<QueueFilter>('all');
 
   const loading = siteTaskLoading || surveyLoading;
 
@@ -64,9 +105,24 @@ export function ApprovalsPage() {
 
   const term = normaliseSearchTerm(search);
   const visibleRows = useMemo(
-    () => rows.filter((row) => matchesApprovalRow(row, term)),
-    [rows, term],
+    () => rows.filter((row) =>
+      (kind === 'all' || bucketOf(row) === kind) && matchesApprovalRow(row, term)),
+    [rows, term, kind],
   );
+
+  // Counts respect the SEARCH but not the kind filter, so each pill shows what
+  // it would give you from here rather than every inactive pill reading zero.
+  const counts = useMemo(() => {
+    const matching = rows.filter((row) => matchesApprovalRow(row, term));
+    return {
+      all:        matching.length,
+      survey:     matching.filter((r) => bucketOf(r) === 'survey').length,
+      escalation: matching.filter((r) => bucketOf(r) === 'escalation').length,
+      siteTask:   matching.filter((r) => bucketOf(r) === 'siteTask').length,
+    };
+  }, [rows, term]);
+
+  const filtering = term !== '' || kind !== 'all';
 
   return (
     <div className="flex flex-col gap-4 max-w-2xl mx-auto pb-24">
@@ -80,14 +136,21 @@ export function ApprovalsPage() {
       {/* Shown only once there is something to filter — a search box above an
           empty queue is noise. */}
       {!loading && rows.length > 0 && (
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-2">
           <Input
             type="search"
             value={search}
             placeholder="Search site code, substation or task…"
             onChange={(e) => setSearch(e.target.value)}
           />
-          {term !== '' && (
+          <FilterPills
+            pills={QUEUE_PILLS}
+            active={kind}
+            onChange={setKind}
+            counts={counts}
+            ariaLabel="Filter the approval queue"
+          />
+          {filtering && (
             <span className="text-xs text-gray-400">
               {visibleRows.length} of {rows.length} shown
             </span>
@@ -103,15 +166,19 @@ export function ApprovalsPage() {
         </div>
       ) : visibleRows.length === 0 ? (
         <div className="py-16 text-center">
-          {term !== '' ? (
+          {filtering ? (
             <>
-              <p className="text-sm text-gray-400">No matches for &ldquo;{search.trim()}&rdquo;.</p>
+              <p className="text-sm text-gray-400">
+                {term !== ''
+                  ? `No matches for \u201c${search.trim()}\u201d.`
+                  : 'Nothing in this category.'}
+              </p>
               <button
                 type="button"
-                onClick={() => setSearch('')}
+                onClick={() => { setSearch(''); setKind('all'); }}
                 className="mt-2 text-xs font-medium text-brand-blue hover:underline"
               >
-                Clear search
+                Clear search and filters
               </button>
             </>
           ) : (
