@@ -540,7 +540,7 @@ function InfrastructureSection({
               : '—'}
           />
           <Field
-            label="Type of communication availability"
+            label="Type of Communication Availability (FOTE/VSAT/Other)"
             value={dash(checklist.communication?.channelType)}
           />
           <Field
@@ -603,14 +603,6 @@ function InfrastructureSection({
       </div>
 
       <div className="flex flex-col gap-1">
-        <SubHeading>Existing Network Readiness</SubHeading>
-        <TriField label="OFC / Ethernet availability" value={infra.ofcAvailable} />
-        <TriField label="Router available" value={infra.routerAvailable} />
-        <TriField label="MPLS available" value={infra.mplsAvailable} />
-        <Field label="SLDC / ALDC path notes" value={dash(infra.sldcPathNotes)} />
-      </div>
-
-      <div className="flex flex-col gap-1">
         <SubHeading>Single Line Diagram Details</SubHeading>
         <TriField label="Single Line Diagram available at substation" value={checklist.sld?.sldDrawnAndConfirmed} />
         <TriField
@@ -645,16 +637,19 @@ function InfrastructureSection({
         />
       </div>
 
-      {/* Two DIFFERENT physical spaces — the permanent install location and a
-          temporary holding area. Kept visibly distinct here for the same
-          reason the step does: a reviewer must not read them as duplicates. */}
-      <div className="flex flex-col gap-1">
-        <SubHeading>Install Location for New Equipment</SubHeading>
-        <TriField label="Panel space available" value={infra.panelSpaceAvailable} />
-        <Field label="Space available for new networking panel and RTU" value={dash(infra.panelSpaceMeasurement)} />
-        <TriField label="New panel required" value={infra.newPanelRequired} />
-        <Field label="Mounting arrangement / rack space" value={dash(infra.mountingNotes)} />
-      </div>
+      {/* Removed from the form, shown back only where a survey actually holds
+          an answer — there is no field to move these into. */}
+      <RemovedField label="OFC / Ethernet availability" value={infra.ofcAvailable} />
+      <RemovedField label="Router available" value={infra.routerAvailable} />
+      <RemovedField label="MPLS available" value={infra.mplsAvailable} />
+      <RemovedField label="SLDC / ALDC path notes" value={infra.sldcPathNotes} />
+      <RemovedField label="Panel space available" value={infra.panelSpaceAvailable} />
+      <RemovedField
+        label="Space available for new networking panel and RTU"
+        value={infra.panelSpaceMeasurement}
+      />
+      <RemovedField label="New panel required" value={infra.newPanelRequired} />
+      <RemovedField label="Mounting arrangement / rack space" value={infra.mountingNotes} />
 
       <div className="flex flex-col gap-1">
         <SubHeading>Space Availability for Storage</SubHeading>

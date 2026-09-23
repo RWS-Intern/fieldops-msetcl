@@ -150,16 +150,11 @@ function buildPopulatedSurvey(): SurveyReport {
   survey.siteChecklist.storage.spaceForUnloading           = false;
   survey.siteChecklist.storage.materialStorageLocation     = 'control_room';
 
-  survey.infrastructure.panelSpaceAvailable   = true;
-  survey.infrastructure.panelSpaceMeasurement = '1200 x 800 mm free';
-  survey.infrastructure.newPanelRequired      = true;
-  survey.infrastructure.mountingNotes         = 'Floor-mounted, north wall.';
+  // The only two retained infrastructure fields still collected on Step 6 —
+  // the install-location and network-readiness groups were removed, so a
+  // CLEAN survey must not carry them or it would flag itself.
   survey.infrastructure.spareMcbs             = true;
   survey.infrastructure.dcdbLocation          = 'Control room, east side';
-  survey.infrastructure.ofcAvailable          = true;
-  survey.infrastructure.routerAvailable       = false;
-  survey.infrastructure.mplsAvailable         = false;
-  survey.infrastructure.sldcPathNotes         = 'Existing OFC to SLDC via Nashik.';
 
   // ACDB / DCDB — PARTIALLY filled on purpose: a few slots answered, the rest
   // left null, so both the filled and the unanswered ("—") render paths run.
@@ -234,6 +229,17 @@ function buildLegacySurvey(): SurveyReport {
   survey.assetCounts.transformerCount   = 5;
   survey.assetCounts.busCount           = 2;
   survey.assetCounts.capacitorBankCount = 1;
+  // The two removed infrastructure blocks, shaped like the real survey that
+  // has data in all eight: a boolean true, a boolean false (which MUST still
+  // surface — these default to null, so false is a real answer), and text.
+  survey.infrastructure.ofcAvailable          = true;
+  survey.infrastructure.routerAvailable       = false;
+  survey.infrastructure.sldcPathNotes         = 'OFC via Kalwa, spare pair available.';
+  survey.infrastructure.mplsAvailable         = false;
+  survey.infrastructure.newPanelRequired      = true;
+  survey.infrastructure.mountingNotes         = 'Floor-mounted, north wall.';
+  survey.infrastructure.panelSpaceAvailable   = true;
+  survey.infrastructure.panelSpaceMeasurement = '1200 x 800 mm free in Panel 3';
   // One TICKED Confirmation checkbox — the only state that should surface.
   // The other two stay at their `false` default precisely to prove the
   // `=== true` gate: an unticked box must produce no hit at all.
@@ -406,9 +412,9 @@ export function runSurveyWalk(): number {
     const reenter   = legacyHits.filter((h) => h.kind !== 'reference');
     const reference = legacyHits.filter((h) => h.kind === 'reference');
     const legacyOk = surveyHasLegacyVoltageData(legacy) === true
-      && legacyHits.length === 27 && reenter.length === 12 && reference.length === 15;
+      && legacyHits.length === 35 && reenter.length === 12 && reference.length === 23;
     console.log(`  ${legacyOk ? 'ok  ' : 'FAIL'} legacy survey: flagged, ${legacyHits.length} hits`
-      + ` — ${reenter.length} to re-enter (expected 12), ${reference.length} reference (expected 15)`);
+      + ` — ${reenter.length} to re-enter (expected 12), ${reference.length} reference (expected 23)`);
     if (!legacyOk) failures++;
     legacyHits.forEach((h) => console.log(
       `         - [${h.kind ?? 're-enter'}] ${h.section}: ${h.label}${h.value ? ` (was ${h.value})` : ''}`));

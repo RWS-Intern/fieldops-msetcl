@@ -1,7 +1,6 @@
 import { TriStateToggle } from '@/components/survey/TriStateToggle';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -36,11 +35,12 @@ import type {
 // for row. The four "unlabelled rows" noted in Phase 1 are resolved — the
 // revision behind this reconciliation names them, and each has a field.
 //
-// The RETAINED infrastructure blocks (Existing Network Readiness, Install
-// Location, spare MCBs / DCDB location) are deliberately NOT part of that
-// reconciliation: they were kept separate from the official checklist on
-// purpose and no target table covers them, so they are left exactly as they
-// are rather than retired for absence from tables that never claimed them.
+// Existing Network Readiness and Install Location were retained through that
+// reconciliation on the reasoning that they were useful even though no table
+// covered them. That call has since been REVERSED — the document is the scope
+// — so both are removed and their answers surface as reference. `spareMcbs`
+// and `dcdbLocation` are the only retained infrastructure fields left on this
+// step, and they stay.
 
 const DC_UNSPECIFIED = 'unspecified';
 
@@ -146,7 +146,9 @@ export function StepInfrastructure({ survey, onChange, readOnly }: SurveyStepPro
         {/* Free text despite the named options — the document's own third
             option is "Other", so the set is open. */}
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="channelType">Type of communication availability</Label>
+          <Label htmlFor="channelType">
+            Type of Communication Availability (FOTE/VSAT/Other)
+          </Label>
           <Input
             id="channelType"
             disabled={readOnly}
@@ -289,44 +291,13 @@ export function StepInfrastructure({ survey, onChange, readOnly }: SurveyStepPro
         </div>
       </div>
 
-      {/* ── Existing network readiness (retained infrastructure block) ───── */}
-      <div className="flex flex-col gap-3 pt-4 border-t border-gray-100">
-        <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-          Existing Network Readiness
-        </h4>
-        <p className="text-xs text-gray-400">
-          What the substation already has for connectivity — distinct from the physical cable
-          route recorded above.
-        </p>
-
-        <TriStateToggle
-          label="Existing OFC / Ethernet availability"
-          value={infra.ofcAvailable}
-          onChange={(v) => patchInfra({ ofcAvailable: v })}
-          readOnly={readOnly}
-        />
-        <TriStateToggle
-          label="Router available?"
-          value={infra.routerAvailable}
-          onChange={(v) => patchInfra({ routerAvailable: v })}
-          readOnly={readOnly}
-        />
-        <TriStateToggle
-          label="MPLS available?"
-          value={infra.mplsAvailable}
-          onChange={(v) => patchInfra({ mplsAvailable: v })}
-          readOnly={readOnly}
-        />
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="sldcPath">Path / readiness for link to SLDC &amp; ALDC (substation-end)</Label>
-          <Textarea
-            id="sldcPath"
-            disabled={readOnly}
-            value={infra.sldcPathNotes ?? ''}
-            onChange={(e) => patchInfra({ sldcPathNotes: e.target.value || null })}
-          />
-        </div>
-      </div>
+      {/* The "Existing Network Readiness" block used to sit here. Removed —
+          the document is the scope, and no table covered it. Recorded answers
+          surface as reference below and in the preview. */}
+      <RemovedAnswerNote label="Existing OFC / Ethernet availability" value={infra.ofcAvailable} />
+      <RemovedAnswerNote label="Router available" value={infra.routerAvailable} />
+      <RemovedAnswerNote label="MPLS available" value={infra.mplsAvailable} />
+      <RemovedAnswerNote label="Path / readiness for link to SLDC & ALDC" value={infra.sldcPathNotes} />
 
       {/* ── Single Line Diagram Details ──────────────────────────────────── */}
       <div className="flex flex-col gap-3 pt-4 border-t border-gray-100">
@@ -408,49 +379,17 @@ export function StepInfrastructure({ survey, onChange, readOnly }: SurveyStepPro
         />
       </div>
 
-      {/* ── Install location — where the new equipment goes permanently ──── */}
-      <div className="flex flex-col gap-3 pt-4 border-t border-gray-100">
-        <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-          Install Location for New Equipment
-        </h4>
-        <p className="text-xs text-gray-400">
-          Where the new panel and RTU are permanently mounted. Not the same as the temporary
-          storage area below.
-        </p>
-
-        <TriStateToggle
-          label="Panel space available?"
-          value={infra.panelSpaceAvailable}
-          onChange={(v) => patchInfra({ panelSpaceAvailable: v })}
-          readOnly={readOnly}
-        />
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="panelSpaceMeasurement">
-            Space available for new networking panel and RTU (measure)
-          </Label>
-          <Input
-            id="panelSpaceMeasurement"
-            disabled={readOnly}
-            value={infra.panelSpaceMeasurement ?? ''}
-            onChange={(e) => patchInfra({ panelSpaceMeasurement: e.target.value || null })}
-          />
-        </div>
-        <TriStateToggle
-          label="New panel required, or free space in existing panels?"
-          value={infra.newPanelRequired}
-          onChange={(v) => patchInfra({ newPanelRequired: v })}
-          readOnly={readOnly}
-        />
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="mountingNotes">Mounting arrangement / rack space</Label>
-          <Textarea
-            id="mountingNotes"
-            disabled={readOnly}
-            value={infra.mountingNotes ?? ''}
-            onChange={(e) => patchInfra({ mountingNotes: e.target.value || null })}
-          />
-        </div>
-      </div>
+      {/* The "Install Location for New Equipment" block used to sit here.
+          Removed for the same reason. The storage section below is now the
+          only space question on this step, so the install-vs-storage warning
+          the two blocks needed no longer applies. */}
+      <RemovedAnswerNote label="Panel space available" value={infra.panelSpaceAvailable} />
+      <RemovedAnswerNote
+        label="Space available for new networking panel and RTU"
+        value={infra.panelSpaceMeasurement}
+      />
+      <RemovedAnswerNote label="New panel required" value={infra.newPanelRequired} />
+      <RemovedAnswerNote label="Mounting arrangement / rack space" value={infra.mountingNotes} />
 
       {/* ── Space Availability for storage ───────────────────────────────── */}
       <div className="flex flex-col gap-3 pt-4 border-t border-gray-100">
@@ -458,8 +397,7 @@ export function StepInfrastructure({ survey, onChange, readOnly }: SurveyStepPro
           Space Availability for Storage
         </h4>
         <p className="text-xs text-gray-400">
-          Where material can be unloaded and held before installation — the document treats this
-          separately from the install location above.
+          Where material can be unloaded and held before installation.
         </p>
 
         <TriStateToggle

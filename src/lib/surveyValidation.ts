@@ -411,10 +411,14 @@ export interface StepStatus {
   missingCount: number;
 }
 
+// Touch detection only — no field here carries a hard rule, so removing one
+// can never make Submit unreachable. The install-location and
+// network-readiness keys are gone with the sections that wrote them: leaving
+// them would report Step 6 as "touched" purely because of answers nobody can
+// reach or change any more, the same staleness the boqChecks entry had.
 const EMPTY_INFRASTRUCTURE_KEYS: (keyof SurveyInfrastructure)[] = [
-  'panelSpaceAvailable', 'panelSpaceMeasurement', 'newPanelRequired', 'mountingNotes',
   'dcSupplyAvailable', 'acSupplyAvailable', 'spareMcbs', 'dcdbLocation',
-  'ofcAvailable', 'routerAvailable', 'mplsAvailable', 'sldcPathNotes', 'earthingAvailable',
+  'earthingAvailable',
 ];
 
 function isInfrastructureTouched(infra: SurveyInfrastructure): boolean {

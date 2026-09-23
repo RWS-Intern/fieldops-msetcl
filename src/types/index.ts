@@ -1215,9 +1215,31 @@ export interface SurveyAcdcMcbDetails {
 
 /** Sections E–G of the survey form — one set per site (not a repeatable group). */
 export interface SurveyInfrastructure {
+  /**
+   * @deprecated The "Install Location for New Equipment" block, removed from
+   * the form.
+   *
+   * These were RETAINED through the Step 6 reconciliation on the reasoning
+   * that they were practically useful even though no document table covered
+   * them. That call is reversed: the document is the scope.
+   *
+   * Dead but deliberately present, and the highest-risk group in this whole
+   * correction effort — they are the oldest surviving fields here, and at
+   * least one real survey has an answer in every one of them. The factory and
+   * the read mapper are untouched, so the stored shape stays total and those
+   * documents round-trip unchanged. Nothing writes them any more; they are
+   * read only, surfaced as REFERENCE (no replacement field exists, so there is
+   * nothing to move them into).
+   *
+   * All four default to `null`, so `!= null` is the correct detection gate —
+   * unlike the BOQ confirmation checkboxes, which defaulted to `false`.
+   */
   panelSpaceAvailable: boolean | null;
+  /** @deprecated See the note on `panelSpaceAvailable` above. */
   panelSpaceMeasurement: string | null;      // Section E "(measure)"
+  /** @deprecated See the note on `panelSpaceAvailable` above. */
   newPanelRequired: boolean | null;
+  /** @deprecated See the note on `panelSpaceAvailable` above. */
   mountingNotes: string | null;
   civilWork: ('grouting' | 'cable_entry' | 'foundation' | 'none')[];
   dcSupplyAvailable: boolean | null;
@@ -1225,9 +1247,17 @@ export interface SurveyInfrastructure {
   acSupplyAvailable: boolean | null;
   spareMcbs: boolean | null;
   dcdbLocation: string | null;                // Section F "DCDB / distribution location"
+  /**
+   * @deprecated The "Existing Network Readiness" block, removed from the form.
+   * Same reasoning, same risk and same treatment as the install-location group
+   * above — see the note on `panelSpaceAvailable`. All four default to `null`.
+   */
   ofcAvailable: boolean | null;
+  /** @deprecated See the note on `ofcAvailable` above. */
   routerAvailable: boolean | null;
+  /** @deprecated See the note on `ofcAvailable` above. */
   mplsAvailable: boolean | null;
+  /** @deprecated See the note on `ofcAvailable` above. */
   sldcPathNotes: string | null;
   earthingAvailable: boolean | null;
 }

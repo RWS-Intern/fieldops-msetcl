@@ -16,7 +16,10 @@ import type { StoredVoltageLevel, SurveyReport } from '@/types';
  *     Temperature / AC / Mounting Structure group, likewise removed outright;
  *   - the Step 6 checklist rows with no equivalent in the document's own five
  *     tables, retired by the same reconciliation;
- *   - the BOQ Confirmation checkboxes, removed outright.
+ *   - the BOQ Confirmation checkboxes, removed outright;
+ *   - the Install Location and Existing Network Readiness blocks, retained
+ *     through the Step 6 reconciliation and then removed when the document
+ *     was confirmed as the scope.
  *
  * Nothing here migrates anything. A feeder's real level, a DC breaker voltage
  * or a bay count can genuinely differ between 66kV and 33kV, so copying the
@@ -50,7 +53,7 @@ export interface LegacyVoltageHit {
          | 'Asset totals' | 'ACDB/DCDB slots' | 'MFM availability'
          | 'Office (Circle / Division)' | 'Relay Protocol / IP'
          | 'Contact Details' | 'Control Room' | 'Site Checklist'
-         | 'BOQ confirmation';
+         | 'BOQ confirmation' | 'Install Location' | 'Network Readiness';
   /** How that one entry identifies itself, e.g. a bay name. */
   label: string;
   /** The old value as recorded, where there is one worth showing back. */
@@ -199,6 +202,35 @@ export function findLegacyVoltageData(survey: SurveyReport): LegacyVoltageHit[] 
       section: 'BOQ confirmation',
       label:   check.label,
       value:   'Confirmed',
+    });
+  }
+
+  // The two retained infrastructure blocks, removed once the document was
+  // confirmed as the scope. REFERENCE hits — no replacement field exists.
+  //
+  // Gated on `!= null`, NOT `=== true`: every one of these defaults to `null`
+  // in createEmptyInfrastructure, so a stored `false` is a deliberate "no"
+  // worth showing back, unlike the BOQ checkboxes whose `false` was merely
+  // untouched. Confirmed from the factory, not assumed.
+  const infraRemoved: ['Install Location' | 'Network Readiness', string, string | boolean | null][] = [
+    ['Install Location',  'Panel space available',            survey.infrastructure.panelSpaceAvailable],
+    ['Install Location',  'Space available for new networking panel and RTU',
+      survey.infrastructure.panelSpaceMeasurement],
+    ['Install Location',  'New panel required',               survey.infrastructure.newPanelRequired],
+    ['Install Location',  'Mounting arrangement / rack space', survey.infrastructure.mountingNotes],
+    ['Network Readiness', 'OFC / Ethernet availability',      survey.infrastructure.ofcAvailable],
+    ['Network Readiness', 'Router available',                 survey.infrastructure.routerAvailable],
+    ['Network Readiness', 'MPLS available',                   survey.infrastructure.mplsAvailable],
+    ['Network Readiness', 'SLDC / ALDC path notes',           survey.infrastructure.sldcPathNotes],
+  ];
+  for (const [section, label, value] of infraRemoved) {
+    if (value == null) continue;
+    if (typeof value === 'string' && value.trim() === '') continue;
+    hits.push({
+      kind:    'reference',
+      section,
+      label,
+      value:   typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value),
     });
   }
 
