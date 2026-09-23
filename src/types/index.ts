@@ -1283,10 +1283,29 @@ export interface SurveyBoqLine {
   autoDerived: boolean;
 }
 
-/** Section J's three confirmation checkboxes, all default false. */
+/**
+ * Section J's three confirmation checkboxes — REMOVED from the form.
+ *
+ * All three are `@deprecated`, dead but deliberately present: the factory and
+ * the read mapper are untouched, so the stored shape stays total and every
+ * document still round-trips. Nothing writes them any more.
+ *
+ * WHY THESE SURFACE DIFFERENTLY FROM EVERY OTHER REMOVAL IN THIS BATCH:
+ * they default to `false`, not `null`. For a tri-state field a recorded
+ * `false` is a deliberate "no", distinct from never-touched, so the safeguard
+ * surfaces it. Here `false` IS never-touched — a surveyor who never scrolled
+ * to this section and one who deliberately left a box unticked are stored
+ * identically, and both mean "nothing was confirmed". Surfacing every `false`
+ * would fire the reference banner on essentially every survey in the system
+ * for an answer nobody gave. So detection is gated on `=== true`: the single
+ * case where someone took a real, deliberate action that is now discarded.
+ */
 export interface SurveyBoqChecks {
+  /** @deprecated Removed from the form — see the note above. */
   quantitiesCrossCheckedAgainstAnnexureI: boolean;  // "deviations noted with reason"
+  /** @deprecated Removed from the form — see the note above. */
   markedUpSldAttached: boolean;
+  /** @deprecated Removed from the form — see the note above. */
   updatedInMsetclWebAppAndTracker: boolean;
 }
 

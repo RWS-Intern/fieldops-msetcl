@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangle, X } from 'lucide-react';
+import { AlertTriangle, FileText, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { SUPPLY_BOQ_MASTER } from '@/lib/boqMaster';
 import { SURVEY_PHOTO_SLOTS, validateSurvey } from '@/lib/surveyValidation';
 import { formatMetresAsKm } from '@/lib/units';
+import { isPdfRef, pdfPreviewUrl } from '@/lib/signedDocs';
 import {
   VOLTAGE_LEVEL_LABELS, ASSET_COUNT_ROWS, ASSET_COUNT_ROW_LABELS,
   RELAY_TYPE_LABELS, PROTOCOL_LABELS,
@@ -73,17 +74,6 @@ function TriField({ label, value }: { label: string; value: boolean | null }) {
   );
 }
 
-function TickField({ label, checked }: { label: string; checked: boolean }) {
-  return (
-    <div className="flex items-start gap-2 py-1 break-inside-avoid">
-      <span className={cn('text-sm font-bold shrink-0', checked ? 'text-green-600' : 'text-red-500')}>
-        {checked ? '✓' : '✗'}
-      </span>
-      <span className="text-sm text-gray-700">{label}</span>
-    </div>
-  );
-}
-
 function SectionHeading({ children }: { children: ReactNode }) {
   return (
     <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wide border-b border-gray-300 pb-1">
@@ -96,6 +86,37 @@ function SubHeading({ children }: { children: ReactNode }) {
   return <h4 className="text-xs font-bold text-gray-500 uppercase">{children}</h4>;
 }
 
+/**
+ * An attached PDF, as a reviewer sees it.
+ *
+ * The link is the requirement — it opens the real file in the device's own
+ * PDF handling, which is what an approver needs to check the app's data
+ * against the signed paper. The page-1 thumbnail above it is a bonus that
+ * costs one Cloudinary transformation and makes the card recognisable at a
+ * glance; if the URL is not one we can transform, the link stands alone.
+ */
+function PdfCard({ reference }: { reference: string }) {
+  const preview = pdfPreviewUrl(reference);
+
+  return (
+    <a
+      href={reference}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex w-32 shrink-0 flex-col gap-1 break-inside-avoid rounded-lg border border-gray-200 p-1.5 hover:border-brand-blue"
+    >
+      <div className="flex h-28 items-center justify-center overflow-hidden rounded bg-gray-50">
+        {preview
+          ? <img src={preview} alt="" className="h-full w-full object-contain" />
+          : <FileText className="h-8 w-8 text-gray-300" />}
+      </div>
+      <span className="flex items-center gap-1 text-[10px] font-medium text-brand-blue">
+        <FileText className="h-3 w-3 shrink-0" />Open PDF
+      </span>
+    </a>
+  );
+}
+
 function PhotoGrid({ refs }: { refs: string[] }) {
   if (refs.length === 0) {
     return <p className="text-xs text-gray-400 italic">No photos.</p>;
@@ -103,9 +124,15 @@ function PhotoGrid({ refs }: { refs: string[] }) {
   return (
     <div className="flex flex-wrap gap-2">
       {refs.map((ref) => (
-        <div key={ref} className="h-20 w-20 rounded-lg overflow-hidden border border-gray-200 shrink-0 break-inside-avoid">
-          <SurveyPhotoThumb reference={ref} className="h-full w-full" />
-        </div>
+        // Only the signed-page field can hold a PDF; every other caller passes
+        // photos alone, so this branch is inert for them.
+        isPdfRef(ref) ? (
+          <PdfCard key={ref} reference={ref} />
+        ) : (
+          <div key={ref} className="h-20 w-20 rounded-lg overflow-hidden border border-gray-200 shrink-0 break-inside-avoid">
+            <SurveyPhotoThumb reference={ref} className="h-full w-full" />
+          </div>
+        )
       ))}
     </div>
   );
@@ -1059,13 +1086,19 @@ export function SurveyPreview({
           <BoqTable title="Supply" master={SUPPLY_BOQ_MASTER} lines={survey.boqSupply} />
         </div>
 
-        {/* Confirmation — unchanged shape */}
-        <div className="flex flex-col gap-1">
-          <SectionHeading>Confirmation</SectionHeading>
-          {BOQ_CHECK_LABELS.map((item) => (
-            <TickField key={item.key} label={item.label} checked={survey.boqChecks[item.key]} />
-          ))}
-        </div>
+        {/* The Confirmation checkboxes, removed from the form. Only a TICKED
+            box renders: `false` is this group's untouched default, so showing
+            it back would report an answer nobody gave. */}
+        {BOQ_CHECK_LABELS.some((item) => survey.boqChecks[item.key] === true) && (
+          <div className="flex flex-col gap-1">
+            <SectionHeading>Confirmation</SectionHeading>
+            {BOQ_CHECK_LABELS.map((item) => (
+              survey.boqChecks[item.key] === true
+                ? <RemovedField key={item.key} label={item.label} value="Confirmed" />
+                : null
+            ))}
+          </div>
+        )}
 
         {/* 11. Sign-off — unchanged shape */}
         <div className="flex flex-col gap-2">
@@ -1076,7 +1109,9 @@ export function SurveyPreview({
             <Field label="MSETCL Engineer Designation" value={dash(survey.signOff.msetclEngineerDesignation)} />
             <Field label="MSETCL Engineer Emp ID" value={dash(survey.signOff.msetclEngineerEmpId)} />
           </div>
-          <span className="text-xs font-medium text-gray-600">Signed BOQ Page</span>
+          <span className="text-xs font-medium text-gray-600">
+            Signed Survey (photo or PDF)
+          </span>
           <PhotoGrid refs={survey.signOff.signedPagePhotos} />
         </div>
 

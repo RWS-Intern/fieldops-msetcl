@@ -3,6 +3,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { PhotoCapture } from '@/components/survey/PhotoCapture';
+import { SignedPdfAttach } from '@/components/survey/SignedPdfAttach';
+import { isPdfRef } from '@/lib/signedDocs';
 import { SurveyPhotoThumb } from '@/components/survey/SurveyPhotoThumb';
 import { SurveyPreview } from '@/components/survey/SurveyPreview';
 import type { SurveyStepProps } from './StepProps';
@@ -32,8 +34,9 @@ function SignatureThumb({ label, reference }: { label: string; reference: string
 }
 
 /**
- * Joint sign-off & submit. The signed paper BOQ page is the legal artefact
- * for SE-PAC vetting — the photo of it stays a hard requirement. "Preview &
+ * Joint sign-off & submit. The signed paper survey is the legal artefact for
+ * SE-PAC vetting — an attachment of it (photo or scanned PDF) stays a hard
+ * requirement. "Preview &
  * Sign" opens a full-page read-only preview of everything recorded, printable
  * to PDF, with both parties' on-screen signatures at the end of it —
  * supplementary evidence alongside the paper original, not a replacement for
@@ -46,6 +49,11 @@ export function StepSignOff({
   const [showPreview, setShowPreview] = useState(false);
   const signOff = survey.signOff;
 
+  // One stored array, two controls. Splitting on read keeps PhotoCapture's
+  // behaviour identical to every other photo field in the survey.
+  const signedPagePdfRefs   = signOff.signedPagePhotos.filter(isPdfRef);
+  const signedPagePhotoRefs = signOff.signedPagePhotos.filter((r) => !isPdfRef(r));
+
   function patchSignOff(patch: Partial<typeof signOff>) {
     onChange({ signOff: { ...signOff, ...patch } });
   }
@@ -54,7 +62,9 @@ export function StepSignOff({
     survey.sitePhotos.length +
     survey.feeders.reduce((n, f) => n + f.photos.length, 0) +
     survey.relays.reduce((n, r) => n + r.photos.length, 0) +
-    signOff.signedPagePhotos.length;
+    // Photos only — a PDF is an attachment, not a photograph, and counting it
+    // here would make the pre-submit photo tally disagree with the Photos step.
+    signedPagePhotoRefs.length;
   // Supply only — the service table is no longer part of the survey, so
   // counting its (permanently unfillable) lines would make this read x/18.
   const boqTotalLines = survey.boqSupply.length;
@@ -133,21 +143,31 @@ export function StepSignOff({
         />
       )}
 
-      {/* Photo of the signed page — the document of record */}
-      <div className="flex flex-col gap-2">
+      {/* The signed page — the document of record. Photos and PDFs share one
+          stored array, so either satisfies the requirement; they are split
+          here only so each control sees the kind it can actually handle, and
+          PhotoCapture never receives a PDF it would render as a broken img. */}
+      <div className="flex flex-col gap-3">
         <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Signed Page</h4>
         <p className="text-xs text-gray-500">
-          Photograph the physically signed BOQ page with both signatures visible — this photo,
-          together with the paper original, is the document of record for SE-PAC vetting.
+          Photograph the physically signed survey with both signatures visible, or attach a
+          scanned PDF of it. Together with the paper original this is the document of record for
+          SE-PAC vetting, and it is what an approver checks the app&apos;s data against.
         </p>
         <PhotoCapture
-          photos={signOff.signedPagePhotos}
-          onChange={(photos) => patchSignOff({ signedPagePhotos: photos })}
+          photos={signedPagePhotoRefs}
+          onChange={(photos) => patchSignOff({ signedPagePhotos: [...photos, ...signedPagePdfRefs] })}
           onReplacePhotoRef={onReplacePhotoRef}
           workOrderId={survey.workOrderId}
           siteCode={survey.siteCode}
           readOnly={readOnly}
-          label="Photo of the signed BOQ page (both signatures visible)"
+          label="Photo or PDF of the signed survey (both signatures visible)"
+        />
+        <SignedPdfAttach
+          pdfs={signedPagePdfRefs}
+          onChange={(pdfs) => patchSignOff({ signedPagePhotos: [...signedPagePhotoRefs, ...pdfs] })}
+          siteCode={survey.siteCode}
+          readOnly={readOnly}
         />
       </div>
 

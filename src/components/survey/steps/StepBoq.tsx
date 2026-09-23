@@ -4,7 +4,6 @@ import {
   deriveSupplyQuantities,
   applyDerivedQuantities,
 } from '@/lib/boqDerivation';
-import { BOQ_CHECK_LABELS } from '@/lib/surveyLabels';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
@@ -274,29 +273,9 @@ export function StepBoq({ survey, onChange, readOnly }: SurveyStepProps) {
         readOnly={readOnly}
       />
 
-
-      <div className="flex flex-col gap-2 pt-2 border-t border-gray-100">
-        <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Confirmation</h4>
-        {BOQ_CHECK_LABELS.map((item) => (
-          <label
-            key={item.key}
-            className={cn(
-              'flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors',
-              survey.boqChecks[item.key] ? 'bg-blue-50 border-blue-200' : 'border-gray-200',
-              readOnly && 'cursor-not-allowed opacity-70',
-            )}
-          >
-            <input
-              type="checkbox"
-              checked={survey.boqChecks[item.key]}
-              disabled={readOnly}
-              onChange={(e) => onChange({ boqChecks: { ...survey.boqChecks, [item.key]: e.target.checked } })}
-              className="mt-0.5 h-5 w-5 shrink-0 rounded border-gray-300 text-brand-blue focus:ring-brand-blue"
-            />
-            <span className="text-sm text-gray-700">{item.label}</span>
-          </label>
-        ))}
-      </div>
+      {/* The three-checkbox Confirmation section used to sit here. Removed;
+          no replacement. Any box a surveyor actually ticked surfaces as
+          reference in the preview and on the orphaned-answer banner. */}
     </div>
   );
 }

@@ -45,6 +45,7 @@ import type { SurveyStepProps } from '@/components/survey/steps/StepProps';
 import { LEGACY_COMBINED_VOLTAGE_LEVEL } from '@/types';
 import { surveyHasLegacyVoltageData, findLegacyVoltageData } from '@/lib/legacyVoltage';
 import { LegacyVoltageBanner } from '@/components/survey/LegacyVoltageBanner';
+import { isPdfRef, pdfPreviewUrl } from '@/lib/signedDocs';
 import type { SurveyReport } from '@/types';
 
 /** A survey with one entry in every repeatable group — not an empty state. */
@@ -186,6 +187,13 @@ function buildPopulatedSurvey(): SurveyReport {
     url: 'https://example.test/b.jpg', caption: 'Existing SLD (photo)',
     remark: null,
   });
+  // The signed page holds BOTH kinds at once — the case the split-on-read in
+  // StepSignOff exists for. A PDF must never reach PhotoCapture, and the
+  // preview must render it as a card rather than a broken <img>.
+  survey.signOff.signedPagePhotos.push('https://example.test/signed-page.jpg');
+  survey.signOff.signedPagePhotos.push(
+    'https://res.cloudinary.com/ugcvg8as/image/upload/v1790156181/fieldops-msetcl/signed.pdf',
+  );
   // BOQ lines in three distinct states, so the step renders every branch:
   // a plain two-column entry, an existing-usable-only observation, and a
   // not-applicable line with its reason.
@@ -226,6 +234,10 @@ function buildLegacySurvey(): SurveyReport {
   survey.assetCounts.transformerCount   = 5;
   survey.assetCounts.busCount           = 2;
   survey.assetCounts.capacitorBankCount = 1;
+  // One TICKED Confirmation checkbox — the only state that should surface.
+  // The other two stay at their `false` default precisely to prove the
+  // `=== true` gate: an unticked box must produce no hit at all.
+  survey.boqChecks.markedUpSldAttached = true;
   // Step 6 rows retired by the reconciliation against the document's own five
   // tables. All REFERENCE hits, including two booleans recorded as `false`.
   survey.siteChecklist.outdoorCivilWorkStatus = 'Trenching part-complete on the north side.';
@@ -349,6 +361,35 @@ export function runSurveyWalk(): number {
     console.log(`  FAIL validateSurvey/getStepStatuses: ${(err as Error).message}`);
   }
 
+  console.log('\n── signed-page attachments (photo vs PDF) ──');
+  {
+    const refs = survey.signOff.signedPagePhotos;
+    const pdfs   = refs.filter(isPdfRef);
+    const photos = refs.filter((r) => !isPdfRef(r));
+    const splitOk = pdfs.length === 1 && photos.length === 1;
+    console.log(`  ${splitOk ? 'ok  ' : 'FAIL'} split: ${photos.length} photo, ${pdfs.length} pdf`);
+    if (!splitOk) failures++;
+
+    // A local:// capture must never be mistaken for a PDF, and a .jpg must not.
+    const negatives = ['local://abc-123', 'https://example.test/a.jpg', 'https://x/pdfreport.jpg'];
+    const negOk = negatives.every((r) => !isPdfRef(r));
+    console.log(`  ${negOk ? 'ok  ' : 'FAIL'} non-PDF references not misdetected`);
+    if (!negOk) failures++;
+
+    // The preview URL is printed so it can be curled — a transformation that
+    // 404s would still "render" as a broken img, which is the bug this whole
+    // change exists to avoid.
+    const preview = pdfPreviewUrl(pdfs[0] ?? '');
+    const previewOk = !!preview && preview.includes('/image/upload/pg_1,f_jpg,');
+    console.log(`  ${previewOk ? 'ok  ' : 'FAIL'} preview URL built: ${preview ?? '(none)'}`);
+    if (!previewOk) failures++;
+
+    // A reference we cannot transform must fall back to the plain link.
+    const noPreview = pdfPreviewUrl('local://not-a-cloudinary-ref.pdf');
+    console.log(`  ${noPreview === null ? 'ok  ' : 'FAIL'} untransformable PDF falls back to link only`);
+    if (noPreview !== null) failures++;
+  }
+
   console.log('\n── legacy 66/33kV detection ──');
   try {
     const legacy     = buildLegacySurvey();
@@ -365,9 +406,9 @@ export function runSurveyWalk(): number {
     const reenter   = legacyHits.filter((h) => h.kind !== 'reference');
     const reference = legacyHits.filter((h) => h.kind === 'reference');
     const legacyOk = surveyHasLegacyVoltageData(legacy) === true
-      && legacyHits.length === 26 && reenter.length === 12 && reference.length === 14;
+      && legacyHits.length === 27 && reenter.length === 12 && reference.length === 15;
     console.log(`  ${legacyOk ? 'ok  ' : 'FAIL'} legacy survey: flagged, ${legacyHits.length} hits`
-      + ` — ${reenter.length} to re-enter (expected 12), ${reference.length} reference (expected 14)`);
+      + ` — ${reenter.length} to re-enter (expected 12), ${reference.length} reference (expected 15)`);
     if (!legacyOk) failures++;
     legacyHits.forEach((h) => console.log(
       `         - [${h.kind ?? 're-enter'}] ${h.section}: ${h.label}${h.value ? ` (was ${h.value})` : ''}`));

@@ -1,4 +1,5 @@
 import { LEGACY_COMBINED_VOLTAGE_LEVEL } from '@/types';
+import { BOQ_CHECK_LABELS } from '@/lib/surveyLabels';
 import type { StoredVoltageLevel, SurveyReport } from '@/types';
 
 /**
@@ -14,7 +15,8 @@ import type { StoredVoltageLevel, SurveyReport } from '@/types';
  *   - the Substation Telephone pair, Shift Operator contacts, and the Room
  *     Temperature / AC / Mounting Structure group, likewise removed outright;
  *   - the Step 6 checklist rows with no equivalent in the document's own five
- *     tables, retired by the same reconciliation.
+ *     tables, retired by the same reconciliation;
+ *   - the BOQ Confirmation checkboxes, removed outright.
  *
  * Nothing here migrates anything. A feeder's real level, a DC breaker voltage
  * or a bay count can genuinely differ between 66kV and 33kV, so copying the
@@ -47,7 +49,8 @@ export interface LegacyVoltageHit {
          | 'Capacitor Banks' | 'DC breaker voltage' | 'Bay counts'
          | 'Asset totals' | 'ACDB/DCDB slots' | 'MFM availability'
          | 'Office (Circle / Division)' | 'Relay Protocol / IP'
-         | 'Contact Details' | 'Control Room' | 'Site Checklist';
+         | 'Contact Details' | 'Control Room' | 'Site Checklist'
+         | 'BOQ confirmation';
   /** How that one entry identifies itself, e.g. a bay name. */
   label: string;
   /** The old value as recorded, where there is one worth showing back. */
@@ -180,6 +183,22 @@ export function findLegacyVoltageData(survey: SurveyReport): LegacyVoltageHit[] 
       section: 'Site Checklist',
       label,
       value:   typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value),
+    });
+  }
+
+  // The removed BOQ Confirmation checkboxes. REFERENCE hits, and gated on
+  // `=== true` rather than the `!= null` every other removal uses: these
+  // default to FALSE, so an unticked box and a never-visited section are
+  // stored identically. Only a ticked box records a deliberate act worth
+  // showing back; treating `false` as an answer would flag every survey in
+  // the system for something nobody ever said.
+  for (const check of BOQ_CHECK_LABELS) {
+    if (survey.boqChecks?.[check.key] !== true) continue;
+    hits.push({
+      kind:    'reference',
+      section: 'BOQ confirmation',
+      label:   check.label,
+      value:   'Confirmed',
     });
   }
 

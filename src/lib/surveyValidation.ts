@@ -245,17 +245,9 @@ function validatePhotos(survey: SurveyReport): SurveyValidationIssue[] {
     issues.push(issue(STEP.photos, `"${SURVEY_PHOTO_SLOTS[0]}" photo is required.`));
   }
 
-  // Cross-check against BOQ's markedUpSldAttached checkbox: that checkbox is
-  // a hard error when unticked, but slot 7 itself is otherwise optional, so
-  // it can be ticked with no evidence attached. Catch that inconsistency
-  // here rather than let it become a false attestation on a document going
-  // for government vetting.
-  if (survey.boqChecks.markedUpSldAttached) {
-    const hasMarkedUpSldPhoto = survey.sitePhotos.some((p) => p.caption === SURVEY_PHOTO_SLOTS[6]);
-    if (!hasMarkedUpSldPhoto) {
-      issues.push(issue(STEP.photos, 'Marked-up SLD is confirmed attached, but no photo was added for that slot.'));
-    }
-  }
+  // The marked-up SLD cross-check went with the Confirmation checkbox it read.
+  // Keeping it would have left an old survey that ticked the box raising an
+  // error with no way to clear it — the box it pointed at no longer exists.
 
   return issues;
 }
@@ -263,16 +255,11 @@ function validatePhotos(survey: SurveyReport): SurveyValidationIssue[] {
 // ─── Section J — BOQ ──────────────────────────────────────────────────────────
 
 /**
- * quantitiesCrossCheckedAgainstAnnexureI and markedUpSldAttached are errors
- * when unticked — both are things the surveyor genuinely does/confirms in
- * the field (markedUpSldAttached is additionally cross-checked against the
- * Photos step above, since the checkbox alone can't prove a photo exists).
- *
- * updatedInMsetclWebAppAndTracker is a warning instead: updating the MSETCL
- * web-application is an office activity the surveyor cannot perform from a
- * substation — the form itself hedges with "(if available)" — so a hard
- * gate here would either block a legitimate field submission or induce a
- * false attestation on a document going for government vetting.
+ * The three Confirmation checkboxes are GONE from the form, and their rules
+ * went with them. Two were hard errors on an unticked box; with no checkbox
+ * to tick they would have been permanently unsatisfiable and Submit would
+ * have become impossible — the same failure the Service BOQ removal caused,
+ * and the reason every removal in this batch audits validation first.
  *
  * Line-level rules are driven by BoqMasterItem.required, NOT by a list kept
  * here — the master is the single place that decides which items matter.
@@ -303,19 +290,6 @@ function validatePhotos(survey: SurveyReport): SurveyValidationIssue[] {
 function validateBoq(survey: SurveyReport): SurveyValidationIssue[] {
   const issues: SurveyValidationIssue[] = [];
 
-  if (!survey.boqChecks.quantitiesCrossCheckedAgainstAnnexureI) {
-    issues.push(issue(STEP.boq, 'Confirm quantities were cross-checked against tender Annexure-I.'));
-  }
-  if (!survey.boqChecks.markedUpSldAttached) {
-    issues.push(issue(STEP.boq, 'Confirm the marked-up SLD / architecture is attached.'));
-  }
-  if (!survey.boqChecks.updatedInMsetclWebAppAndTracker) {
-    issues.push(issue(
-      STEP.boq,
-      'Reminder: update survey data in the MSETCL web-application and our tracker.',
-      'warning',
-    ));
-  }
 
   // Matched by itemKey, never array position — same convention as StepBoq.
   //
@@ -383,7 +357,9 @@ function validateSignOff(survey: SurveyReport): SurveyValidationIssue[] {
   // that should be a deliberate call informed by that confirmation, not a
   // side effect of touching this function for something else.
   if (signOff.signedPagePhotos.length === 0) {
-    issues.push(issue(STEP.signOff, 'A photo of the signed BOQ page is required.'));
+    // Photos and PDFs share this array, so either satisfies the rule — the
+    // length check needs no change, only wording that matches the new label.
+    issues.push(issue(STEP.signOff, 'A photo or PDF of the signed survey is required.'));
   }
 
   // Both on-screen signatures are warnings, not errors, for the same reason
@@ -535,8 +511,10 @@ export function getStepStatuses(survey: SurveyReport): StepStatus[] {
     // BOQ — notApplicable counts as touched: ticking it is an answer. Either
     // quantity column counts; an answered "existing & usable" is a real
     // survey observation even with the supply column still blank.
-    isAnyValueSet(survey.boqChecks) ||
-      survey.boqSupply.some(isBoqLineTouched),
+    // boqChecks deliberately NOT consulted: isAnyValueSet treats `false` as a
+    // value, and all three defaulted to false, so this read as touched on
+    // every survey in existence. The BOQ lines are the real signal.
+    survey.boqSupply.some(isBoqLineTouched),
     // Sign-off
     !!survey.signOff.msetclEngineerName?.trim() ||
       !!survey.signOff.msetclEngineerDesignation?.trim() ||
