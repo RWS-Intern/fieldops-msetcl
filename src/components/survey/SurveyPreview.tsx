@@ -11,6 +11,7 @@ import {
   RELAY_TYPE_LABELS, PROTOCOL_LABELS,
   CAPACITOR_CONTROL_TYPE_LABELS, TRAYS_LABELS,
   DC_VOLTAGE_LABELS, MCB_POLE_TYPE_LABELS, BOQ_CHECK_LABELS, storedVoltageLabel,
+  CABLE_LAYING_METHOD_LABELS, SLD_HANDOVER_FORMAT_LABELS, MATERIAL_STORAGE_LOCATION_LABELS,
   LEGACY_COMBINED_VOLTAGE_LABEL,
 } from '@/lib/surveyLabels';
 import { SurveyPhotoThumb } from './SurveyPhotoThumb';
@@ -503,27 +504,45 @@ function InfrastructureSection({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
-        <SubHeading>Outdoor Civil Work &amp; Communication</SubHeading>
-        <Field label="Outdoor civil work status" value={dash(checklist.outdoorCivilWorkStatus)} />
+        <SubHeading>Communication Equipment Details</SubHeading>
         <div className="grid grid-cols-2 gap-2">
           <Field
-            label="Distance to proposed RTU location"
+            label="Distance, proposed Network panel to MSETCL communication panel"
             value={checklist.communication?.distanceToProposedRtuLocationM != null
               ? `${checklist.communication?.distanceToProposedRtuLocationM} m`
               : '—'}
           />
-          <Field label="Channel type" value={dash(checklist.communication?.channelType)} />
-          <Field label="Channel make" value={dash(checklist.communication?.channelMake)} />
+          <Field
+            label="Type of communication availability"
+            value={dash(checklist.communication?.channelType)}
+          />
+          <Field
+            label="Communication cable will lay through"
+            value={checklist.communication?.cableLayingMethod
+              ? CABLE_LAYING_METHOD_LABELS[checklist.communication.cableLayingMethod]
+              : '—'}
+          />
+          <Field
+            label="Bay switch to RTU (Network panel) distance run"
+            value={checklist.communication?.baySwitchToRtuDistanceM != null
+              ? `${checklist.communication?.baySwitchToRtuDistanceM} m`
+              : '—'}
+          />
         </div>
-        <TriField
+        <RemovedField label="Channel make" value={checklist.communication?.channelMake ?? null} />
+        <RemovedField
           label="Cable route already exists for the communication cable"
-          value={checklist.communication?.cableRouteExists}
+          value={checklist.communication?.cableRouteExists ?? null}
+        />
+        <RemovedField
+          label="Outdoor civil work status"
+          value={checklist.outdoorCivilWorkStatus}
         />
       </div>
 
       <div className="flex flex-col gap-1">
-        <SubHeading>AC / DC Supply</SubHeading>
-        <TriField label="230V AC supply available" value={checklist.acDcSupply?.ac230vAvailable} />
+        <SubHeading>Station AC &amp; DC Supply Details</SubHeading>
+        <TriField label="230V AC for utilities available" value={checklist.acDcSupply?.ac230vAvailable} />
         {/* Per voltage level, replacing the old single shared multi-select. */}
         <div className="grid grid-cols-2 gap-2">
           {SURVEY_VOLTAGE_LEVELS.map((level) => {
@@ -531,7 +550,7 @@ function InfrastructureSection({
             return (
               <Field
                 key={level}
-                label={`DC breaker voltage — ${VOLTAGE_LEVEL_LABELS[level]}`}
+                label={`DC operational voltage for breaker — ${VOLTAGE_LEVEL_LABELS[level]}`}
                 value={dc ? DC_VOLTAGE_LABELS[dc] : '—'}
               />
             );
@@ -544,11 +563,11 @@ function InfrastructureSection({
             />
           )}
           <Field
-            label="Distance to ACDB"
+            label="Distance, proposed Network panel to ACDB"
             value={checklist.acDcSupply?.distanceToAcdbM != null ? `${checklist.acDcSupply?.distanceToAcdbM} m` : '—'}
           />
           <Field
-            label="Distance to DCDB"
+            label="Distance, proposed Network panel to DCDB"
             value={checklist.acDcSupply?.distanceToDcdbM != null ? `${checklist.acDcSupply?.distanceToDcdbM} m` : '—'}
           />
         </div>
@@ -565,12 +584,35 @@ function InfrastructureSection({
       </div>
 
       <div className="flex flex-col gap-1">
-        <SubHeading>SLD, Earthing &amp; Lightning Protection</SubHeading>
-        <TriField label="SLD drawn and confirmed" value={checklist.sld?.sldDrawnAndConfirmed} />
-        <TriField label="All equipment types shown on the SLD" value={checklist.sld?.allEquipmentTypesShownOnSld} />
-        <TriField label="Earthing mat extended to the control room" value={checklist.earthing?.matExtendedToControlRoom} />
-        <TriField label="Earthing mat intact" value={checklist.earthing?.matIntact} />
+        <SubHeading>Single Line Diagram Details</SubHeading>
+        <TriField label="Single Line Diagram available at substation" value={checklist.sld?.sldDrawnAndConfirmed} />
         <TriField
+          label="SLD shows all existing bays as well as future bays"
+          value={checklist.sld?.sldShowsExistingAndFutureBays}
+        />
+        <TriField
+          label="Breakers, CTs, PTs, LAs, reactors, capacitor banks, isolators, earth switches and bus couplers shown in SLD"
+          value={checklist.sld?.allEquipmentTypesShownOnSld}
+        />
+        <Field
+          label="SLD handed over to surveyor"
+          value={checklist.sld?.sldHandoverFormat
+            ? SLD_HANDOVER_FORMAT_LABELS[checklist.sld.sldHandoverFormat]
+            : '—'}
+        />
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <SubHeading>Substation Earthing Details</SubHeading>
+        <TriField label="Earth mat strip extended to the control room" value={checklist.earthing?.matExtendedToControlRoom} />
+        <TriField label="Earth mat intact" value={checklist.earthing?.matIntact} />
+        <Field
+          label="Distance, proposed Network panel and associated equipment to earth strip"
+          value={checklist.earthing?.distanceToEarthStripM != null
+            ? `${checklist.earthing?.distanceToEarthStripM} m`
+            : '—'}
+        />
+        <RemovedField
           label="Lightning protection extended to the control room"
           value={checklist.lightningProtectionToControlRoom}
         />
@@ -588,13 +630,22 @@ function InfrastructureSection({
       </div>
 
       <div className="flex flex-col gap-1">
-        <SubHeading>Temporary Storage / Holding Area</SubHeading>
-        <TriField label="Site access available" value={checklist.storage?.siteAccessAvailable} />
-        <TriField label="Storage space available for the RTU panel" value={checklist.storage?.storageSpaceForRtuPanel} />
-        <TriField label="Space available for unloading" value={checklist.storage?.spaceForUnloading} />
-        <TriField
+        <SubHeading>Space Availability for Storage</SubHeading>
+        <TriField label="Access to storage site" value={checklist.storage?.siteAccessAvailable} />
+        <TriField label="Space available for unloading at site" value={checklist.storage?.spaceForUnloading} />
+        <Field
+          label="Material will be stored at"
+          value={checklist.storage?.materialStorageLocation
+            ? MATERIAL_STORAGE_LOCATION_LABELS[checklist.storage.materialStorageLocation]
+            : '—'}
+        />
+        <RemovedField
+          label="Storage space available for the RTU panel"
+          value={checklist.storage?.storageSpaceForRtuPanel ?? null}
+        />
+        <RemovedField
           label="Install space available for F-RTU / switch / MFM + CMR"
-          value={checklist.storage?.installSpaceForFrtuSwitchMfmCmr}
+          value={checklist.storage?.installSpaceForFrtuSwitchMfmCmr ?? null}
         />
       </div>
     </div>

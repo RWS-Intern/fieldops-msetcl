@@ -957,20 +957,55 @@ export interface SurveyAssetCounts {
 
 // ─── Site checklist (official checklist table 2) ─────────────────────────────
 
+/** "Communication cable will lay through trench/wall mounting". */
+export type CableLayingMethod = 'trench' | 'wall_mounted';
+
 /**
- * Communication equipment details.
+ * Communication equipment details — the document's four labelled rows.
  *
- * The official checklist has FOUR UNLABELLED ROWS in this table — no heading
- * text at all. No fields are built for them: inventing plausible-sounding
- * labels for a government document would be worse than leaving them out. If
- * the labels are recovered from a later revision, add them here.
+ * The four UNLABELLED rows noted in Phase 1 are now resolved: the revision
+ * behind this reconciliation names all four, and each maps to a field here.
  */
 export interface SurveyCommunicationEquipment {
+  /**
+   * "Distance between proposed Network panel location and MSETCL
+   * communication Panel".
+   *
+   * The field name predates the document wording and reads as though only one
+   * endpoint matters; it is kept as-is because it holds real data and a rename
+   * buys nothing a corrected label does not. The label is the corrected one.
+   */
   distanceToProposedRtuLocationM: number | null;
+  /**
+   * "Type of communication Availability (FOTE/VSAT/Other)".
+   *
+   * FREE TEXT, not an enum, even though the document names two options: the
+   * third is literally "Other", so the set is open, and this field already
+   * holds typed answers. Narrowing it would discard whatever does not happen
+   * to match. The options travel in the label and placeholder instead.
+   */
   channelType: string | null;
+  /**
+   * @deprecated No equivalent row in the document's Communication table.
+   *
+   * Dead but deliberately present: a live, editable input since this step was
+   * built, so an in-progress survey may hold a real make. Read only, surfaced
+   * as reference — there is no replacement field, so nothing can be moved.
+   */
   channelMake: string | null;
-  /** Whether a usable cable route already exists for the comms cable. */
+  /**
+   * @deprecated Superseded by `cableLayingMethod`.
+   *
+   * A DIFFERENT question, not a renamed one: this asked WHETHER a route
+   * exists, the document asks WHICH method will be used. A yes/no cannot be
+   * read as "trench" or "wall mounting", so it is never auto-converted —
+   * surfaced as reference only.
+   */
   cableRouteExists: boolean | null;
+  /** "Communication cable will lay through trench/wall mounting". */
+  cableLayingMethod: CableLayingMethod | null;
+  /** "Bay switch-to-RTU (Network panel) distance run in Mtr." */
+  baySwitchToRtuDistanceM: number | null;
 }
 
 /**
@@ -986,26 +1021,73 @@ export interface SurveyAcDcSupply {
   distanceToDcdbM: number | null;
 }
 
-/** Two booleans rather than free text — the form asks only whether, not how. */
+/**
+ * "SLD handed over to surveyor (Hard/Soft copy)".
+ *
+ * Three states, not a boolean: the document asks WHICH format was handed
+ * over, so "hard copy" and "soft copy" are distinct answers and "not handed
+ * over" is the third. A boolean could record only the last distinction, losing
+ * the one the document actually asks for.
+ */
+export type SldHandoverFormat = 'hard_copy' | 'soft_copy' | 'not_handed_over';
+
 export interface SurveySldDetails {
+  /** "Single Line Diagram available at Substation". */
   sldDrawnAndConfirmed: boolean | null;
+  /**
+   * "Breakers, CTs, PTs, LAs, Reactors, Capacitor Banks, Isolators, Earth
+   * Switches, Bus Couplers, are shown in SLD".
+   */
   allEquipmentTypesShownOnSld: boolean | null;
+  /**
+   * "Single Line Diagram of the Station showing all existing bays as well as
+   * future bays" — a separate question from the equipment-types one above:
+   * an SLD can show every equipment type and still omit future bays.
+   */
+  sldShowsExistingAndFutureBays: boolean | null;
+  sldHandoverFormat: SldHandoverFormat | null;
 }
 
 export interface SurveyEarthingDetails {
+  /** "Is the Earth Mat strip extended to Control Room?" */
   matExtendedToControlRoom: boolean | null;
+  /** "Is the Earth Mat intact?" */
   matIntact: boolean | null;
+  /**
+   * "Distance between proposed Network panel and associated equipment to
+   * Earth Strip?" — a measurement, not a yes/no, and unrelated to either
+   * boolean above.
+   */
+  distanceToEarthStripM: number | null;
 }
 
+/** "Material will be store at control room/store". */
+export type MaterialStorageLocation = 'control_room' | 'store';
+
 export interface SurveyStorageDetails {
+  /** "Access to Storage Site". */
   siteAccessAvailable: boolean | null;
+  /** "Space Available for Unloading at Site". */
+  spaceForUnloading: boolean | null;
+  /** "Material will be store at control room/store". */
+  materialStorageLocation: MaterialStorageLocation | null;
+
   /**
-   * The RTU panel is approximately 1000 x 440 x 600 mm. That figure is a HINT
-   * for the surveyor only — deliberately not encoded as a validated dimension,
-   * since the answer is a judgement about the actual room.
+   * @deprecated Neither has an equivalent row in the document's "Space
+   * Availability for storage" table, which has exactly three.
+   *
+   * Dead but deliberately present — both were live, editable inputs since this
+   * step was built. Read only, surfaced as reference; there is no replacement
+   * field, so nothing can be moved into one.
+   *
+   * NOTE for review: `installSpaceForFrtuSwitchMfmCmr` asks about INSTALL
+   * space while living in the storage group. The install-location questions it
+   * resembles live on `SurveyInfrastructure` and are untouched, so retiring
+   * this one does not disturb the deliberate install-vs-storage split — but it
+   * is the judgement call in this round most worth confirming.
    */
   storageSpaceForRtuPanel: boolean | null;
-  spaceForUnloading: boolean | null;
+  /** @deprecated See the note on `storageSpaceForRtuPanel` above. */
   installSpaceForFrtuSwitchMfmCmr: boolean | null;
 }
 
@@ -1020,15 +1102,22 @@ export interface SurveyStorageDetails {
  */
 export interface SurveySiteChecklist {
   /**
-   * Free text, not an enum: the document's own wording for the options is
-   * unknown, and inventing a status vocabulary would be the same mistake as
-   * inventing the unlabelled rows above.
+   * @deprecated No equivalent in the five tables this step now reconciles
+   * against (Communication, AC & DC Supply, SLD, Earthing, Storage).
+   *
+   * Dead but deliberately present — a live free-text box since this step was
+   * built, and free text is the most likely of this group to hold real prose.
+   * Read only, surfaced as reference.
    */
   outdoorCivilWorkStatus: string | null;
   communication: SurveyCommunicationEquipment;
   acDcSupply: SurveyAcDcSupply;
   sld: SurveySldDetails;
   earthing: SurveyEarthingDetails;
+  /**
+   * @deprecated No equivalent row in the document's Earthing table, which asks
+   * two booleans and one distance. Read only, surfaced as reference.
+   */
   lightningProtectionToControlRoom: boolean | null;
   storage: SurveyStorageDetails;
 }

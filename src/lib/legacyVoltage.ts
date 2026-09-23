@@ -12,7 +12,9 @@ import type { StoredVoltageLevel, SurveyReport } from '@/types';
  *   - the single Circle/Division the two-office O&M/PAC table replaced;
  *   - relay Protocol / IP Address, which no longer have a field at all;
  *   - the Substation Telephone pair, Shift Operator contacts, and the Room
- *     Temperature / AC / Mounting Structure group, likewise removed outright.
+ *     Temperature / AC / Mounting Structure group, likewise removed outright;
+ *   - the Step 6 checklist rows with no equivalent in the document's own five
+ *     tables, retired by the same reconciliation.
  *
  * Nothing here migrates anything. A feeder's real level, a DC breaker voltage
  * or a bay count can genuinely differ between 66kV and 33kV, so copying the
@@ -45,7 +47,7 @@ export interface LegacyVoltageHit {
          | 'Capacitor Banks' | 'DC breaker voltage' | 'Bay counts'
          | 'Asset totals' | 'ACDB/DCDB slots' | 'MFM availability'
          | 'Office (Circle / Division)' | 'Relay Protocol / IP'
-         | 'Contact Details' | 'Control Room';
+         | 'Contact Details' | 'Control Room' | 'Site Checklist';
   /** How that one entry identifies itself, e.g. a bay name. */
   label: string;
   /** The old value as recorded, where there is one worth showing back. */
@@ -152,6 +154,30 @@ export function findLegacyVoltageData(survey: SurveyReport): LegacyVoltageHit[] 
     hits.push({
       kind:    'reference',
       section,
+      label,
+      value:   typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value),
+    });
+  }
+
+  // Step 6 rows retired by the reconciliation against the document's five
+  // tables. REFERENCE hits — no replacement field exists for any of them, and
+  // `cableRouteExists` in particular must never be read as an answer to
+  // `cableLayingMethod`: a yes/no cannot mean "trench" or "wall mounting".
+  const checklistRemoved: [string, string | number | boolean | null][] = [
+    ['Outdoor civil work status',      survey.siteChecklist.outdoorCivilWorkStatus],
+    ['Channel make',                   survey.siteChecklist.communication?.channelMake ?? null],
+    ['Cable route already exists',     survey.siteChecklist.communication?.cableRouteExists ?? null],
+    ['Lightning protection to control room', survey.siteChecklist.lightningProtectionToControlRoom],
+    ['Storage space for the RTU panel', survey.siteChecklist.storage?.storageSpaceForRtuPanel ?? null],
+    ['Install space for F-RTU / switch / MFM + CMR',
+      survey.siteChecklist.storage?.installSpaceForFrtuSwitchMfmCmr ?? null],
+  ];
+  for (const [label, value] of checklistRemoved) {
+    if (value == null) continue;
+    if (typeof value === 'string' && value.trim() === '') continue;
+    hits.push({
+      kind:    'reference',
+      section: 'Site Checklist',
       label,
       value:   typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value),
     });

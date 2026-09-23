@@ -287,6 +287,9 @@ function createEmptySiteChecklist(): SurveySiteChecklist {
     communication: {
       distanceToProposedRtuLocationM: null,
       channelType:                    null,
+      cableLayingMethod:              null,
+      baySwitchToRtuDistanceM:        null,
+      // Superseded — seeded null and never written again.
       channelMake:                    null,
       cableRouteExists:               null,
     },
@@ -297,18 +300,23 @@ function createEmptySiteChecklist(): SurveySiteChecklist {
       distanceToDcdbM:         null,
     },
     sld: {
-      sldDrawnAndConfirmed:        null,
-      allEquipmentTypesShownOnSld: null,
+      sldDrawnAndConfirmed:          null,
+      sldShowsExistingAndFutureBays: null,
+      allEquipmentTypesShownOnSld:   null,
+      sldHandoverFormat:             null,
     },
     earthing: {
       matExtendedToControlRoom: null,
       matIntact:                null,
+      distanceToEarthStripM:    null,
     },
     lightningProtectionToControlRoom: null,
     storage: {
       siteAccessAvailable:             null,
-      storageSpaceForRtuPanel:         null,
       spaceForUnloading:               null,
+      materialStorageLocation:         null,
+      // Superseded — seeded null and never written again.
+      storageSpaceForRtuPanel:         null,
       installSpaceForFrtuSwitchMfmCmr: null,
     },
   };

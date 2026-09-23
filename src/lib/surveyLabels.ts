@@ -5,6 +5,7 @@ import type {
   SurveyVoltageLevel, StoredVoltageLevel,
   SurveyDcVoltage, SurveyRelayType, SurveyCapacitorBank,
   TapPositionConnectionType, McbPoleType,
+  CableLayingMethod, SldHandoverFormat, MaterialStorageLocation,
 } from '@/types';
 
 /**
@@ -173,3 +174,26 @@ export const BOQ_CHECK_LABELS: { key: keyof SurveyBoqChecks; label: string }[] =
     label: 'Survey data / progress updated in MSETCL web-application (if available) and our tracker',
   },
 ];
+
+// ─── Step 6 — Site Infrastructure & Checklist ─────────────────────────────────
+//
+// Wording follows the document's own rows. Where the document writes the
+// options into the question itself ("trench/wall mounting", "Hard/Soft copy",
+// "control room/store"), the option labels below are the expansion of exactly
+// those words — nothing invented.
+
+export const CABLE_LAYING_METHOD_LABELS: Record<CableLayingMethod, string> = {
+  trench:       'Through trench',
+  wall_mounted: 'Wall mounting',
+};
+
+export const SLD_HANDOVER_FORMAT_LABELS: Record<SldHandoverFormat, string> = {
+  hard_copy:       'Hard copy',
+  soft_copy:       'Soft copy',
+  not_handed_over: 'Not handed over',
+};
+
+export const MATERIAL_STORAGE_LOCATION_LABELS: Record<MaterialStorageLocation, string> = {
+  control_room: 'Control room',
+  store:        'Store',
+};

@@ -128,11 +128,10 @@ function buildPopulatedSurvey(): SurveyReport {
 
   // Site checklist (the official table 2) and the retained infrastructure
   // fields the Infrastructure step still renders alongside it.
-  survey.siteChecklist.outdoorCivilWorkStatus              = 'Cable entry to be cut.';
   survey.siteChecklist.communication.distanceToProposedRtuLocationM = 25;
-  survey.siteChecklist.communication.channelType           = 'OFC';
-  survey.siteChecklist.communication.channelMake           = 'Sterlite';
-  survey.siteChecklist.communication.cableRouteExists      = true;
+  survey.siteChecklist.communication.channelType           = 'FOTE';
+  survey.siteChecklist.communication.cableLayingMethod     = 'trench';
+  survey.siteChecklist.communication.baySwitchToRtuDistanceM = 60;
   survey.siteChecklist.acDcSupply.ac230vAvailable          = true;
   survey.siteChecklist.acDcSupply.dcBreakerVoltageByLevel['132'] = '110';
   survey.siteChecklist.acDcSupply.dcBreakerVoltageByLevel['66'] = '48';
@@ -140,14 +139,15 @@ function buildPopulatedSurvey(): SurveyReport {
   survey.siteChecklist.acDcSupply.distanceToAcdbM          = 12;
   survey.siteChecklist.acDcSupply.distanceToDcdbM          = 18;
   survey.siteChecklist.sld.sldDrawnAndConfirmed            = true;
+  survey.siteChecklist.sld.sldShowsExistingAndFutureBays   = false;
   survey.siteChecklist.sld.allEquipmentTypesShownOnSld     = false;
+  survey.siteChecklist.sld.sldHandoverFormat               = 'soft_copy';
   survey.siteChecklist.earthing.matExtendedToControlRoom   = true;
   survey.siteChecklist.earthing.matIntact                  = true;
-  survey.siteChecklist.lightningProtectionToControlRoom    = true;
+  survey.siteChecklist.earthing.distanceToEarthStripM      = 8;
   survey.siteChecklist.storage.siteAccessAvailable         = true;
-  survey.siteChecklist.storage.storageSpaceForRtuPanel     = true;
   survey.siteChecklist.storage.spaceForUnloading           = false;
-  survey.siteChecklist.storage.installSpaceForFrtuSwitchMfmCmr = true;
+  survey.siteChecklist.storage.materialStorageLocation     = 'control_room';
 
   survey.infrastructure.panelSpaceAvailable   = true;
   survey.infrastructure.panelSpaceMeasurement = '1200 x 800 mm free';
@@ -226,6 +226,14 @@ function buildLegacySurvey(): SurveyReport {
   survey.assetCounts.transformerCount   = 5;
   survey.assetCounts.busCount           = 2;
   survey.assetCounts.capacitorBankCount = 1;
+  // Step 6 rows retired by the reconciliation against the document's own five
+  // tables. All REFERENCE hits, including two booleans recorded as `false`.
+  survey.siteChecklist.outdoorCivilWorkStatus = 'Trenching part-complete on the north side.';
+  survey.siteChecklist.communication.channelMake = 'Tejas';
+  survey.siteChecklist.communication.cableRouteExists = true;
+  survey.siteChecklist.lightningProtectionToControlRoom = false;
+  survey.siteChecklist.storage.storageSpaceForRtuPanel = true;
+  survey.siteChecklist.storage.installSpaceForFrtuSwitchMfmCmr = false;
   // Fields removed outright from Contact Details and Control Room. All
   // REFERENCE hits — including acAvailable: false, which must surface, since a
   // recorded "no" is as much an answer as a "yes".
@@ -357,9 +365,9 @@ export function runSurveyWalk(): number {
     const reenter   = legacyHits.filter((h) => h.kind !== 'reference');
     const reference = legacyHits.filter((h) => h.kind === 'reference');
     const legacyOk = surveyHasLegacyVoltageData(legacy) === true
-      && legacyHits.length === 20 && reenter.length === 12 && reference.length === 8;
+      && legacyHits.length === 26 && reenter.length === 12 && reference.length === 14;
     console.log(`  ${legacyOk ? 'ok  ' : 'FAIL'} legacy survey: flagged, ${legacyHits.length} hits`
-      + ` — ${reenter.length} to re-enter (expected 12), ${reference.length} reference (expected 8)`);
+      + ` — ${reenter.length} to re-enter (expected 12), ${reference.length} reference (expected 14)`);
     if (!legacyOk) failures++;
     legacyHits.forEach((h) => console.log(
       `         - [${h.kind ?? 're-enter'}] ${h.section}: ${h.label}${h.value ? ` (was ${h.value})` : ''}`));

@@ -283,6 +283,10 @@ function mapSiteChecklist(raw: Record<string, any> | undefined): SurveySiteCheck
     communication: {
       distanceToProposedRtuLocationM: raw?.['communication']?.distanceToProposedRtuLocationM ?? null,
       channelType:                    raw?.['communication']?.channelType                    ?? null,
+      cableLayingMethod:              raw?.['communication']?.cableLayingMethod              ?? null,
+      baySwitchToRtuDistanceM:        raw?.['communication']?.baySwitchToRtuDistanceM        ?? null,
+      // Superseded — read only, so an old answer can be shown back. Never used
+      // as a fallback: "a route exists" cannot be read as trench or wall.
       channelMake:                    raw?.['communication']?.channelMake                    ?? null,
       cableRouteExists:               raw?.['communication']?.cableRouteExists               ?? null,
     },
@@ -294,16 +298,21 @@ function mapSiteChecklist(raw: Record<string, any> | undefined): SurveySiteCheck
       distanceToDcdbM:         raw?.['acDcSupply']?.distanceToDcdbM ?? null,
     },
     sld: {
-      sldDrawnAndConfirmed:        raw?.['sld']?.sldDrawnAndConfirmed        ?? null,
+      sldDrawnAndConfirmed:          raw?.['sld']?.sldDrawnAndConfirmed          ?? null,
+      sldShowsExistingAndFutureBays: raw?.['sld']?.sldShowsExistingAndFutureBays ?? null,
+      sldHandoverFormat:             raw?.['sld']?.sldHandoverFormat             ?? null,
       allEquipmentTypesShownOnSld: raw?.['sld']?.allEquipmentTypesShownOnSld ?? null,
     },
     earthing: {
       matExtendedToControlRoom: raw?.['earthing']?.matExtendedToControlRoom ?? null,
       matIntact:                raw?.['earthing']?.matIntact                ?? null,
+      distanceToEarthStripM:    raw?.['earthing']?.distanceToEarthStripM    ?? null,
     },
     lightningProtectionToControlRoom: raw?.['lightningProtectionToControlRoom'] ?? null,
     storage: {
       siteAccessAvailable:             raw?.['storage']?.siteAccessAvailable             ?? null,
+      materialStorageLocation:         raw?.['storage']?.materialStorageLocation         ?? null,
+      // Superseded — read only.
       storageSpaceForRtuPanel:         raw?.['storage']?.storageSpaceForRtuPanel         ?? null,
       spaceForUnloading:               raw?.['storage']?.spaceForUnloading               ?? null,
       installSpaceForFrtuSwitchMfmCmr: raw?.['storage']?.installSpaceForFrtuSwitchMfmCmr ?? null,
