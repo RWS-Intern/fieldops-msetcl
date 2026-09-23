@@ -59,8 +59,7 @@ function buildPopulatedSurvey(): SurveyReport {
   survey.location     = { lat: 19.07, lng: 72.87 };
 
   survey.contactDetails.substationInchargeName = 'A. Patil';
-  survey.contactDetails.substationLandline     = '022-1234';
-  survey.contactDetails.substationVoip         = '5001';
+
   survey.contactDetails.substationContactNo    = '022-27812345';
   survey.contactDetails.email                  = 'vashi.ss@example.test';
   survey.contactDetails.pinCode                = '400703';
@@ -73,8 +72,7 @@ function buildPopulatedSurvey(): SurveyReport {
   survey.contactDetails.pacDivisionContactNo   = '022-27817777';
   survey.contactDetails.commissionedDate       = new Date('2011-06-01');
   survey.controlRoom.layoutNotes               = 'Panels along north wall.';
-  survey.controlRoom.acAvailable               = true;
-  survey.controlRoom.acCondition               = 'Working';
+
   survey.controlRoom.cableTrenchAvailable      = true;
   survey.controlRoom.cableTrenchLengthM        = 40;
   survey.assetCounts.baysByVoltage['132']           = 4;
@@ -228,6 +226,16 @@ function buildLegacySurvey(): SurveyReport {
   survey.assetCounts.transformerCount   = 5;
   survey.assetCounts.busCount           = 2;
   survey.assetCounts.capacitorBankCount = 1;
+  // Fields removed outright from Contact Details and Control Room. All
+  // REFERENCE hits — including acAvailable: false, which must surface, since a
+  // recorded "no" is as much an answer as a "yes".
+  survey.contactDetails.substationLandline    = '022-27811234';
+  survey.contactDetails.substationVoip        = '5001';
+  survey.contactDetails.shiftOperatorContacts = 'A shift — Patil 9812345678';
+  survey.controlRoom.roomTemperature          = '28 °C';
+  survey.controlRoom.acAvailable              = false;
+  survey.controlRoom.acCondition              = 'Compressor faulty';
+  survey.controlRoom.mountingStructureOrRtuPanelDimensions = '600 x 800 x 2200 mm';
   // The single Circle / Division the two-office O&M/PAC table replaced.
   survey.contactDetails.circle   = 'Vashi Circle';
   survey.contactDetails.division = 'Vashi Division';
@@ -349,9 +357,9 @@ export function runSurveyWalk(): number {
     const reenter   = legacyHits.filter((h) => h.kind !== 'reference');
     const reference = legacyHits.filter((h) => h.kind === 'reference');
     const legacyOk = surveyHasLegacyVoltageData(legacy) === true
-      && legacyHits.length === 13 && reenter.length === 12 && reference.length === 1;
+      && legacyHits.length === 20 && reenter.length === 12 && reference.length === 8;
     console.log(`  ${legacyOk ? 'ok  ' : 'FAIL'} legacy survey: flagged, ${legacyHits.length} hits`
-      + ` — ${reenter.length} to re-enter (expected 12), ${reference.length} reference (expected 1)`);
+      + ` — ${reenter.length} to re-enter (expected 12), ${reference.length} reference (expected 8)`);
     if (!legacyOk) failures++;
     legacyHits.forEach((h) => console.log(
       `         - [${h.kind ?? 're-enter'}] ${h.section}: ${h.label}${h.value ? ` (was ${h.value})` : ''}`));

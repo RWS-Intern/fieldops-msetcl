@@ -777,14 +777,21 @@ export interface SurveyContactDetails {
   /** The IN-CHARGE PERSON's own contact number — not the station's line. */
   substationInchargePhone: string | null;
   /**
-   * The SUBSTATION's own telephone numbers, distinct from the in-charge
-   * person's phone above: the document lists them as separate rows, and the
-   * station line survives a change of in-charge. Kept as two flat fields
-   * rather than a nested { landline, voip } object to match the flat style of
-   * every other field in this interface — the UI groups them visually under
-   * the document's own "Substation Telephone no./s" heading.
+   * @deprecated Removed from the form — the supervisor confirmed the station
+   * telephone pair is not collected. No replacement has been specified.
+   *
+   * Dead but deliberately present: these were live, editable inputs from the
+   * original Contact Details build — among the oldest fields in this rebuild —
+   * so surveys in progress may hold real numbers. Nothing writes them any
+   * more; they are read only so a recorded value can be shown back.
+   *
+   * Surfaced as REFERENCE, never as an outstanding action: there is no
+   * replacement field to move these into, and `substationContactNo` is a
+   * different question (see its note below) that must not be used as a
+   * landing place for them. Same treatment as relay Protocol / IP.
    */
   substationLandline: string | null;
+  /** @deprecated See the note on `substationLandline` above. */
   substationVoip: string | null;
   /**
    * "Substation contact no" — its own row in the document's contact table,
@@ -803,8 +810,11 @@ export interface SurveyContactDetails {
   /** "Substation Email ID". */
   email: string | null;
   /**
-   * Free text rather than a repeatable group: the printed form is a single
-   * cell and a shift roster may list several names/numbers together.
+   * @deprecated Removed from the form. No replacement specified.
+   *
+   * Dead but deliberately present, and the most likely of this group to hold
+   * real prose: it was a free-text roster box, live since the original build.
+   * Read only, surfaced as reference — see `substationLandline` above.
    */
   shiftOperatorContacts: string | null;
   address: string | null;
@@ -869,10 +879,25 @@ export interface SurveyControlRoom {
    * once thought to be asking rather than the one it actually asks.
    */
   layoutNotes: string | null;
-  /** Free text — often recorded as a range rather than one reading. */
+
+  /**
+   * @deprecated Removed from the form. No replacement specified.
+   *
+   * Dead but deliberately present — all four were live, editable inputs from
+   * the original Control Room build. Nothing writes them any more; they are
+   * read only so recorded values can be shown back, as REFERENCE rather than
+   * as an action, since no replacement field exists.
+   *
+   * `acCondition` goes with `acAvailable` rather than surviving it: it was
+   * only ever shown when AC available was yes, so keeping it would leave a
+   * field that is unreachable through a question the form no longer asks.
+   */
   roomTemperature: string | null;
+  /** @deprecated See the note on `roomTemperature` above. */
   acAvailable: boolean | null;
+  /** @deprecated Conditional on `acAvailable`, which is also removed. */
   acCondition: string | null;
+  /** @deprecated See the note on `roomTemperature` above. */
   mountingStructureOrRtuPanelDimensions: string | null;
   cableTrenchAvailable: boolean | null;
   cableTrenchLengthM: number | null;

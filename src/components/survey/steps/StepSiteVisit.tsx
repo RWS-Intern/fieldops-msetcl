@@ -350,56 +350,10 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
           </div>
         </div>
 
-        {/*
-          The STATION's own numbers — a separate row on the document from the
-          in-charge person's contact above, and the two are not
-          interchangeable: the station line outlives a change of in-charge.
-          Grouped visually under the document's heading while staying two flat
-          fields on the type.
-        */}
-        <div className="flex flex-col gap-1.5">
-          <Label>Substation Telephone no./s</Label>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <Label htmlFor="ssLandline" className="text-xs font-normal text-gray-500">
-                Landline
-              </Label>
-              <Input
-                id="ssLandline"
-                type="tel" inputMode="tel" disabled={readOnly}
-                value={contact.substationLandline ?? ''}
-                onChange={(e) => updateContact({ substationLandline: e.target.value || null })}
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <Label htmlFor="ssVoip" className="text-xs font-normal text-gray-500">
-                VOIP
-              </Label>
-              <Input
-                id="ssVoip"
-                type="tel" inputMode="tel" disabled={readOnly}
-                value={contact.substationVoip ?? ''}
-                onChange={(e) => updateContact({ substationVoip: e.target.value || null })}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/*
-          One free-text box, not a repeatable list: the paper checklist gives
-          this a single cell, and shift rosters are written as prose ("A shift
-          — Patil 98…"). Structuring it would force surveyors to invent a
-          format the document doesn't ask for.
-        */}
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="shiftOperatorContacts">Contact Details of Shift Operators</Label>
-          <Textarea
-            id="shiftOperatorContacts"
-            disabled={readOnly}
-            value={contact.shiftOperatorContacts ?? ''}
-            onChange={(e) => updateContact({ shiftOperatorContacts: e.target.value || null })}
-          />
-        </div>
+        {/* Substation Telephone no./s (Landline + VOIP) and Contact Details of
+            Shift Operators used to sit here. Removed — no replacement
+            specified. Any recorded values surface as reference on the
+            orphaned-answer banner and in the preview. */}
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="ssAddress">Address</Label>
@@ -566,51 +520,11 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
           </p>
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="roomTemperature">Room Temperature</Label>
-          <Input
-            id="roomTemperature"
-            disabled={readOnly}
-            placeholder="e.g. 28 °C"
-            value={controlRoom.roomTemperature ?? ''}
-            onChange={(e) => updateControlRoom({ roomTemperature: e.target.value || null })}
-          />
-        </div>
-
-        <TriStateToggle
-          label="AC available?"
-          value={controlRoom.acAvailable}
-          onChange={(v) => updateControlRoom({ acAvailable: v })}
-          readOnly={readOnly}
-        />
-        {/* Condition is only a question about an AC that exists. Existing
-            answers are kept rather than cleared if the parent flips — same
-            reasoning as the RS485 field on the Feeder List step. */}
-        {controlRoom.acAvailable === true && (
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="acCondition">AC Condition</Label>
-            <Input
-              id="acCondition"
-              disabled={readOnly}
-              value={controlRoom.acCondition ?? ''}
-              onChange={(e) => updateControlRoom({ acCondition: e.target.value || null })}
-            />
-          </div>
-        )}
-
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="rtuPanelDimensions">
-            Mounting Structure / Existing RTU Panel Dimensions
-          </Label>
-          <Input
-            id="rtuPanelDimensions"
-            disabled={readOnly}
-            value={controlRoom.mountingStructureOrRtuPanelDimensions ?? ''}
-            onChange={(e) => updateControlRoom({
-              mountingStructureOrRtuPanelDimensions: e.target.value || null,
-            })}
-          />
-        </div>
+        {/* Room Temperature, AC available? (and its conditional AC Condition)
+            and Mounting Structure / Existing RTU Panel Dimensions used to sit
+            here. Removed — no replacement specified. AC Condition went with
+            AC available rather than outliving it: it was only ever reachable
+            when that question was answered yes. */}
 
         <TriStateToggle
           label="Cable trench available?"

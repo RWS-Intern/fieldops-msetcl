@@ -10,7 +10,9 @@ import type { StoredVoltageLevel, SurveyReport } from '@/types';
  *   - the fixed 10-slot ACDB/DCDB MCB tables the two board details replaced;
  *   - the combined "MFM available & working" answer the two toggles replaced;
  *   - the single Circle/Division the two-office O&M/PAC table replaced;
- *   - relay Protocol / IP Address, which no longer have a field at all.
+ *   - relay Protocol / IP Address, which no longer have a field at all;
+ *   - the Substation Telephone pair, Shift Operator contacts, and the Room
+ *     Temperature / AC / Mounting Structure group, likewise removed outright.
  *
  * Nothing here migrates anything. A feeder's real level, a DC breaker voltage
  * or a bay count can genuinely differ between 66kV and 33kV, so copying the
@@ -42,7 +44,8 @@ export interface LegacyVoltageHit {
   section: 'Feeder List' | 'CRP Relay Details' | 'Transformer Details'
          | 'Capacitor Banks' | 'DC breaker voltage' | 'Bay counts'
          | 'Asset totals' | 'ACDB/DCDB slots' | 'MFM availability'
-         | 'Office (Circle / Division)' | 'Relay Protocol / IP';
+         | 'Office (Circle / Division)' | 'Relay Protocol / IP'
+         | 'Contact Details' | 'Control Room';
   /** How that one entry identifies itself, e.g. a bay name. */
   label: string;
   /** The old value as recorded, where there is one worth showing back. */
@@ -126,6 +129,32 @@ export function findLegacyVoltageData(survey: SurveyReport): LegacyVoltageHit[] 
     if (value != null && value.trim() !== '') {
       hits.push({ section: 'Office (Circle / Division)', label, value });
     }
+  }
+
+  // Fields removed outright from Contact Details and Control Room. REFERENCE
+  // hits: there is no replacement field, so these are historical context, not
+  // an action — exactly how relay Protocol / IP is handled above. A boolean is
+  // rendered as Yes/No so `false` surfaces too; `!= null` is what catches it,
+  // since a recorded "no" is every bit as much an answer as a "yes".
+  const removed: ['Contact Details' | 'Control Room', string, string | number | boolean | null][] = [
+    ['Contact Details', 'Substation Telephone — Landline', survey.contactDetails.substationLandline],
+    ['Contact Details', 'Substation Telephone — VOIP',     survey.contactDetails.substationVoip],
+    ['Contact Details', 'Contact Details of Shift Operators', survey.contactDetails.shiftOperatorContacts],
+    ['Control Room',    'Room Temperature',                survey.controlRoom.roomTemperature],
+    ['Control Room',    'AC available',                    survey.controlRoom.acAvailable],
+    ['Control Room',    'AC Condition',                    survey.controlRoom.acCondition],
+    ['Control Room',    'Mounting Structure / Existing RTU Panel Dimensions',
+      survey.controlRoom.mountingStructureOrRtuPanelDimensions],
+  ];
+  for (const [section, label, value] of removed) {
+    if (value == null) continue;
+    if (typeof value === 'string' && value.trim() === '') continue;
+    hits.push({
+      kind:    'reference',
+      section,
+      label,
+      value:   typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value),
+    });
   }
 
   const legacyDc = survey.siteChecklist.acDcSupply.dcBreakerVoltageByLevel[LEGACY_COMBINED_VOLTAGE_LEVEL];

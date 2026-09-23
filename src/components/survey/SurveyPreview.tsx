@@ -176,6 +176,32 @@ function OfficeTable({ contact }: { contact: SurveyContactDetails }) {
   );
 }
 
+/**
+ * One answer to a question the form no longer asks.
+ *
+ * Renders nothing unless the survey actually holds a value, so it costs
+ * nothing on every survey answered since the removal. Booleans render as
+ * Yes/No rather than through TriField: "Not answered" would be wrong here —
+ * an unanswered removed question is simply absent, not pending.
+ */
+function RemovedField({
+  label, value,
+}: {
+  label: string;
+  value: string | number | boolean | null;
+}) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' && value.trim() === '') return null;
+
+  return (
+    <Field
+      label={`Previously recorded — ${label}`}
+      value={typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)}
+      flag="No longer collected — reference only"
+    />
+  );
+}
+
 function ContactDetailsBlock({ contact }: { contact: SurveyContactDetails }) {
   return (
     <div className="flex flex-col gap-1">
@@ -185,8 +211,6 @@ function ContactDetailsBlock({ contact }: { contact: SurveyContactDetails }) {
         <Field label="Substation In-charge Contact Details" value={dash(contact.substationInchargePhone)} />
         <Field label="Substation Email ID" value={dash(contact.email)} />
         <Field label="Substation contact no" value={dash(contact.substationContactNo)} />
-        <Field label="Substation Telephone — Landline" value={dash(contact.substationLandline)} />
-        <Field label="Substation Telephone — VOIP" value={dash(contact.substationVoip)} />
         <Field label="Zone" value={dash(contact.zoneName)} />
         <Field
           label="Commissioned Date"
@@ -195,9 +219,14 @@ function ContactDetailsBlock({ contact }: { contact: SurveyContactDetails }) {
         <Field label="Nearest Railway Station / Landmark" value={dash(contact.nearestRailwayStationOrLandmark)} />
       </div>
       <OfficeTable contact={contact} />
-      <Field label="Contact Details of Shift Operators" value={dash(contact.shiftOperatorContacts)} />
       <Field label="Address" value={dash(contact.address)} />
       <Field label="Substation PIN code" value={dash(contact.pinCode)} />
+      {/* Removed and no longer collected. Rendered only where a survey
+          actually holds one, flagged as reference rather than as a gap —
+          there is no field to move these into. */}
+      <RemovedField label="Substation Telephone — Landline" value={contact.substationLandline} />
+      <RemovedField label="Substation Telephone — VOIP" value={contact.substationVoip} />
+      <RemovedField label="Contact Details of Shift Operators" value={contact.shiftOperatorContacts} />
     </div>
   );
 }
@@ -207,17 +236,6 @@ function ControlRoomBlock({ controlRoom }: { controlRoom: SurveyControlRoom }) {
     <div className="flex flex-col gap-1">
       <SubHeading>Control Room Details</SubHeading>
       <Field label="Control room layout notes" value={dash(controlRoom.layoutNotes)} />
-      <div className="grid grid-cols-2 gap-2">
-        <Field label="Room Temperature" value={dash(controlRoom.roomTemperature)} />
-        <Field
-          label="Mounting Structure / Existing RTU Panel Dimensions"
-          value={dash(controlRoom.mountingStructureOrRtuPanelDimensions)}
-        />
-      </div>
-      <TriField label="AC available" value={controlRoom.acAvailable} />
-      {controlRoom.acAvailable === true && (
-        <Field label="AC Condition" value={dash(controlRoom.acCondition)} />
-      )}
       <TriField label="Cable trench available" value={controlRoom.cableTrenchAvailable} />
       {controlRoom.cableTrenchAvailable === true && (
         <Field
@@ -226,6 +244,14 @@ function ControlRoomBlock({ controlRoom }: { controlRoom: SurveyControlRoom }) {
         />
       )}
       <TriField label="Trench extension needed" value={controlRoom.trenchExtensionNeeded} />
+      {/* See the note in ContactDetailsBlock — removed, reference only. */}
+      <RemovedField label="Room Temperature" value={controlRoom.roomTemperature} />
+      <RemovedField label="AC available" value={controlRoom.acAvailable} />
+      <RemovedField label="AC Condition" value={controlRoom.acCondition} />
+      <RemovedField
+        label="Mounting Structure / Existing RTU Panel Dimensions"
+        value={controlRoom.mountingStructureOrRtuPanelDimensions}
+      />
     </div>
   );
 }
