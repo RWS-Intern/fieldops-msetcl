@@ -408,6 +408,7 @@ function FeederBlock({ feeder, index }: { feeder: SurveyFeederEntry; index: numb
         <>
           <TriField label="Existing MFM RS485 available" value={feeder.existingMfmRs485Available} />
           <TriField label="Existing MFM RS485 working" value={feeder.existingMfmRs485Working} />
+          <TriField label="Existing MFM MODBUS protocol compatible" value={feeder.mfmModbusCompatible} />
         </>
       )}
       {/* The pre-split combined answer, flagged rather than silently dropped,
@@ -421,6 +422,7 @@ function FeederBlock({ feeder, index }: { feeder: SurveyFeederEntry; index: numb
       )}
       <TriField label="Space available in C&amp;R for FRTU" value={feeder.frtuSpaceAvailable} />
       <TriField label="Space available in C&amp;R panel to install CMRs" value={feeder.cmrSpaceAvailable} />
+      <TriField label="Space available for BI &amp; AI TB" value={feeder.biAiTbSpaceAvailable} />
       <TriField label="Shutdown required" value={feeder.shutdownRequired} />
       <Field label="Remarks" value={dash(feeder.remarks)} />
       <PhotoGrid refs={feeder.photos} />

@@ -29,9 +29,11 @@ function createFeeder(): SurveyFeederEntry {
     existingMfmAvailableWorking:    null,
     existingMfmRs485Available:      null,
     existingMfmRs485Working:        null,
+    mfmModbusCompatible:            null,
     frtuSpaceAvailable:             null,
     cat6LengthFrtuToBaySwitchM:     null,
     cmrSpaceAvailable:              null,
+    biAiTbSpaceAvailable:           null,
     mfmRequired:                    null,
     cmrRequired:                    null,
     ctPtRatio:                      null,
@@ -171,6 +173,14 @@ export function StepFeederList({ survey, onChange, readOnly, onReplacePhotoRef }
               onChange={(v) => update({ existingMfmRs485Working: v })}
               readOnly={readOnly}
             />
+            {/* Also a question about a meter that exists, so it sits inside
+                the same gate as the RS485 pair rather than below it. */}
+            <TriStateToggle
+              label="Existing MFM MODBUS protocol compatible?"
+              value={feeder.mfmModbusCompatible}
+              onChange={(v) => update({ mfmModbusCompatible: v })}
+              readOnly={readOnly}
+            />
           </>
         )}
 
@@ -278,6 +288,15 @@ export function StepFeederList({ survey, onChange, readOnly, onReplacePhotoRef }
           label="Space available in C&amp;R panel to install CMRs?"
           value={feeder.cmrSpaceAvailable}
           onChange={(v) => update({ cmrSpaceAvailable: v })}
+          readOnly={readOnly}
+        />
+
+        {/* Third of the three space questions, each about room for different
+            equipment — FRTU above, CMRs above, the BI/AI terminal block here. */}
+        <TriStateToggle
+          label="Space available for BI &amp; AI TB?"
+          value={feeder.biAiTbSpaceAvailable}
+          onChange={(v) => update({ biAiTbSpaceAvailable: v })}
           readOnly={readOnly}
         />
 

@@ -627,6 +627,15 @@ export interface SurveyFeederEntry {
    */
   existingMfmRs485Available: boolean | null;
   existingMfmRs485Working: boolean | null;
+  /**
+   * Whether the existing MFM speaks MODBUS.
+   *
+   * A property of the METER, unrelated to the relay-side `DeviceProtocol`
+   * union — that one classifies a relay's protocol and is deprecated. Kept a
+   * plain boolean rather than reusing that union: the question asked here is
+   * "is it compatible", not "which of five protocols is it".
+   */
+  mfmModbusCompatible: boolean | null;
 
   /** "Availability of SPACE in C&R for FRTU" */
   frtuSpaceAvailable: boolean | null;
@@ -644,6 +653,12 @@ export interface SurveyFeederEntry {
    * generally.
    */
   cmrSpaceAvailable: boolean | null;
+  /**
+   * Space for the Binary Input / Analog Input terminal block — a third
+   * distinct space question alongside `frtuSpaceAvailable` and
+   * `cmrSpaceAvailable`, each asking about room for different equipment.
+   */
+  biAiTbSpaceAvailable: boolean | null;
   /** Direct surveyor entry. Summed into the MFM BOQ line's requiredToSupply. */
   mfmRequired: number | null;
   /** Direct surveyor entry. Summed into the CMR BOQ line's requiredToSupply. */
