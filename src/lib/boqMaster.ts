@@ -377,6 +377,15 @@ function createEmptySignOff(): SurveySignOff {
     msetclEngineerEmpId:       null,
     surveyorSignatureImage:    null,
     msetclSignatureImage:      null,
+    titleBlock: {
+      preparedByDate:        null,
+      preparedByNameContact: null,
+      preparedBySign:        null,
+      preparedByRev:         null,
+      preparedByRevDate:     null,
+      preparedByComment:     null,
+      documentNumber:        null,
+    },
   };
 }
 

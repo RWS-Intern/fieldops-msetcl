@@ -11,6 +11,7 @@ import type {
   SurveyReport, SurveyFeederEntry, SurveyRelayEntry,
   SurveyTransformerEntry, SurveyCapacitorBank, SurveyCableRun, SurveyBoqLine,
   SurveyBoqChecks, SurveyContactDetails, SurveyControlRoom, SurveyAssetCounts,
+  SurveySignOff,
   SurveySiteChecklist, SurveyAcdcMcbDetails, AcdcMcbBoardDetail, McbSlot,
   SurveyDcVoltage, SurveyVoltageLevel,
   ApprovalStageResult, WorkOrderStatus,
@@ -109,6 +110,41 @@ function mapAcdcMcbDetails(raw: Record<string, any> | undefined): SurveyAcdcMcbD
     // Superseded, read only so it can be surfaced for manual re-entry.
     acdbMcbSlots: mapLegacyMcbSlots(raw?.['acdbMcbSlots']),
     dcdbMcbSlots: mapLegacyMcbSlots(raw?.['dcdbMcbSlots']),
+  };
+}
+
+/**
+ * Sign-off, defaulted FIELD BY FIELD rather than through a whole-object
+ * fallback.
+ *
+ * The previous `data['signOff'] ?? {...}` shape defaulted only when the whole
+ * object was absent, so a document written before any later-added sub-field
+ * came back missing it — which is exactly the crash class the stale-draft
+ * fixture exists to catch. It also passed dates straight through, leaving them
+ * as Firestore Timestamps; that was harmless while sign-off held no dates, and
+ * stops being harmless with the title block's two.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapSignOff(raw: Record<string, any> | undefined): SurveySignOff {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tb: Record<string, any> = raw?.['titleBlock'] ?? {};
+  return {
+    signedPagePhotos:          raw?.['signedPagePhotos']          ?? [],
+    surveyorName:              raw?.['surveyorName']              ?? null,
+    msetclEngineerName:        raw?.['msetclEngineerName']        ?? null,
+    msetclEngineerDesignation: raw?.['msetclEngineerDesignation'] ?? null,
+    msetclEngineerEmpId:       raw?.['msetclEngineerEmpId']       ?? null,
+    surveyorSignatureImage:    raw?.['surveyorSignatureImage']    ?? null,
+    msetclSignatureImage:      raw?.['msetclSignatureImage']      ?? null,
+    titleBlock: {
+      preparedByDate:        toDate(tb['preparedByDate']),
+      preparedByNameContact: tb['preparedByNameContact'] ?? null,
+      preparedBySign:        tb['preparedBySign']        ?? null,
+      preparedByRev:         tb['preparedByRev']         ?? null,
+      preparedByRevDate:     toDate(tb['preparedByRevDate']),
+      preparedByComment:     tb['preparedByComment']     ?? null,
+      documentNumber:        tb['documentNumber']        ?? null,
+    },
   };
 }
 
@@ -492,15 +528,7 @@ export function mapSurveyReport(id: string, data: Record<string, any>): SurveyRe
         remark:  p['remark']  ?? null,
       }),
     ),
-    signOff:        data['signOff'] ?? {
-      signedPagePhotos:          [],
-      surveyorName:              null,
-      msetclEngineerName:        null,
-      msetclEngineerDesignation: null,
-      msetclEngineerEmpId:       null,
-      surveyorSignatureImage:    null,
-      msetclSignatureImage:      null,
-    },
+    signOff:        mapSignOff(data['signOff']),
 
     submittedBy:     data['submittedBy']     ?? null,
     submittedByName: data['submittedByName'] ?? null,

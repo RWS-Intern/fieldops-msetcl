@@ -17,6 +17,7 @@ import {
 } from '@/lib/surveyLabels';
 import { SurveyPhotoThumb } from './SurveyPhotoThumb';
 import { SignaturePad } from './SignaturePad';
+import { DrawingTitleBlock } from './DrawingTitleBlock';
 import {
   SURVEY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL,
 } from '@/types';
@@ -1110,6 +1111,13 @@ export function SurveyPreview({
             Signed Survey (photo or PDF)
           </span>
           <PhotoGrid refs={survey.signOff.signedPagePhotos} />
+        </div>
+
+        {/* Drawing title block — the SAME component the step renders, in its
+            read-only mode, so the two can never drift apart. */}
+        <div className="flex flex-col gap-2 pt-2">
+          <SectionHeading>Drawing Title Block</SectionHeading>
+          <DrawingTitleBlock value={survey.signOff.titleBlock} readOnly />
         </div>
 
         {/* Signatures */}

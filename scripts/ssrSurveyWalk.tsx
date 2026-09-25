@@ -183,6 +183,15 @@ function buildPopulatedSurvey(): SurveyReport {
     url: 'https://example.test/b.jpg', caption: 'Existing SLD (photo)',
     remark: null,
   });
+  // Drawing title block — Prepared By filled in, plus a real document number,
+  // so the table renders with data rather than as an empty grid.
+  survey.signOff.titleBlock.preparedByDate        = new Date('2026-09-20');
+  survey.signOff.titleBlock.preparedByNameContact = 'A. Gupta, 98xxxxxx01';
+  survey.signOff.titleBlock.preparedBySign        = 'AG';
+  survey.signOff.titleBlock.preparedByRev         = '0';
+  survey.signOff.titleBlock.preparedByRevDate     = new Date('2026-09-20');
+  survey.signOff.titleBlock.preparedByComment     = 'First issue.';
+  survey.signOff.titleBlock.documentNumber        = 'RWS/MSETCL/VASHI/SLD-001';
   // The signed page holds BOTH kinds at once — the case the split-on-read in
   // StepSignOff exists for. A PDF must never reach PhotoCapture, and the
   // preview must render it as a card rather than a broken <img>.
@@ -313,6 +322,9 @@ function buildStaleDraftSurvey(): SurveyReport {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const checklist = survey.siteChecklist as any;
   delete checklist.acDcSupply;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const signOff = survey.signOff as any;
+  delete signOff.titleBlock;
   return survey;
 }
 

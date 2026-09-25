@@ -4,10 +4,12 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { PhotoCapture } from '@/components/survey/PhotoCapture';
 import { SignedPdfAttach } from '@/components/survey/SignedPdfAttach';
+import { DrawingTitleBlock } from '@/components/survey/DrawingTitleBlock';
 import { isPdfRef } from '@/lib/signedDocs';
 import { SurveyPhotoThumb } from '@/components/survey/SurveyPhotoThumb';
 import { SurveyPreview } from '@/components/survey/SurveyPreview';
 import type { SurveyStepProps } from './StepProps';
+import type { SurveyDrawingTitleBlock } from '@/types';
 
 function SummaryStat({ label, value }: { label: string; value: string | number }) {
   return (
@@ -167,6 +169,18 @@ export function StepSignOff({
           pdfs={signedPagePdfRefs}
           onChange={(pdfs) => patchSignOff({ signedPagePhotos: [...signedPagePhotoRefs, ...pdfs] })}
           siteCode={survey.siteCode}
+          readOnly={readOnly}
+        />
+      </div>
+
+      {/* Drawing title block — document control, after the signatures. */}
+      <div className="flex flex-col gap-2 pt-3 border-t border-gray-100">
+        <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+          Drawing Title Block
+        </h4>
+        <DrawingTitleBlock
+          value={signOff.titleBlock}
+          onChange={(patch) => patchSignOff({ titleBlock: { ...(signOff.titleBlock ?? {}), ...patch } as SurveyDrawingTitleBlock })}
           readOnly={readOnly}
         />
       </div>

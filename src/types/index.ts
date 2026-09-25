@@ -1355,6 +1355,57 @@ export interface SurveyBoqChecks {
 }
 
 /**
+ * The drawing title block — the document-control header an engineering
+ * drawing carries.
+ *
+ * ONLY THE "PREPARED BY" ROW IS CAPTURED. The source table also has Checked By
+ * and Approved By rows, but one person filling in their own check and approval
+ * is not a record of anything — those rows render empty, for a printed or
+ * exported page to be completed by hand or by office staff. They are therefore
+ * deliberately ABSENT from this type rather than present-and-always-null: a
+ * stored null would imply the app expects to collect them one day, and
+ * whoever adds that should make the decision deliberately.
+ *
+ * LOA No., Sheets and the summary Rev. are fixed constants (see
+ * DRAWING_TITLE_BLOCK_CONSTANTS) and are likewise not stored per survey —
+ * storing a value identical on every document only creates a second place for
+ * it to drift.
+ */
+export interface SurveyDrawingTitleBlock {
+  preparedByDate: Date | null;
+  preparedByNameContact: string | null;
+  /**
+   * Free text, not a signature image: the on-screen SignaturePad above already
+   * captures a drawn signature for the surveyor. This is the title block's own
+   * "Sign" cell, which on a real drawing is initials or a name.
+   */
+  preparedBySign: string | null;
+  preparedByRev: string | null;
+  preparedByRevDate: Date | null;
+  preparedByComment: string | null;
+  /**
+   * Entered by the field expert — NOT derived from workOrderCode or siteCode.
+   * The drawing number belongs to MSETCL's own document series, which this app
+   * has no rule for; generating one would invent an identifier that collides
+   * with their register.
+   */
+  documentNumber: string | null;
+}
+
+/**
+ * The parts of the title block that are identical on every survey.
+ *
+ * Held here rather than stored per document: one place to change when the LOA
+ * is superseded, and no risk of surveys disagreeing about a constant.
+ */
+export const DRAWING_TITLE_BLOCK_CONSTANTS = {
+  loaNo:  'SP/T-0613/0326/RITE/N0.01090 DATED 01.09.2026',
+  sheets: '10',
+  /** The summary row's Rev., distinct from the Prepared-By row's own REV cell. */
+  rev:    '0',
+} as const;
+
+/**
  * The physically signed paper BOQ page is the legal artefact for government
  * vetting — signedPagePhotos is the record of that, not a substitute for it.
  */
@@ -1366,6 +1417,8 @@ export interface SurveySignOff {
   msetclEngineerEmpId: string | null;
   surveyorSignatureImage: string | null;      // optional on-screen signature
   msetclSignatureImage: string | null;        // optional on-screen signature
+  /** Document-control header — see SurveyDrawingTitleBlock. */
+  titleBlock: SurveyDrawingTitleBlock;
 }
 
 /**
