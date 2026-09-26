@@ -160,11 +160,17 @@ function validateFeeders(survey: SurveyReport): SurveyValidationIssue[] {
  * must be filled.
  *
  *   deviceType -> relayType  (1:1, error kept — both answer "what kind is it")
- *   protocol   -> protocol   (1:1, error kept)
  *
  *   quantity   -> DROPPED. A device row could stand for several units; a relay
  *                 row is exactly one relay, so there is nothing to count.
  *   reusable   -> DROPPED. No equivalent column on the relay table.
+ *   protocol   -> DROPPED. It carried a hard error here long after the field
+ *                 itself was removed from the step, which made Submit
+ *                 impossible: nothing in the UI could ever satisfy it. The
+ *                 field survives as @deprecated on SurveyRelayEntry and is
+ *                 surfaced read-only for reference, but it is not an answer
+ *                 anyone can give, so it cannot be a requirement.
+ *                 `ipAddress` never carried a rule and needed no change.
  *
  * bayName is a warning rather than an error: the step marks it required, but
  * the old Device shape had no name field at all, so an error here would be a
@@ -180,9 +186,6 @@ function validateRelays(survey: SurveyReport): SurveyValidationIssue[] {
     }
     if (!relay.relayType) {
       issues.push(issue(STEP.relays, `${label}: relay type is required.`));
-    }
-    if (!relay.protocol) {
-      issues.push(issue(STEP.relays, `${label}: protocol is required.`));
     }
   });
 
