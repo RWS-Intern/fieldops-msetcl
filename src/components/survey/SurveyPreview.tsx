@@ -1116,7 +1116,7 @@ export function SurveyPreview({
         {/* Drawing title block — the SAME component the step renders, in its
             read-only mode, so the two can never drift apart. */}
         <div className="flex flex-col gap-2 pt-2">
-          <SectionHeading>Drawing Title Block</SectionHeading>
+          <SectionHeading>Person Info Block</SectionHeading>
           <DrawingTitleBlock value={survey.signOff.titleBlock} readOnly />
         </div>
 

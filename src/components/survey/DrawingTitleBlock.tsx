@@ -7,9 +7,19 @@ import type { SurveyDrawingTitleBlock } from '@/types';
  * overflow-x-auto + min-w container pattern as the ACDB/DCDB board tables and
  * the asset-count grid — seven columns of real inputs will not fit a phone,
  * and the row/column alignment IS the content here.
+ *
+ * THE TWO DATE COLUMNS ARE 9.5rem AND MUST NOT BE NARROWED. A native
+ * `input[type="date"]` has an intrinsic minimum content width — the
+ * dd/mm/yyyy segments plus the calendar picker indicator — of roughly 110px.
+ * These tracks were 7rem (112px), which after the Input primitive's px-3
+ * padding and borders left only 86px of content box. The browser does not
+ * shrink the segments to fit: it clips, and the picker indicator (laid out
+ * last, right-aligned) lands outside the visible box and stops being
+ * clickable. The result reads as static "dd/mm/yyyy" text — an editable
+ * input nobody can open. 9.5rem leaves ~126px, comfortably clear.
  */
 const TITLE_BLOCK_COLS =
-  'grid grid-cols-[6.5rem_7rem_minmax(9rem,1.4fr)_6rem_4rem_7rem_minmax(8rem,1fr)] items-center gap-1.5';
+  'grid grid-cols-[6.5rem_9.5rem_minmax(9rem,1.4fr)_6rem_4rem_9.5rem_minmax(8rem,1fr)] items-center gap-1.5';
 
 const HEADINGS = ['', 'Date', 'Name & Contact Details', 'Sign', 'REV', 'Date', 'Comment'];
 
@@ -86,7 +96,9 @@ export function DrawingTitleBlock({
   return (
     <div className="flex flex-col gap-2">
       <div className="overflow-x-auto">
-        <div className="min-w-[52rem] flex flex-col gap-1.5 rounded-lg border border-gray-200 p-2">
+        {/* Must stay >= the sum of the fixed tracks plus gaps (54.75rem), or
+            the fr columns steal width back from the date tracks. */}
+        <div className="min-w-[55rem] flex flex-col gap-1.5 rounded-lg border border-gray-200 p-2">
 
           {/* Column headings */}
           <div className={TITLE_BLOCK_COLS}>

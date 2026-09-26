@@ -176,7 +176,7 @@ export function StepSignOff({
       {/* Drawing title block — document control, after the signatures. */}
       <div className="flex flex-col gap-2 pt-3 border-t border-gray-100">
         <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
-          Drawing Title Block
+          Person Info Block
         </h4>
         <DrawingTitleBlock
           value={signOff.titleBlock}
