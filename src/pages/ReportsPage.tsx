@@ -4,6 +4,7 @@ import { useReports }        from '@/hooks/useReports';
 import { useAllSiteTasks }   from '@/hooks/useAllSiteTasks';
 import { useSiteStore }      from '@/store/siteStore';
 import { useUserStore }      from '@/store/userStore';
+import { useVendorStore }    from '@/store/vendorStore';
 import { StatusChart }       from '@/components/reports/StatusChart';
 import { TypeChart }         from '@/components/reports/TypeChart';
 import { EngineerChart }     from '@/components/reports/EngineerChart';
@@ -154,16 +155,55 @@ export function ReportsPage() {
   const { tasks: allTasks, loading: tasksLoading } = useAllSiteTasks();
   const { sites }  = useSiteStore();
   const { users }  = useUserStore();
+  const { vendors } = useVendorStore();
 
   // ── Filter state ──────────────────────────────────────────────────────────
   const [filterCity,      setFilterCity]      = useState('');
   const [filterProject,   setFilterProject]   = useState('');
   const [filterEngineer,  setFilterEngineer]  = useState('');
+  const [filterVendor,    setFilterVendor]    = useState('');
   const [filterStatus,    setFilterStatus]    = useState('');
   const [filterFrom,      setFilterFrom]      = useState('');
   const [filterTo,        setFilterTo]        = useState('');
 
-  const fieldUsers = users.filter((u) => u.role === 'field' && u.active);
+  const allFieldUsers = users.filter((u) => u.role === 'field' && u.active);
+
+  // uid → vendorId, so a task can be attributed to a vendor without any
+  // denormalisation onto siteTasks: the user list is already in memory, and a
+  // task's assignee is the only link a vendor-wise report needs.
+  const vendorByUid = useMemo(() => {
+    const map = new Map<string, string>();
+    users.forEach((u) => { if (u.vendorId) map.set(u.id, u.vendorId); });
+    return map;
+  }, [users]);
+
+  // With a vendor selected, the Engineer picker narrows to that vendor's
+  // engineers — the two filters compose rather than contradicting each other.
+  const fieldUsers = filterVendor
+    ? allFieldUsers.filter((u) => u.vendorId === filterVendor)
+    : allFieldUsers;
+
+  // Archived vendors stay listed: their engineers' past work is still in the
+  // data, and excluding them would silently hide it from vendor-wise reports.
+  const vendorOptions = useMemo(
+    () => [...vendors].sort((a, b) => {
+      if (a.isInHouse !== b.isInHouse) return a.isInHouse ? -1 : 1;
+      return a.vendorName.localeCompare(b.vendorName);
+    }),
+    [vendors],
+  );
+
+  // Changing vendor clears any engineer selection that is no longer offered,
+  // which would otherwise sit in the filter bar matching nothing.
+  function changeVendor(next: string) {
+    setFilterVendor(next);
+    if (next && filterEngineer) {
+      const stillListed = allFieldUsers.some(
+        (u) => u.id === filterEngineer && u.vendorId === next,
+      );
+      if (!stillListed) setFilterEngineer('');
+    }
+  }
 
   // ── Unique cities + projects from sites ───────────────────────────────────
   const activeSites = useMemo(() => sites.filter((s) => !s.archived), [sites]);
@@ -184,12 +224,13 @@ export function ReportsPage() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [activeSites]);
 
-  const hasFilters = filterCity || filterProject || filterEngineer || filterStatus || filterFrom || filterTo;
+  const hasFilters = filterCity || filterProject || filterVendor || filterEngineer || filterStatus || filterFrom || filterTo;
 
   function clearFilters() {
     setFilterCity('');
     setFilterProject('');
     setFilterEngineer('');
+    setFilterVendor('');
     setFilterStatus('');
     setFilterFrom('');
     setFilterTo('');
@@ -201,12 +242,16 @@ export function ReportsPage() {
       if (filterCity     && t.city       !== filterCity)     return false;
       if (filterProject  && t.projectId  !== filterProject)  return false;
       if (filterEngineer && t.assignedTo !== filterEngineer) return false;
+      // An unassigned task belongs to no vendor, so it drops out whenever a
+      // specific vendor is selected — it cannot be credited to one.
+      if (filterVendor &&
+          (!t.assignedTo || vendorByUid.get(t.assignedTo) !== filterVendor)) return false;
       if (filterStatus   && t.status     !== filterStatus)   return false;
       if (filterFrom     && fmtDate(t.updatedAt) < filterFrom) return false;
       if (filterTo       && fmtDate(t.updatedAt) > filterTo)   return false;
       return true;
     });
-  }, [allTasks, filterCity, filterProject, filterEngineer, filterStatus, filterFrom, filterTo]);
+  }, [allTasks, filterCity, filterProject, filterEngineer, filterVendor, vendorByUid, filterStatus, filterFrom, filterTo]);
 
   // ── Chart data from filtered tasks ────────────────────────────────────────
   const { byStatus, byType, byEngineer, summary } = useReports(filteredTasks);
@@ -312,6 +357,18 @@ export function ReportsPage() {
               <option value="">All projects</option>
               {uniqueProjects.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </FilterSelect>
+          )}
+
+          {/* Vendor */}
+          {vendorOptions.length > 0 && (
+            <FilterSelect label="Vendor" value={filterVendor} onChange={changeVendor}>
+              <option value="">All vendors</option>
+              {vendorOptions.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.vendorName}{v.archived ? ' (archived)' : ''}
+                </option>
               ))}
             </FilterSelect>
           )}

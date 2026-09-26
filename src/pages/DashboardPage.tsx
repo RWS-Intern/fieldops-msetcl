@@ -4,6 +4,7 @@ import { useAuthStore }              from '@/store/authStore';
 import { useSiteStore }              from '@/store/siteStore';
 import { useAssignedSiteTaskStore }  from '@/store/assignedSiteTaskStore';
 import { useAllSiteTasks }           from '@/hooks/useAllSiteTasks';
+import { useAssignedWorkOrders }     from '@/hooks/useAssignedWorkOrders';
 import { useApprovalQueue }          from '@/hooks/useApprovalQueue';
 import { useReviewedSiteTasks }      from '@/hooks/useReviewedSiteTasks';
 import { useSurveyApprovalQueue }    from '@/hooks/useSurveyApprovalQueue';
@@ -292,6 +293,48 @@ export function DashboardPage() {
     blocked:     siteTasks.filter((t) => t.status === 'blocked').length,
   }), [siteTasks]);
 
+  // ── Assigned surveys ────────────────────────────────────────────────────────
+  //
+  // A field engineer's survey work orders COUNT toward the My Tasks tiles — a
+  // survey is work assigned to them, and leaving it out made the dashboard
+  // read zero for an engineer who had a survey waiting. They are deliberately
+  // NOT merged into the Tasks list: a survey is worked in the survey wizard,
+  // not the task form, so it stays under Surveys and is only counted here.
+  //
+  // Called unconditionally per the rules of hooks — same tolerance already
+  // established for the approver queries below: the query is scoped by uid, so
+  // an admin or viewer session simply matches nothing.
+  const { workOrders: assignedWorkOrders } = useAssignedWorkOrders();
+
+  const surveyStats = useMemo(() => ({
+    all:         assignedWorkOrders.length,
+    in_progress: assignedWorkOrders.filter((w) => w.status === 'in_progress').length,
+    // 'approved' and 'closed' are both terminal — the engineer has nothing
+    // further to do on either.
+    completed:   assignedWorkOrders.filter(
+      (w) => w.status === 'approved' || w.status === 'closed',
+    ).length,
+    // WorkOrderStatus has no blocked state, so this tile gains nothing from
+    // surveys. Kept explicit so the merge below stays a plain field-by-field
+    // addition rather than a special case.
+    blocked:     0,
+  }), [assignedWorkOrders]);
+
+  // Surveys are folded into a FIELD engineer's tiles only. The overview branch
+  // already counts every site task org-wide and has its own survey oversight
+  // screen, so adding them there would double-count against it.
+  //
+  // 'open', 'pending_approval' and 'changes_requested' land in `all` alone,
+  // exactly as siteTaskStats treats the equivalent task statuses.
+  const statTiles = useMemo(() => (
+    isOverview ? siteTaskStats : {
+      all:         siteTaskStats.all         + surveyStats.all,
+      in_progress: siteTaskStats.in_progress + surveyStats.in_progress,
+      completed:   siteTaskStats.completed   + surveyStats.completed,
+      blocked:     siteTaskStats.blocked     + surveyStats.blocked,
+    }
+  ), [isOverview, siteTaskStats, surveyStats]);
+
   // ── Approver dashboard data ──────────────────────────────────────────────────
   // Called unconditionally (rules of hooks) for every role — same tolerance
   // already established for useAssignedSiteTasks in Layout.tsx: both queries
@@ -411,31 +454,39 @@ export function DashboardPage() {
           <p className="text-sm font-semibold text-gray-500 uppercase tracking-wide -mb-1">
             {isOverview ? 'All Site Tasks' : 'My Tasks'}
           </p>
+          {/* These counts include surveys, but the Tasks list does not — say so,
+              or the totals look wrong against a shorter list. */}
+          {!isOverview && surveyStats.all > 0 && (
+            <p className="text-xs text-gray-400">
+              Includes {surveyStats.all} survey{surveyStats.all !== 1 ? 's' : ''} —
+              {' '}open {surveyStats.all !== 1 ? 'them' : 'it'} under Surveys.
+            </p>
+          )}
           {isLoading ? (
             <StatCardSkeletons />
           ) : (
             <div className="grid grid-cols-2 gap-3">
               <StatCard
                 label="All Tasks"
-                count={siteTaskStats.all}
+                count={statTiles.all}
                 colour="#0077B6"
                 onClick={statsNav()}
               />
               <StatCard
                 label="In Progress"
-                count={siteTaskStats.in_progress}
+                count={statTiles.in_progress}
                 colour="#F4A261"
                 onClick={statsNav('in_progress')}
               />
               <StatCard
                 label="Completed"
-                count={siteTaskStats.completed}
+                count={statTiles.completed}
                 colour="#2A9D8F"
                 onClick={statsNav('completed')}
               />
               <StatCard
                 label="Blocked"
-                count={siteTaskStats.blocked}
+                count={statTiles.blocked}
                 colour="#E63946"
                 onClick={statsNav('blocked')}
               />

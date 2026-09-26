@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import {
   Dialog,
@@ -19,6 +19,7 @@ import { Label } from '@/components/ui/label';
 import { useUserActions, countOrphanedWork } from '@/hooks/useUserActions';
 import { useAuthStore } from '@/store/authStore';
 import { useUserStore } from '@/store/userStore';
+import { useVendorStore } from '@/store/vendorStore';
 import type { OrphanedWorkCounts } from '@/hooks/useUserActions';
 import type { User, UserRole } from '@/types';
 
@@ -40,12 +41,14 @@ interface EditUserModalProps {
 }
 
 export function EditUserModal({ user, onClose }: EditUserModalProps) {
-  const { updateUserName, changeUserRole } = useUserActions();
+  const { updateUserName, changeUserRole, setUserVendor } = useUserActions();
   const { currentUser } = useAuthStore();
   const { users }       = useUserStore();
+  const { vendors }     = useVendorStore();
 
   const [name,      setName]      = useState('');
   const [role,      setRole]      = useState<UserRole>('field');
+  const [vendorId,  setVendorId]  = useState('');
   const [saving,    setSaving]    = useState(false);
   const [nameError, setNameError] = useState('');
   const [roleError, setRoleError] = useState('');
@@ -65,11 +68,51 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
 
   const roleChanged = !!user && role !== user.role;
 
+  // Vendor is a field-engineer concept, so the picker follows the role being
+  // SELECTED, not the one the account currently holds — promoting someone to
+  // admin hides it, and the save clears the stored vendor to match.
+  const showVendor = role === 'field';
+
+  // Options carry the plain name separately from the decorated label: the
+  // label is for display, the name is what gets denormalised onto the user.
+  const vendorOptions = useMemo(() => {
+    // Archived vendors are offered only when this engineer already belongs to
+    // one, so an unrelated edit cannot move them off a vendor their historical
+    // work is reported under.
+    const opts = vendors
+      .filter((v) => !v.archived || v.id === user?.vendorId)
+      .map((v) => ({
+        id:    v.id,
+        name:  v.vendorName,
+        label: v.vendorName
+          + (v.vendorCode ? ` (${v.vendorCode})` : '')
+          + (v.archived ? ' — archived' : ''),
+      }));
+
+    // An engineer may point at a vendor that has since been DELETED. It is gone
+    // from the collection, so the option cannot come from `vendors` — it is
+    // rebuilt from the name denormalised onto the user. Without this the picker
+    // would read "Unassigned" and the next save of ANY field would quietly
+    // clear a vendor the admin never touched.
+    if (user?.vendorId && !vendors.some((v) => v.id === user.vendorId)) {
+      const name = user.vendorName ?? 'Unknown vendor';
+      opts.push({ id: user.vendorId, name, label: `${name} — deleted` });
+    }
+    return opts;
+  }, [vendors, user]);
+
+  const chosenVendor = vendorOptions.find((v) => v.id === vendorId) ?? null;
+  const nextVendor = showVendor && chosenVendor
+    ? { id: chosenVendor.id, name: chosenVendor.name }
+    : null;
+  const vendorChanged = !!user && (nextVendor?.id ?? null) !== (user.vendorId ?? null);
+
   // Sync inputs when the user prop changes
   useEffect(() => {
     if (user) {
       setName(user.name);
       setRole(user.role);
+      setVendorId(user.vendorId ?? '');
       setNameError('');
       setRoleError('');
       setOrphanWarning(null);
@@ -93,7 +136,8 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
     if (!roleChanged) {
       setSaving(true);
       try {
-        await updateUserName(user.id, name);
+        if (name.trim() !== user.name) await updateUserName(user.id, name);
+        if (vendorChanged) await setUserVendor(user.id, nextVendor);
         closeAndReset();
       } catch {
         // Error toast already shown by useUserActions
@@ -158,6 +202,9 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
         { id: user.id, name: name.trim() || user.name, role: user.role },
         role,
       );
+      // Silent: moving off `field` clears the vendor as a consequence of the
+      // role change, which is not a separate edit worth its own toast.
+      if (vendorChanged) await setUserVendor(user.id, nextVendor, true);
       closeAndReset();
     } catch {
       // Error toast already shown by useUserActions
@@ -245,6 +292,29 @@ export function EditUserModal({ user, onClose }: EditUserModalProps) {
               />
             )}
           </div>
+
+          {/* Vendor — field engineers only, see showVendor. */}
+          {showVendor && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="edit-vendor">Vendor</Label>
+              {vendorOptions.length === 0 ? (
+                <p className="rounded-lg border border-dashed border-gray-200 px-3 py-2 text-xs text-gray-400">
+                  No vendors yet — add one under Settings.
+                </p>
+              ) : (
+                <Select value={vendorId} onValueChange={setVendorId}>
+                  <SelectTrigger id="edit-vendor" disabled={busy}>
+                    <SelectValue placeholder="Unassigned" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {vendorOptions.map((v) => (
+                      <SelectItem key={v.id} value={v.id}>{v.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          )}
 
           {/* Orphaned-work confirmation — not a hard block: an admin may
               legitimately change a role and reassign the work afterwards. */}

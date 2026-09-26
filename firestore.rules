@@ -319,6 +319,30 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // ── Vendors ────────────────────────────────────────────────────────────────
+    //
+    // The contracting organisations field engineers belong to, kept so
+    // performance and reporting can be broken down vendor-wise.
+    //
+    // Read by every authenticated session: the Engineers list and the Reports
+    // filters render an engineer's vendor, and a field engineer may read the
+    // one their own account points at. No vendor field is sensitive.
+    match /vendors/{vendorId} {
+      allow read: if isAuthenticated();
+      // Only an admin curates the list. No other role reaches a write branch
+      // here at all, so the !isViewer() hardening used elsewhere is redundant.
+      allow create, update: if isAdmin();
+      // Hard delete is admin-only and NEVER the in-house vendor: that one is
+      // the fallback every engineer without an outsourced vendor belongs to,
+      // and it is pinned here by document id rather than left to the UI.
+      //
+      // Rules cannot check whether engineers still reference a vendor — that
+      // needs a collection query — so deleteVendor in useVendorActions.ts
+      // counts them and makes the admin confirm. Archiving stays the
+      // non-destructive option for a vendor still in use.
+      allow delete: if isAdmin() && vendorId != 'in-house';
+    }
+
     match /projects/{projectId} {
       allow read: if isAuthenticated();
       allow create: if isAdmin();

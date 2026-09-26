@@ -30,6 +30,27 @@ export interface User {
    * before this field existed, which degrades to name-only display.
    */
   organization?: string | null;
+  /**
+   * The contracting organisation this engineer works for — see Vendor.
+   *
+   * Captured for `field` accounts only; null for every other role, and null
+   * on every record created before vendors existed (those render as
+   * "Unassigned" rather than being silently folded into the in-house vendor).
+   */
+  vendorId?: string | null;
+  /**
+   * Vendor name DENORMALISED at assignment time.
+   *
+   * Needed because the vendors listener only mounts for admin and viewer
+   * sessions (see Layout.tsx) — without this copy, a field engineer's own
+   * session could not render the vendor their account points at, and the CSV
+   * export would need a join the export path does not have.
+   *
+   * Kept in sync by updateVendor in useVendorActions.ts, which fans a rename
+   * out across every user carrying that vendorId. Never edit it independently
+   * of the vendor document.
+   */
+  vendorName?: string | null;
 }
 
 export interface AppUser {
@@ -65,6 +86,49 @@ export interface AppConfig {
   engineerNumCounter?: number;
   /** Incremented atomically when a new SiteTask is created. */
   siteTaskNumCounter?: number;
+}
+
+// ─── Vendor ────────────────────────────────────────────────────────────────────
+//
+// The contracting organisation a field engineer works for. Exists so engineer
+// performance and reporting can be broken down vendor-wise: our own staff
+// versus each outsourced contractor.
+//
+// Stored in its own `vendors` collection rather than as an array on
+// appConfig/global, because that document is the counter doc every
+// createUser / createSite / createWorkOrder runs a transaction against —
+// vendor edits there would contend with code-number allocation.
+
+/** Document id of the built-in in-house vendor. Fixed, so it can never be duplicated. */
+export const IN_HOUSE_VENDOR_ID = 'in-house';
+
+export interface Vendor {
+  id: string;
+  vendorName: string;
+  /** Short uppercase identifier for CSV exports and compact display, e.g. "RWS". */
+  vendorCode: string | null;
+  /**
+   * Marks the ONE built-in vendor standing for our own staff ("Inside
+   * Engineers"). It is created with the fixed id IN_HOUSE_VENDOR_ID and can
+   * never be archived — an engineer must always have somewhere to belong.
+   */
+  isInHouse: boolean;
+  /**
+   * Soft-delete, matching Site and ProjectV3, and the preferred way to retire
+   * a vendor engineers still reference: it drops out of the pickers while
+   * vendor-wise reporting keeps working.
+   *
+   * Hard delete also exists (deleteVendor in useVendorActions.ts). It is
+   * refused for the in-house vendor by firestore.rules, and warns when
+   * engineers still point at the vendor — their records keep the denormalised
+   * vendorName, but the vendor can no longer be selected in the Reports
+   * filter, so its work can no longer be isolated.
+   */
+  archived: boolean;
+  archivedAt: Date | null;
+  createdAt: Date;
+  createdBy: string;
+  updatedAt: Date;
 }
 
 export type TaskStatus = 'pending' | 'in_progress' | 'pending_approval' | 'changes_requested' | 'completed' | 'blocked';

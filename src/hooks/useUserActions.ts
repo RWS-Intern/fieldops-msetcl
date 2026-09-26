@@ -113,6 +113,12 @@ export function useUserActions() {
      * organisations apart). Stored as null for every other role.
      */
     organization?: string | null,
+    /**
+     * Vendor the engineer works for. Only meaningful for `field` accounts —
+     * vendor-wise reporting covers the people doing the field work. Stored as
+     * null for every other role, mirroring `organization` above.
+     */
+    vendor?: { id: string; name: string } | null,
   ): Promise<void> {
     // Random temp password — user will never know or use it.
     // They set their real password via the reset-email link.
@@ -162,6 +168,10 @@ export function useUserActions() {
         // Only approvers carry an organisation — it is what distinguishes two
         // same-named reviewers in the stage pickers. Null for every other role.
         organization:      role === 'approver' ? (organization?.trim() || null) : null,
+        // Only field engineers carry a vendor. vendorName is denormalised so a
+        // field session — which runs no vendors listener — can still show it.
+        vendorId:          role === 'field' ? (vendor?.id   ?? null) : null,
+        vendorName:        role === 'field' ? (vendor?.name ?? null) : null,
         createdAt:         serverTimestamp(),
         createdBy:         currentUser?.uid ?? '',
         fcmToken:          null,
@@ -189,6 +199,41 @@ export function useUserActions() {
       } else {
         showToast('Failed to create account. Try again.', 'error');
       }
+      throw err;
+    }
+  }
+
+  /**
+   * Assigns, changes or clears a field engineer's vendor.
+   *
+   * Writes vendorName alongside vendorId for the same reason createUser does —
+   * a field session runs no vendors listener and could not resolve the id on
+   * its own (see the field on User).
+   *
+   * Passing null clears both. That is what a move OFF the `field` role does:
+   * vendor is a field-engineer concept, so leaving a stale one on an account
+   * that is now an admin would put that person in vendor-wise reports they no
+   * longer belong in.
+   *
+   * `silent` suppresses the success toast for exactly that case — clearing a
+   * vendor as a side effect of a role change is not an action the admin took,
+   * and announcing it alongside "Role updated" reads like a second edit.
+   */
+  async function setUserVendor(
+    userId:  string,
+    vendor:  { id: string; name: string } | null,
+    silent = false,
+  ): Promise<void> {
+    try {
+      await updateDoc(doc(db, 'users', userId), {
+        vendorId:   vendor?.id   ?? null,
+        vendorName: vendor?.name ?? null,
+        updatedAt:  serverTimestamp(),
+      });
+      if (!silent) showToast(vendor ? 'Vendor updated' : 'Vendor cleared', 'success');
+    } catch (err) {
+      console.error('[setUserVendor] failed:', err);
+      showToast('Failed to update vendor. Try again.', 'error');
       throw err;
     }
   }
@@ -303,5 +348,5 @@ export function useUserActions() {
     showToast('Role updated', 'success');
   }
 
-  return { createUser, updateUserName, setUserActive, changeUserRole };
+  return { createUser, updateUserName, setUserActive, changeUserRole, setUserVendor };
 }

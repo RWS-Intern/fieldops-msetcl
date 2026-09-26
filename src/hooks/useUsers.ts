@@ -41,6 +41,8 @@ export function useUsers() {
             // Null on every record created before this field existed — the
             // approver pickers fall back to name-only display.
             organization:       data['organization']       ?? null,
+            vendorId:           data['vendorId']           ?? null,
+            vendorName:         data['vendorName']         ?? null,
           };
         });
         setUsers(users);

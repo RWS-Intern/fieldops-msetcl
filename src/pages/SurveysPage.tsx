@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAssignedWorkOrders } from '@/hooks/useAssignedWorkOrders';
 import { listDrafts }            from '@/lib/surveyDraftStore';
 import { useSurveySubmitQueue }  from '@/lib/surveySubmitQueue';
 import { Skeleton }              from '@/components/ui/skeleton';
+import { FilterPills }           from '@/components/ui/filter-pills';
 import type { WorkOrder, WorkOrderStatus } from '@/types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -25,6 +26,30 @@ const STATUS_LABEL: Record<WorkOrderStatus, string> = {
   approved:          'Approved',
   closed:            'Closed',
 };
+
+/**
+ * Status pills for the field engineer's own survey list.
+ *
+ * Deliberately NOT a copy of TasksPage's pill set. A WorkOrder has no
+ * `pending` and no `blocked` status, so those two pills could only ever read
+ * zero. Their real equivalents are `open` (a survey assigned but not started)
+ * and, for a finished one, `approved` / `closed`.
+ *
+ * Every key here is a status the row badge can actually display, so a survey
+ * badged "Approved" is always findable under the Approved pill — a pill set
+ * that disagreed with the badges would be worse than no pills.
+ */
+type SurveyFilter = WorkOrderStatus | 'all';
+
+const STATUS_PILLS: readonly { key: SurveyFilter; label: string }[] = [
+  { key: 'all',               label: 'All'               },
+  { key: 'open',              label: 'Open'              },
+  { key: 'in_progress',       label: 'In Progress'       },
+  { key: 'pending_approval',  label: 'Pending Approval'  },
+  { key: 'changes_requested', label: 'Changes Requested' },
+  { key: 'approved',          label: 'Approved'          },
+  { key: 'closed',            label: 'Closed'            },
+];
 
 // ─── Row ──────────────────────────────────────────────────────────────────────
 
@@ -51,6 +76,15 @@ function WorkOrderRow({
             {STATUS_LABEL[workOrder.status]}
           </span>
         </div>
+        {/* Substation name, matching AdminSurveyOversightPage's row so the
+            field list and the oversight list read identically. Guarded: the
+            field is '' on work orders written before it was denormalised, and
+            an empty line would just push the row taller. */}
+        {workOrder.siteName && (
+          <p className="text-sm font-semibold text-gray-800 leading-snug truncate">
+            {workOrder.siteName}
+          </p>
+        )}
         <p className="text-xs text-gray-400 font-mono">{workOrder.workOrderCode}</p>
         {hasDraft && (
           <p className="text-xs text-brand-blue mt-1">Draft saved locally</p>
@@ -75,6 +109,8 @@ export function SurveysPage() {
   const { workOrders, loading } = useAssignedWorkOrders();
   const { queueCount } = useSurveySubmitQueue();
   const [draftIds, setDraftIds] = useState<Set<string>>(new Set());
+  const [search,       setSearch]       = useState('');
+  const [activeFilter, setActiveFilter] = useState<SurveyFilter>('all');
 
   // Local drafts — re-listed whenever the offline submit queue changes
   // (queueCount ticks on enqueue/dequeue), not just once on mount. Without
@@ -88,14 +124,73 @@ export function SurveysPage() {
       .catch(() => setDraftIds(new Set()));
   }, [queueCount]);
 
+  // Counts are over the UNFILTERED list, so each pill always shows how many
+  // surveys it would reveal rather than how many survive the current pill.
+  const counts = useMemo(() => {
+    const base = Object.fromEntries(
+      STATUS_PILLS.map((p) => [p.key, 0]),
+    ) as Record<SurveyFilter, number>;
+    base.all = workOrders.length;
+    workOrders.forEach((w) => { base[w.status] = (base[w.status] ?? 0) + 1; });
+    return base;
+  }, [workOrders]);
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return workOrders.filter((w) => {
+      if (activeFilter !== 'all' && w.status !== activeFilter) return false;
+      if (!q) return true;
+      // Substation name first — it is what an engineer actually knows a site
+      // by; the codes are there for anyone reading off a work order.
+      return (
+        w.siteName.toLowerCase().includes(q) ||
+        w.siteCode.toLowerCase().includes(q) ||
+        w.workOrderCode.toLowerCase().includes(q)
+      );
+    });
+  }, [workOrders, activeFilter, search]);
+
+  const hasQuery = !!search.trim() || activeFilter !== 'all';
+
   return (
     <div className="flex flex-col gap-4 max-w-2xl mx-auto pb-24">
       <div className="flex items-center gap-2">
         <h2 className="text-xl font-bold text-gray-900">Surveys</h2>
         <span className="rounded-full bg-brand-blue/10 text-brand-blue text-xs font-semibold px-2 py-0.5">
-          {workOrders.length}
+          {hasQuery ? `${visible.length}/${workOrders.length}` : workOrders.length}
         </span>
       </div>
+
+      {/* Search + status pills — hidden while there is nothing to filter, so
+          an engineer with no surveys sees the empty state, not empty controls. */}
+      {!loading && workOrders.length > 0 && (
+        <>
+          <div className="relative">
+            <svg
+              className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none"
+              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round"
+                d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+            </svg>
+            <input
+              type="search"
+              placeholder="Search by substation, site code, or WO number…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 bg-white pl-9 pr-4 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-blue/30 focus:border-brand-blue"
+            />
+          </div>
+
+          <FilterPills
+            pills={STATUS_PILLS}
+            active={activeFilter}
+            onChange={setActiveFilter}
+            counts={counts}
+            ariaLabel="Filter surveys by status"
+          />
+        </>
+      )}
 
       {loading ? (
         <div className="flex flex-col gap-2">
@@ -110,9 +205,13 @@ export function SurveysPage() {
             Your assigned survey work orders will appear here.
           </p>
         </div>
+      ) : visible.length === 0 ? (
+        <div className="py-16 text-center">
+          <p className="text-sm text-gray-400">No surveys match your search or filter.</p>
+        </div>
       ) : (
         <div className="flex flex-col gap-2">
-          {workOrders.map((wo) => (
+          {visible.map((wo) => (
             <WorkOrderRow
               key={wo.id}
               workOrder={wo}

@@ -17,6 +17,7 @@ import {
 import { Input }  from '@/components/ui/input';
 import { Label }  from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { useVendorStore } from '@/store/vendorStore';
 import type { UserRole } from '@/types';
 
 interface CreateUserModalProps {
@@ -26,11 +27,13 @@ interface CreateUserModalProps {
 
 export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
   const { createUser } = useUserActions();
+  const { vendors }    = useVendorStore();
 
   const [name,        setName]        = useState('');
   const [email,       setEmail]       = useState('');
   const [role,        setRole]        = useState<UserRole>('field');
   const [organization, setOrganization] = useState('');
+  const [vendorId,    setVendorId]    = useState('');
   const [submitting,  setSubmitting]  = useState(false);
   const [createdEmail, setCreatedEmail] = useState<string | null>(null);
 
@@ -39,11 +42,27 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
   // to tell them apart. Irrelevant for field/admin/viewer.
   const showOrganization = role === 'approver';
 
+  // Vendor is a field-engineer concept: it exists so engineer performance can
+  // be reported vendor-wise. Same role-conditional treatment as organization
+  // above, which is approver-only for the mirror-image reason.
+  const showVendor = role === 'field';
+
+  // Archived vendors are still loaded (an existing engineer may belong to one)
+  // but are never offered for a NEW account.
+  const selectableVendors = vendors.filter((v) => !v.archived);
+
+  // Defaults to the in-house vendor without an effect: the form never holds a
+  // stale id from before the vendor list arrived, because the fallback is
+  // recomputed on every render until the admin picks something themselves.
+  const effectiveVendorId =
+    vendorId || selectableVendors.find((v) => v.isInHouse)?.id || '';
+
   function reset() {
     setName('');
     setEmail('');
     setRole('field');
     setOrganization('');
+    setVendorId('');
     setSubmitting(false);
     setCreatedEmail(null);
   }
@@ -57,11 +76,15 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
     if (!name.trim() || !email.trim()) return;
     setSubmitting(true);
     try {
+      const chosenVendor = selectableVendors.find((v) => v.id === effectiveVendorId);
       await createUser(
         name.trim(),
         email.trim(),
         role,
         showOrganization ? organization.trim() || null : null,
+        showVendor && chosenVendor
+          ? { id: chosenVendor.id, name: chosenVendor.vendorName }
+          : null,
       );
       // Show in-modal success state (toast is also shown by createUser)
       setCreatedEmail(email.trim());
@@ -125,6 +148,39 @@ export function CreateUserModal({ open, onClose }: CreateUserModalProps) {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Field engineer only — see showVendor. */}
+            {showVendor && (
+              <div className="flex flex-col gap-1.5">
+                <Label>Vendor</Label>
+                {selectableVendors.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-gray-200 px-3 py-2 text-xs text-gray-400">
+                    No vendors yet — add one under Settings, then reopen this form.
+                  </p>
+                ) : (
+                  <>
+                    <Select
+                      value={effectiveVendorId}
+                      onValueChange={(v) => setVendorId(v)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a vendor" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {selectableVendors.map((v) => (
+                          <SelectItem key={v.id} value={v.id}>
+                            {v.vendorName}{v.vendorCode ? ` (${v.vendorCode})` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-gray-400">
+                      Used to report this engineer&apos;s performance vendor-wise.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Approver only — see showOrganization. */}
             {showOrganization && (

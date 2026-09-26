@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signOut } from 'firebase/auth';
-import { LogOut, Bell, Search, X } from 'lucide-react';
+import { LogOut, Bell, Search, X, Settings } from 'lucide-react';
 import { auth } from '@/firebase/config';
 import { useAuthStore } from '@/store/authStore';
 import { useTaskStore } from '@/store/taskStore';
@@ -46,6 +46,11 @@ export function Header() {
   // monitor them. A field expert only ever works their own assigned list and
   // has no read access to the full site corpus to search over.
   const canSearchSites = currentUser?.role === 'admin' || currentUser?.role === 'viewer';
+
+  // Settings edits appConfig and is gated with requireAdmin on the route
+  // itself (App.tsx). Rendering the item for anyone else would just bounce
+  // them to /dashboard, so it is hidden rather than shown-and-denied.
+  const isAdmin = currentUser?.role === 'admin';
 
   return (
     <header className="sticky top-0 z-40 border-b border-gray-200 bg-white shadow-sm">
@@ -132,6 +137,15 @@ export function Header() {
                 </span>
               </div>
               <DropdownMenuSeparator />
+              {isAdmin && (
+                <>
+                  <DropdownMenuItem onClick={() => navigate('/settings')}>
+                    <Settings className="mr-2 h-4 w-4" />
+                    Settings
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               <DropdownMenuItem onClick={handleLogout} className="text-red-600 focus:text-red-600">
                 <LogOut className="mr-2 h-4 w-4" />
                 Logout

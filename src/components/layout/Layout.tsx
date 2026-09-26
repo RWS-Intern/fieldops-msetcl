@@ -4,6 +4,7 @@ import { useTasks }               from '@/hooks/useTasks';
 import { useProjects }            from '@/hooks/useProjects';
 import { useUsers }               from '@/hooks/useUsers';
 import { useSites }               from '@/hooks/useSites';
+import { useVendors }             from '@/hooks/useVendors';
 import { useAssignedSiteTasks }   from '@/hooks/useAssignedSiteTasks';
 import { Header } from './Header';
 import { BottomNav } from './BottomNav';
@@ -35,6 +36,13 @@ function UsersListener() {
 // Starts the real-time sites listener — admin + viewer sessions only.
 function SitesListener() {
   useSites();
+  return null;
+}
+
+// Starts the real-time vendors listener — admin + viewer sessions only.
+// Settings curates the list, the Engineers page and Reports read it back.
+function VendorsListener() {
+  useVendors();
   return null;
 }
 
@@ -78,6 +86,8 @@ export function Layout() {
       {needsOrgWideStores && <UsersListener />}
       {/* Sites listener — admin + viewer; Sites page reads from siteStore */}
       {needsOrgWideStores && <SitesListener />}
+      {/* Vendors listener — admin + viewer; Settings + Engineers read vendorStore */}
+      {needsOrgWideStores && <VendorsListener />}
       {/*
        * Assigned site-tasks listener — ALL authenticated users.
        * Previously gated on role === 'field', but running for all users is safe:
