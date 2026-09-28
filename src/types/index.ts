@@ -838,12 +838,36 @@ export interface SurveyTransformerEntry {
    */
   existingTptWorking: boolean | null;
   /**
-   * Retained untouched: this column does not appear in the filled example, so
-   * whether it still belongs is unconfirmed. Nothing new is built around it.
+   * "Modbus Available?" — asked only when the existing TPT is working.
+   *
+   * Together with `existingTptWorking` this now FULLY determines whether a new
+   * TPT must be supplied, replacing the manual `tptRequired` /
+   * `requiredTptCount` pair below. See transformerNeedsNewTpt() in
+   * boqDerivation.ts for the formula the BOQ reads.
+   */
+  modbusAvailable: boolean | null;
+
+  /**
+   * @deprecated Replaced by `modbusAvailable`, which occupies the same slot
+   * (shown only when `existingTptWorking` is true) but asks a different
+   * question. A 4-20 mA answer says nothing about Modbus, so it is NEVER
+   * converted — surfaced read-only for reference.
+   *
+   * Dead but deliberately present: a live, editable input since Transformer
+   * Details was built, so an in-progress survey may hold a real answer.
    */
   existingTpi4to20mAAvailable: boolean | null;
+  /**
+   * @deprecated Superseded by the derived formula — see `modbusAvailable`.
+   *
+   * NOT auto-converted, despite a related new question existing. A manual
+   * "TPT required: yes" does not say which of the two branches produced it
+   * (no working TPT, or a working one without Modbus), and the count below
+   * does not say it either. Guessing would write an unasked answer onto a
+   * document that governs supply. Read only, surfaced for reference.
+   */
   tptRequired: boolean | null;
-  /** "No of Required TPT" — direct entry, same pattern as MFM/CMR/FRTU. */
+  /** @deprecated See the note on `tptRequired` above. */
   requiredTptCount: number | null;
   remarks: string | null;
 }

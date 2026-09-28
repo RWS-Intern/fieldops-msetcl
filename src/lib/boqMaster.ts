@@ -68,12 +68,20 @@ export interface BoqMasterItem {
    */
   derivedFromFeederField?: 'mfmRequired' | 'cmrRequired' | 'frtuModulesRequired';
   /**
-   * COUNTS the transformers whose named boolean is true into requiredToSupply
-   * — a different operation from derivedFromFeederField's sum, and over a
-   * different array, which is why it is a separate field rather than a
-   * widened union. Exactly one of the two may be set on an item.
+   * COUNTS the transformers a NAMED PREDICATE says yes to.
+   *
+   * Replaces the previous `derivedFromTransformerFlag`, which named a single
+   * boolean field on SurveyTransformerEntry and counted the entries where it
+   * was true. That signature cannot express the TPT rule any more: whether a
+   * transformer needs a new one now depends on TWO fields
+   * (`existingTptWorking` + `modbusAvailable`) with a three-valued result, so
+   * the condition moved into a named predicate in boqDerivation.ts and the
+   * master names it rather than naming a field.
+   *
+   * Still a plain string key, not a function — the master stays pure data.
+   * Exactly one derivation source may be set on an item.
    */
-  derivedFromTransformerFlag?: 'tptRequired';
+  derivedFromTransformerPredicate?: 'needsNewTpt';
 }
 
 // ---- Supply Part: the official two-column BOQ table (12 items) --------------
@@ -122,8 +130,8 @@ export const SUPPLY_BOQ_MASTER: readonly BoqMasterItem[] = [
   // not the Feeder List. Its source only started existing in Phase 2c
   // (survey.transformers[].tptRequired) — before that this line had no
   // derivable input at all and was direct entry.
-  { sr: 12, itemKey: 'tapPositionTransducer', item: 'Transformer Tap position transducer',        unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: true, derivedFromTransformerFlag: 'tptRequired',
-    guidance: 'Suggested from Transformer Details — the number of transformers marked "Tap Position Transducer (TPT) required". Adjust if needed.' },
+  { sr: 12, itemKey: 'tapPositionTransducer', item: 'Transformer Tap position transducer',        unit: 'Nos.', required: true, hasExistingUsable: true, autoDerived: true, derivedFromTransformerPredicate: 'needsNewTpt',
+    guidance: 'Suggested from Transformer Details — transformers whose existing TPT is not working, or is working but has no Modbus. Adjust if needed.' },
 ] as const;
 
 // ---- Service Part (6 items) -------------------------------------------------

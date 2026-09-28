@@ -10,6 +10,7 @@ import {
 import { VOLTAGE_LEVEL_LABELS, storedVoltageLabel, TAP_POSITION_CONNECTION_TYPE_LABELS } from '@/lib/surveyLabels';
 import { SURVEY_VOLTAGE_LEVELS } from '@/types';
 import { LegacyVoltageNote } from '@/components/survey/LegacyVoltageNote';
+import { transformerNeedsNewTpt } from '@/lib/boqDerivation';
 import type { SurveyStepProps } from './StepProps';
 import type {
   SurveyTransformerEntry, SurveyVoltageLevel, TapPositionConnectionType,
@@ -26,11 +27,37 @@ function createTransformer(): SurveyTransformerEntry {
     tapPositionConnectionType:   null,
     rtccPanelWorking:            null,
     existingTptWorking:          null,
+    modbusAvailable:             null,
+    // Superseded — seeded null and never written again.
     existingTpi4to20mAAvailable: null,
     tptRequired:                 null,
     requiredTptCount:            null,
     remarks:                     null,
   };
+}
+
+/**
+ * One answer to a question this step no longer asks.
+ *
+ * Grey, not amber, and worded as a statement: the TPT count is derived now, so
+ * there is nowhere to re-enter these — historical context, not an action. Same
+ * treatment as relay Protocol / IP.
+ */
+function RemovedAnswerNote({
+  label, value,
+}: {
+  label: string;
+  value: string | number | boolean | null;
+}) {
+  if (value === null || value === undefined) return null;
+
+  return (
+    <p className="rounded border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs text-gray-600">
+      Previously recorded, no longer collected — <strong>{label}</strong>:{' '}
+      <strong>{typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)}</strong>.
+      Kept for reference only.
+    </p>
+  );
 }
 
 function renderTransformerSummary(tx: SurveyTransformerEntry, index: number) {
@@ -54,6 +81,10 @@ export function StepTransformerDetails({ survey, onChange, readOnly }: SurveySte
     tx: SurveyTransformerEntry,
     update: (patch: Partial<SurveyTransformerEntry>) => void,
   ) {
+    // The single source of truth for the rule — imported, never restated here,
+    // so the form and the BOQ can never disagree about what counts.
+    const needsNewTpt = transformerNeedsNewTpt(tx);
+
     return (
       <div className="flex flex-col gap-3">
         <div className="grid grid-cols-2 gap-3">
@@ -146,46 +177,46 @@ export function StepTransformerDetails({ survey, onChange, readOnly }: SurveySte
           readOnly={readOnly}
         />
         {/*
-          An analog output can't be assessed on a TPT that isn't working, so
-          this only appears once the parent is yes. Not cleared when the
-          parent flips back — same reasoning as the RS485 and AC-condition
-          fields: discarding a recorded observation is worse than a hidden
-          stale value the reviewer can see in context.
+          Only meaningful about a TPT that works, so it appears once the parent
+          is yes — the same slot and the same condition the 4-20 mA question
+          used. Not cleared when the parent flips back: discarding a recorded
+          observation is worse than a hidden stale value the reviewer can see
+          in context.
         */}
         {tx.existingTptWorking === true && (
           <TriStateToggle
-            label="Existing TPI 4-20 mA output available?"
-            value={tx.existingTpi4to20mAAvailable}
-            onChange={(v) => update({ existingTpi4to20mAAvailable: v })}
+            label="Modbus Available?"
+            value={tx.modbusAvailable}
+            onChange={(v) => update({ modbusAvailable: v })}
             readOnly={readOnly}
           />
         )}
 
-        <TriStateToggle
-          label="Tap Position Transducer (TPT) required?"
-          value={tx.tptRequired}
-          onChange={(v) => update({ tptRequired: v })}
-          readOnly={readOnly}
-        />
+        {/* The consequence of the two answers above, stated rather than left
+            for the surveyor to infer from the BOQ step. */}
         <div className="flex items-start gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg">
           <Info className="h-4 w-4 text-gray-400 shrink-0 mt-0.5" />
           <p className="text-xs text-gray-600">
-            This answer feeds the BOQ&apos;s <strong>Transformer Tap position transducer</strong>{' '}
-            line. That quantity is entered by hand on the BOQ step — it is not summed from here —
-            so cross-check the two before signing.
+            {needsNewTpt === null
+              ? <>Answer both questions above and this transformer will be counted, or not
+                  counted, towards the BOQ&apos;s <strong>Transformer Tap position
+                  transducer</strong> line automatically.</>
+              : needsNewTpt
+                ? <>A <strong>new TPT is needed</strong> for this transformer — it is counted in
+                    the BOQ&apos;s <strong>Transformer Tap position transducer</strong> line.</>
+                : <>The existing TPT can be integrated over Modbus — <strong>no new TPT</strong>{' '}
+                    is counted for this transformer.</>}
           </p>
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <Label>No. of Required TPT</Label>
-          <Input
-            type="number" inputMode="numeric" disabled={readOnly}
-            value={tx.requiredTptCount ?? ''}
-            onChange={(e) => update({
-              requiredTptCount: e.target.value === '' ? null : Math.max(0, Number(e.target.value)),
-            })}
-          />
-        </div>
+        {/* Superseded answers, where a transformer still holds them. There is
+            nothing to re-enter them into: the count is derived now. */}
+        <RemovedAnswerNote
+          label="Existing TPI 4-20 mA output available"
+          value={tx.existingTpi4to20mAAvailable}
+        />
+        <RemovedAnswerNote label="Tap Position Transducer (TPT) required" value={tx.tptRequired} />
+        <RemovedAnswerNote label="No. of Required TPT" value={tx.requiredTptCount} />
 
         <div className="flex flex-col gap-1.5">
           <Label>Remarks</Label>

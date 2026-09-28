@@ -17,6 +17,7 @@ import type { StoredVoltageLevel, SurveyReport } from '@/types';
  *   - the Step 6 checklist rows with no equivalent in the document's own five
  *     tables, retired by the same reconciliation;
  *   - the BOQ Confirmation checkboxes, removed outright;
+ *   - the manual TPT trio on Transformer Details, replaced by a derived count;
  *   - the Install Location and Existing Network Readiness blocks, retained
  *     through the Step 6 reconciliation and then removed when the document
  *     was confirmed as the scope.
@@ -53,7 +54,8 @@ export interface LegacyVoltageHit {
          | 'Asset totals' | 'ACDB/DCDB slots' | 'MFM availability'
          | 'Office (Circle / Division)' | 'Relay Protocol / IP'
          | 'Contact Details' | 'Control Room' | 'Site Checklist'
-         | 'BOQ confirmation' | 'Install Location' | 'Network Readiness';
+         | 'BOQ confirmation' | 'Install Location' | 'Network Readiness'
+         | 'Transformer TPT';
   /** How that one entry identifies itself, e.g. a bay name. */
   label: string;
   /** The old value as recorded, where there is one worth showing back. */
@@ -233,6 +235,31 @@ export function findLegacyVoltageData(survey: SurveyReport): LegacyVoltageHit[] 
       value:   typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value),
     });
   }
+
+  // The manual TPT trio the derived count replaced, plus the 4-20 mA question
+  // Modbus Available took the place of. REFERENCE hits: a manual "TPT
+  // required: yes" does not say which branch of the new rule produced it, and
+  // a 4-20 mA answer says nothing about Modbus, so none can be converted.
+  //
+  // Gated on `!= null` — all three default to null in createTransformer, so a
+  // stored `false` is a real answer worth showing back.
+  survey.transformers.forEach((t, i) => {
+    const label = t.transformerNumber?.trim() || `Transformer #${i + 1}`;
+    const retired: [string, string | number | boolean | null][] = [
+      ['Existing TPI 4-20 mA output available', t.existingTpi4to20mAAvailable],
+      ['Tap Position Transducer (TPT) required', t.tptRequired],
+      ['No. of Required TPT',                    t.requiredTptCount],
+    ];
+    for (const [field, value] of retired) {
+      if (value == null) continue;
+      hits.push({
+        kind:    'reference',
+        section: 'Transformer TPT',
+        label:   `${label} — ${field}`,
+        value:   typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value),
+      });
+    }
+  });
 
   const legacyDc = survey.siteChecklist.acDcSupply.dcBreakerVoltageByLevel[LEGACY_COMBINED_VOLTAGE_LEVEL];
   if (legacyDc != null) {

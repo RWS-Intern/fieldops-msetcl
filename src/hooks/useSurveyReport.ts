@@ -231,6 +231,9 @@ function mapTransformer(raw: Record<string, any>): SurveyTransformerEntry {
     // TPI -> TPT is a pure rename of the same physical thing, so an old answer
     // carries forward transparently. Only the new key is ever written.
     existingTptWorking:          raw['existingTptWorking'] ?? raw['existingTpiWorking'] ?? null,
+    modbusAvailable:             raw['modbusAvailable']             ?? null,
+    // Superseded trio — read only, so old answers can be shown back. None is
+    // used as a fallback for modbusAvailable or for the derived count.
     existingTpi4to20mAAvailable: raw['existingTpi4to20mAAvailable'] ?? null,
     tptRequired:                 raw['tptRequired']                 ?? null,
     requiredTptCount:            raw['requiredTptCount']            ?? null,

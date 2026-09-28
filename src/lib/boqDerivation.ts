@@ -1,5 +1,5 @@
 import { BOQ_DERIVED_ITEMS } from '@/lib/boqMaster';
-import type { SurveyReport, SurveyBoqLine } from '@/types';
+import type { SurveyReport, SurveyBoqLine, SurveyTransformerEntry } from '@/types';
 
 /**
  * Auto-derivation of BOQ quantities from the Feeder List.
@@ -37,6 +37,35 @@ export const DERIVED_ITEM_KEYS: ReadonlySet<string> = new Set(
 );
 
 /**
+ * Does this transformer need a NEW tap position transducer supplied?
+ *
+ * The full rule, and the only place it lives:
+ *
+ *   existingTptWorking === false                      -> true  (nothing to reuse)
+ *   existingTptWorking === true  && modbus === true    -> false (integrate the existing one)
+ *   existingTptWorking === true  && modbus === false   -> true  (cannot be integrated)
+ *   either question unanswered                         -> null  (contributes nothing)
+ *
+ * The null case is the important one and is NOT the same as false: a
+ * transformer nobody has answered must not quietly read as "doesn't need
+ * one". Same null-vs-zero discipline as the rest of the survey.
+ *
+ * Exported so the step can show the surveyor the consequence of their two
+ * answers rather than making them infer it from the BOQ.
+ */
+export function transformerNeedsNewTpt(tx: SurveyTransformerEntry): boolean | null {
+  if (tx.existingTptWorking === false) return true;
+  if (tx.existingTptWorking !== true)  return null;   // null / undefined
+  if (tx.modbusAvailable === null || tx.modbusAvailable === undefined) return null;
+  return !tx.modbusAvailable;
+}
+
+/** The predicates a BOQ master item may name. */
+const TRANSFORMER_PREDICATES: Record<'needsNewTpt', (tx: SurveyTransformerEntry) => boolean | null> = {
+  needsNewTpt: transformerNeedsNewTpt,
+};
+
+/**
  * Computes every derived line's suggested quantity.
  *
  * Returns a plain itemKey -> quantity map; keys absent from the map are not
@@ -45,8 +74,11 @@ export const DERIVED_ITEM_KEYS: ReadonlySet<string> = new Set(
  * TWO SOURCES, per the master's two mutually-exclusive source fields:
  *   - derivedFromFeederField     — SUMS a numeric column across survey.feeders
  *                                  (MFM / CMR / F-RTU)
- *   - derivedFromTransformerFlag — COUNTS survey.transformers whose named
- *                                  boolean is true (tap position transducer)
+ *   - derivedFromTransformerPredicate — COUNTS survey.transformers a named
+ *                                  predicate answers true for (tap position
+ *                                  transducer). A predicate, not a field
+ *                                  name, because the TPT rule reads two
+ *                                  fields — see transformerNeedsNewTpt.
  *
  * In both cases a total is `null`, not 0, when NOTHING has been answered
  * (including when the source array is empty). 0 would assert "none needed at
@@ -71,12 +103,14 @@ export function deriveSupplyQuantities(survey: SurveyReport): Record<string, num
       continue;
     }
 
-    if (item.derivedFromTransformerFlag) {
-      const flag = item.derivedFromTransformerFlag;
+    if (item.derivedFromTransformerPredicate) {
+      const predicate = TRANSFORMER_PREDICATES[item.derivedFromTransformerPredicate];
       let count: number | null = null;
       for (const transformer of survey.transformers) {
-        const value = transformer[flag];
-        if (value === null || value === undefined) continue;
+        const value = predicate(transformer);
+        // null means this transformer has not been answered enough to say —
+        // it contributes nothing, and does NOT start a total at 0.
+        if (value === null) continue;
         count = (count ?? 0) + (value ? 1 : 0);
       }
       derived[item.itemKey] = count;

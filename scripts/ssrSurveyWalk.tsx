@@ -28,7 +28,9 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createEmptySurveyReport } from '@/lib/boqMaster';
-import { deriveSupplyQuantities, applyDerivedQuantities } from '@/lib/boqDerivation';
+import {
+  deriveSupplyQuantities, applyDerivedQuantities, transformerNeedsNewTpt,
+} from '@/lib/boqDerivation';
 import { validateSurvey, getStepStatuses } from '@/lib/surveyValidation';
 import { StepSiteVisit } from '@/components/survey/steps/StepSiteVisit';
 import { StepFeederList } from '@/components/survey/steps/StepFeederList';
@@ -112,13 +114,26 @@ function buildPopulatedSurvey(): SurveyReport {
     controlType: 'auto', ratingPerBank: '5 MVAR',
     workingStatus: '2 of 3 in service', remarks: null,
   });
-  survey.transformers.push({
-    uid: 't1', transformerNumber: 'TR-1', voltageLevel: '132',
+  // FOUR transformers, one per branch of the derived-TPT rule. The counts the
+  // BOQ assertion below checks depend on exactly this spread, so read the
+  // comment before changing any of them.
+  const tx = (over: Partial<SurveyReport['transformers'][number]>) => ({
+    uid: 't', transformerNumber: 'TR', voltageLevel: '132' as const,
     mvaRating: '50/63 MVA', rtccHighStep: '+9', rtccLowStep: '-9',
-    tapPositionConnectionType: 'resistance', rtccPanelWorking: true,
-    existingTptWorking: true, existingTpi4to20mAAvailable: false,
-    tptRequired: true, requiredTptCount: 2, remarks: null,
+    tapPositionConnectionType: 'resistance' as const, rtccPanelWorking: true,
+    existingTptWorking: null, modbusAvailable: null,
+    // Superseded trio — null on the CLEAN fixture so it stays unflagged.
+    existingTpi4to20mAAvailable: null, tptRequired: null, requiredTptCount: null,
+    remarks: null, ...over,
   });
+  // (a) no working TPT           -> needs a new one      -> COUNTS
+  survey.transformers.push(tx({ uid: 't1', transformerNumber: 'TR-1', existingTptWorking: false }));
+  // (b) working + Modbus         -> integrate existing   -> does NOT count
+  survey.transformers.push(tx({ uid: 't2', transformerNumber: 'TR-2', existingTptWorking: true, modbusAvailable: true }));
+  // (c) working, no Modbus       -> cannot integrate     -> COUNTS
+  survey.transformers.push(tx({ uid: 't3', transformerNumber: 'TR-3', existingTptWorking: true, modbusAvailable: false }));
+  // (d) unanswered               -> contributes nothing  -> neither counted nor zeroed
+  survey.transformers.push(tx({ uid: 't4', transformerNumber: 'TR-4' }));
   // Both cable types — each is now a REQUIRED group, and each renders in its
   // own list on the step and in the preview.
   survey.cableRuns.push({
@@ -252,6 +267,10 @@ function buildLegacySurvey(): SurveyReport {
   survey.infrastructure.mountingNotes         = 'Floor-mounted, north wall.';
   survey.infrastructure.panelSpaceAvailable   = true;
   survey.infrastructure.panelSpaceMeasurement = '1200 x 800 mm free in Panel 3';
+  // The manual TPT trio the derived count replaced, on one transformer.
+  survey.transformers[0].existingTpi4to20mAAvailable = false;
+  survey.transformers[0].tptRequired      = true;
+  survey.transformers[0].requiredTptCount = 2;
   // One TICKED Confirmation checkbox — the only state that should surface.
   // The other two stay at their `false` default precisely to prove the
   // `=== true` gate: an unticked box must produce no hit at all.
@@ -370,6 +389,36 @@ export function runSurveyWalk(): number {
     console.log(`  FAIL deriveSupplyQuantities: ${(err as Error).message}`);
   }
 
+  console.log('\n── derived TPT rule, branch by branch ──');
+  {
+    const expected: [string, boolean | null][] = [
+      ['TR-1  existingTptWorking=false               ', true],
+      ['TR-2  existingTptWorking=true,  modbus=true  ', false],
+      ['TR-3  existingTptWorking=true,  modbus=false ', true],
+      ['TR-4  both unanswered                        ', null],
+    ];
+    expected.forEach(([label, want], i) => {
+      const got = transformerNeedsNewTpt(survey.transformers[i]);
+      const ok  = got === want;
+      console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${label} -> ${String(got)} (expected ${String(want)})`);
+      if (!ok) failures++;
+    });
+
+    // Two of the four count; the unanswered one must neither add nor zero.
+    const count = deriveSupplyQuantities(survey)['tapPositionTransducer'];
+    const countOk = count === 2;
+    console.log(`  ${countOk ? 'ok  ' : 'FAIL'} BOQ tapPositionTransducer -> ${count} (expected 2)`);
+    if (!countOk) failures++;
+
+    // All-unanswered must yield null, not 0 — "nobody has said" is not "none".
+    const blank = buildPopulatedSurvey();
+    blank.transformers.forEach((t) => { t.existingTptWorking = null; t.modbusAvailable = null; });
+    const blankCount = deriveSupplyQuantities(blank)['tapPositionTransducer'];
+    const blankOk = blankCount === null;
+    console.log(`  ${blankOk ? 'ok  ' : 'FAIL'} all unanswered -> ${String(blankCount)} (expected null, not 0)`);
+    if (!blankOk) failures++;
+  }
+
   console.log('\n── wizard render-body calls (run on EVERY render) ──');
   try {
     const issues   = validateSurvey(survey);
@@ -427,9 +476,9 @@ export function runSurveyWalk(): number {
     const reenter   = legacyHits.filter((h) => h.kind !== 'reference');
     const reference = legacyHits.filter((h) => h.kind === 'reference');
     const legacyOk = surveyHasLegacyVoltageData(legacy) === true
-      && legacyHits.length === 35 && reenter.length === 12 && reference.length === 23;
+      && legacyHits.length === 38 && reenter.length === 12 && reference.length === 26;
     console.log(`  ${legacyOk ? 'ok  ' : 'FAIL'} legacy survey: flagged, ${legacyHits.length} hits`
-      + ` — ${reenter.length} to re-enter (expected 12), ${reference.length} reference (expected 23)`);
+      + ` — ${reenter.length} to re-enter (expected 12), ${reference.length} reference (expected 26)`);
     if (!legacyOk) failures++;
     legacyHits.forEach((h) => console.log(
       `         - [${h.kind ?? 're-enter'}] ${h.section}: ${h.label}${h.value ? ` (was ${h.value})` : ''}`));

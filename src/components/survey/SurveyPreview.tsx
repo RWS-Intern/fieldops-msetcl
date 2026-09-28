@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { SUPPLY_BOQ_MASTER } from '@/lib/boqMaster';
 import { SURVEY_PHOTO_SLOTS, validateSurvey } from '@/lib/surveyValidation';
 import { formatMetresAsKm } from '@/lib/units';
+import { transformerNeedsNewTpt } from '@/lib/boqDerivation';
 import { isPdfRef, pdfPreviewUrl } from '@/lib/signedDocs';
 import {
   VOLTAGE_LEVEL_LABELS, ASSET_COUNT_ROWS, ASSET_COUNT_ROW_LABELS,
@@ -495,10 +496,22 @@ function TransformerBlock({ tx, index }: { tx: SurveyTransformerEntry; index: nu
       <TriField label="RTCC panel working" value={tx.rtccPanelWorking} />
       <TriField label="Existing TPT working" value={tx.existingTptWorking} />
       {tx.existingTptWorking === true && (
-        <TriField label="Existing TPI 4-20 mA output available" value={tx.existingTpi4to20mAAvailable} />
+        <TriField label="Modbus available" value={tx.modbusAvailable} />
       )}
-      <TriField label="Tap Position Transducer (TPT) required" value={tx.tptRequired} />
-      <Field label="No. of Required TPT" value={dash(tx.requiredTptCount)} />
+      {/* Derived, not asked — shown so the reviewer sees what the BOQ counted
+          for this transformer without re-deriving it themselves. */}
+      <Field
+        label="New TPT needed (derived)"
+        value={transformerNeedsNewTpt(tx) === null
+          ? '—'
+          : transformerNeedsNewTpt(tx) ? 'Yes — counted in the BOQ' : 'No'}
+      />
+      <RemovedField
+        label="Existing TPI 4-20 mA output available"
+        value={tx.existingTpi4to20mAAvailable}
+      />
+      <RemovedField label="Tap Position Transducer (TPT) required" value={tx.tptRequired} />
+      <RemovedField label="No. of Required TPT" value={tx.requiredTptCount} />
       <Field label="Remarks" value={dash(tx.remarks)} />
     </EntryCard>
   );
