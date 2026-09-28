@@ -153,44 +153,26 @@ function validateFeeders(survey: SurveyReport): SurveyValidationIssue[] {
   return issues;
 }
 
-// ─── CRP Relay Details (was Section D — Devices) ────────────────────────────────
-
-/**
- * Remapped from validateDevices. Still optional to have any; each present one
- * must be filled.
- *
- *   deviceType -> relayType  (1:1, error kept — both answer "what kind is it")
- *
- *   quantity   -> DROPPED. A device row could stand for several units; a relay
- *                 row is exactly one relay, so there is nothing to count.
- *   reusable   -> DROPPED. No equivalent column on the relay table.
- *   protocol   -> DROPPED. It carried a hard error here long after the field
- *                 itself was removed from the step, which made Submit
- *                 impossible: nothing in the UI could ever satisfy it. The
- *                 field survives as @deprecated on SurveyRelayEntry and is
- *                 surfaced read-only for reference, but it is not an answer
- *                 anyone can give, so it cannot be a requirement.
- *                 `ipAddress` never carried a rule and needed no change.
- *
- * bayName is a warning rather than an error: the step marks it required, but
- * the old Device shape had no name field at all, so an error here would be a
- * new hard gate rather than a remap.
- */
-function validateRelays(survey: SurveyReport): SurveyValidationIssue[] {
-  const issues: SurveyValidationIssue[] = [];
-
-  survey.relays.forEach((relay, i) => {
-    const label = relay.bayName?.trim() ? `Relay ${relay.bayName}` : `Relay #${i + 1}`;
-    if (!relay.bayName || !relay.bayName.trim()) {
-      issues.push(issue(STEP.relays, `${label}: bay name not filled in.`, 'warning'));
-    }
-    if (!relay.relayType) {
-      issues.push(issue(STEP.relays, `${label}: relay type is required.`));
-    }
-  });
-
-  return issues;
-}
+// ─── CRP Relay Details — REMOVED ────────────────────────────────────────────
+//
+// validateRelays is GONE, along with BOTH of its rules:
+//   - "relay type is required."      (ERROR)   — would have blocked Submit on
+//     any survey holding a relay entry with no type, forever: the step that
+//     set it no longer exists.
+//   - "bay name not filled in."      (warning) — would have surfaced an issue
+//     labelled "CRP Relay Details" that jump-to-issue could not navigate to,
+//     since no wizard step claims validation index 2 any more.
+//   - "protocol is required."        (ERROR)   — already removed in the
+//     earlier urgent fix, before the step itself went.
+//
+// `survey.relays[]` is NOT validated at all now. That is deliberate: the
+// wizard cannot create or edit a relay, so no rule over that array can ever
+// be satisfied or violated by anything a surveyor does.
+//
+// STEP.relays and SURVEY_STEP_LABELS[2] are deliberately KEPT — the status
+// array is positional, and removing the slot would shift Infrastructure,
+// Cable Runs, Photos, BOQ and Sign-Off down by one and silently mis-map every
+// one of their validationIndex values.
 
 // ─── Cable runs — BOTH types now required ───────────────────────────────────
 //
@@ -397,7 +379,6 @@ export function validateSurvey(survey: SurveyReport): SurveyValidationIssue[] {
   return [
     ...validateSiteVisit(survey),
     ...validateFeeders(survey),
-    ...validateRelays(survey),
     ...validateCableRuns(survey),
     ...validatePhotos(survey),
     ...validateBoq(survey),
@@ -508,7 +489,11 @@ export function getStepStatuses(survey: SurveyReport): StepStatus[] {
       isAnyValueSet(survey.controlRoom),
     // Feeder List
     survey.feeders.length > 0,
-    // CRP Relay Details
+    // CRP Relay Details — RETIRED SLOT. Kept so indices 3-7 below keep their
+    // positions; no wizard step reads index 2 any more, so this value is
+    // never displayed. The real expression is left in place rather than a
+    // hardcoded false, so the slot still tells the truth if the step ever
+    // returns.
     survey.relays.length > 0,
     // Infrastructure
     isInfrastructureTouched(survey.infrastructure),

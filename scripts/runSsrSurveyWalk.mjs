@@ -64,6 +64,15 @@ await esbuild.build({
     'import.meta.env.VITE_CLOUDINARY_CLOUD_NAME':    '"test"',
     'import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET': '"test"',
     'import.meta.env.VITE_CLOUDINARY_FOLDER':        '"test"',
+    // Firebase is initialised at module scope in src/firebase/config.ts, so
+    // anything importing the read mapper drags it in. Stubbed, not reached:
+    // the walk makes no request, it only needs initializeApp not to throw on
+    // undefined config.
+    'import.meta.env.VITE_FIREBASE_API_KEY':             '"test"',
+    'import.meta.env.VITE_FIREBASE_AUTH_DOMAIN':         '"test.firebaseapp.com"',
+    'import.meta.env.VITE_FIREBASE_PROJECT_ID':          '"test"',
+    'import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID': '"0"',
+    'import.meta.env.VITE_FIREBASE_APP_ID':              '"test"',
     'import.meta.env.DEV':                           'false',
     'import.meta.env.PROD':                          'true',
   },

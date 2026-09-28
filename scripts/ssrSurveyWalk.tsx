@@ -34,7 +34,6 @@ import {
 import { validateSurvey, getStepStatuses } from '@/lib/surveyValidation';
 import { StepSiteVisit } from '@/components/survey/steps/StepSiteVisit';
 import { StepFeederList } from '@/components/survey/steps/StepFeederList';
-import { StepRelayDetails } from '@/components/survey/steps/StepRelayDetails';
 import { StepCapacitorBanks } from '@/components/survey/steps/StepCapacitorBanks';
 import { StepTransformerDetails } from '@/components/survey/steps/StepTransformerDetails';
 import { StepInfrastructure } from '@/components/survey/steps/StepInfrastructure';
@@ -46,6 +45,7 @@ import { StepSignOff } from '@/components/survey/steps/StepSignOff';
 import type { SurveyStepProps } from '@/components/survey/steps/StepProps';
 import { LEGACY_COMBINED_VOLTAGE_LEVEL } from '@/types';
 import { surveyHasLegacyVoltageData, findLegacyVoltageData } from '@/lib/legacyVoltage';
+import { mapSurveyReport } from '@/hooks/useSurveyReport';
 import { LegacyVoltageBanner } from '@/components/survey/LegacyVoltageBanner';
 import { isPdfRef, pdfPreviewUrl } from '@/lib/signedDocs';
 import type { SurveyReport } from '@/types';
@@ -352,15 +352,14 @@ function buildStaleDraftSurvey(): SurveyReport {
 const STEPS: readonly [string, React.ComponentType<SurveyStepProps>][] = [
   ['1. Site & Visit',        StepSiteVisit],
   ['2. Feeder List',         StepFeederList],
-  ['3. CRP Relay Details',   StepRelayDetails],
-  ['4. Capacitor Banks',     StepCapacitorBanks],
-  ['5. Transformer Details', StepTransformerDetails],
-  ['6. Site Infrastructure', StepInfrastructure],
-  ['7. ACDB & DCDB Details', StepAcdcDetails],
-  ['8. Cable Runs',          StepCableRuns],
-  ['9. Photos',              StepPhotos],
-  ['10. BOQ',                StepBoq],
-  ['11. Sign-Off',           StepSignOff],
+  ['3. Capacitor Banks',     StepCapacitorBanks],
+  ['4. Transformer Details', StepTransformerDetails],
+  ['5. Site Infrastructure', StepInfrastructure],
+  ['6. ACDB & DCDB Details', StepAcdcDetails],
+  ['7. Cable Runs',          StepCableRuns],
+  ['8. Photos',              StepPhotos],
+  ['9. BOQ',                StepBoq],
+  ['10. Sign-Off',           StepSignOff],
 ];
 
 /** Returns the number of failures; 0 means the walk is clean. */
@@ -429,6 +428,56 @@ export function runSurveyWalk(): number {
   } catch (err) {
     failures++;
     console.log(`  FAIL validateSurvey/getStepStatuses: ${(err as Error).message}`);
+  }
+
+  console.log('\n── retired CRP Relay step: existing data must survive ──');
+  {
+    // A survey submitted BEFORE the step was removed. Nothing in the wizard
+    // can produce this any more; everything that reads it still must.
+    const withRelays = buildPopulatedSurvey();
+    withRelays.relays.push({
+      uid: 'r-old', bayName: 'Bay-07', nominalVoltage: '33',
+      relayMakeModel: 'Siemens 7SJ', relayType: 'numeric',
+      protocol: 'iec_61850', ipAddress: '10.0.0.7',
+      optical: 'yes', ctRatio: '400/1', remarks: 'Recorded before the step was retired.',
+      photos: ['https://example.test/relay-old.jpg'],
+    });
+
+    // 1. The array is untouched by the mapper round trip — the read path the
+    //    preview and the approver's record view both go through.
+    const roundTripped = mapSurveyReport('id-1', JSON.parse(JSON.stringify({
+      ...withRelays,
+      surveyDate: null, submittedAt: null, createdAt: null, updatedAt: null,
+      signOff: { ...withRelays.signOff, titleBlock: { ...withRelays.signOff.titleBlock,
+        preparedByDate: null, preparedByRevDate: null } },
+    })));
+    // Two: the fixture's own relay plus the pre-removal one pushed above.
+    const old = roundTripped.relays.find((r) => r.uid === 'r-old');
+    const kept = roundTripped.relays.length === 2
+      && old?.bayName === 'Bay-07'
+      && old?.relayType === 'numeric'
+      && old?.photos.length === 1
+      && old?.remarks === 'Recorded before the step was retired.';
+    console.log(`  ${kept ? 'ok  ' : 'FAIL'} relay entries survive mapSurveyReport (${roundTripped.relays.length} entries, photos + remarks kept)`);
+    if (!kept) failures++;
+
+    // 2. NOTHING validates it any more — no rule can fire against an array the
+    //    wizard cannot edit. This is the trap that blocked Submit twice before.
+    const relayIssues = validateSurvey(withRelays)
+      .filter((i) => /relay/i.test(i.message) || i.stepIndex === 2);
+    console.log(`  ${relayIssues.length === 0 ? 'ok  ' : 'FAIL'} no validation issue targets relays (${relayIssues.length})`);
+    relayIssues.forEach((i) => console.log(`         - ${i.severity}: ${i.message}`));
+    if (relayIssues.length !== 0) failures++;
+
+    // 3. A pre-split relay voltage must surface as REFERENCE, never re-enter —
+    //    the picker that would fix it no longer exists.
+    const legacyRelay = buildPopulatedSurvey();
+    legacyRelay.relays[0].nominalVoltage = LEGACY_COMBINED_VOLTAGE_LEVEL;
+    const relayHits = findLegacyVoltageData(legacyRelay)
+      .filter((h) => h.section === 'CRP Relay Details');
+    const refOnly = relayHits.length > 0 && relayHits.every((h) => h.kind === 'reference');
+    console.log(`  ${refOnly ? 'ok  ' : 'FAIL'} pre-split relay voltage surfaces as reference, not re-enter`);
+    if (!refOnly) failures++;
   }
 
   console.log('\n── signed-page attachments (photo vs PDF) ──');

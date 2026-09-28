@@ -90,9 +90,18 @@ export function findLegacyVoltageData(survey: SurveyReport): LegacyVoltageHit[] 
     }
   });
 
+  // REFERENCE, not re-enter — changed when the CRP Relay Details step was
+  // removed. The voltage picker that would have fixed this no longer exists,
+  // so asking for it back would raise a banner nobody could ever clear, which
+  // is precisely what the reference kind exists to prevent.
   survey.relays.forEach((r, i) => {
     if (isLegacyVoltage(r.nominalVoltage)) {
-      hits.push({ section: 'CRP Relay Details', label: r.bayName?.trim() || `Relay #${i + 1}` });
+      hits.push({
+        kind:    'reference',
+        section: 'CRP Relay Details',
+        label:   `${r.bayName?.trim() || `Relay #${i + 1}`} — nominal voltage`,
+        value:   LEGACY_COMBINED_VOLTAGE_LEVEL,
+      });
     }
   });
   // Protocol and IP Address, which the CRP Relay Details step no longer asks

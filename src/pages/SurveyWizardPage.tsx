@@ -24,7 +24,6 @@ import { Button } from '@/components/ui/button';
 import { cn }      from '@/lib/utils';
 import { StepSiteVisit }      from '@/components/survey/steps/StepSiteVisit';
 import { StepFeederList }     from '@/components/survey/steps/StepFeederList';
-import { StepRelayDetails }   from '@/components/survey/steps/StepRelayDetails';
 import { StepCapacitorBanks } from '@/components/survey/steps/StepCapacitorBanks';
 import { StepTransformerDetails } from '@/components/survey/steps/StepTransformerDetails';
 import { StepInfrastructure } from '@/components/survey/steps/StepInfrastructure';
@@ -59,16 +58,24 @@ interface WizardStep {
 }
 
 /**
- * The confirmed 11-step structure. Every step has a real form.
+ * The confirmed 10-step structure. Every step has a real form.
  *
- * Steps 6, 9 and 10 keep the components they already had: those are being
- * REVISED against the official checklist in a later phase, not built from
- * nothing, so they stay mounted and working in the meantime.
+ * CRP Relay Details was REMOVED here — MSETCL confirmed it is not required.
+ * Only the wizard entry is gone: `survey.relays[]` stays on the type, in the
+ * factory and in the mapper, existing entries are untouched, and the preview
+ * still renders them for a survey submitted before this change.
+ *
+ * No renumbering was needed. `validationIndex` is matched BY VALUE
+ * (statusForStep indexes the status array with it; wizardIndexForValidationIndex
+ * searches for it), not by position, so dropping the step that claimed index 2
+ * simply leaves that index unclaimed — every other step keeps the index it
+ * always had. The validator's positional array deliberately KEEPS its slot 2
+ * so indices 3-7 do not shift; it is inert because nothing emits an issue
+ * there any more.
  */
 const STEPS: WizardStep[] = [
   { key: 'site_visit',      label: 'Site & Visit',                    Component: StepSiteVisit,                             validationIndex: 0 },
   { key: 'feeders',         label: 'Feeder List',                     Component: StepFeederList,                            validationIndex: 1 },
-  { key: 'relays',          label: 'CRP Relay Details',               Component: StepRelayDetails,                          validationIndex: 2 },
   { key: 'capacitor_banks', label: 'Capacitor Banks',                 Component: StepCapacitorBanks,                        validationIndex: null },
   { key: 'transformers',    label: 'Transformer Details',             Component: StepTransformerDetails,                    validationIndex: null },
   { key: 'infrastructure',  label: 'Site Infrastructure & Checklist', Component: StepInfrastructure,                        validationIndex: 3 },
