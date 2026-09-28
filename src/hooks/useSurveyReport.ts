@@ -305,6 +305,8 @@ function mapAssetCounts(raw: Record<string, any> | undefined): SurveyAssetCounts
   return {
     baysByVoltage:      mapByVoltage<typeof BAY_COUNT_KEYS[number], number>(BAY_COUNT_KEYS, raw?.['baysByVoltage']),
     busesByVoltage:          mapByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS, raw?.['busesByVoltage']),
+    busCouplerBusSectionByVoltage:
+      mapByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS, raw?.['busCouplerBusSectionByVoltage']),
     capacitorBanksByVoltage: mapByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS, raw?.['capacitorBanksByVoltage']),
     transformersByVoltage:   mapByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS, raw?.['transformersByVoltage']),
     // Superseded flat totals, still read so an old answer can be shown back.

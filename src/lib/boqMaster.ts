@@ -242,6 +242,8 @@ function createEmptyAssetCounts(): SurveyAssetCounts {
   return {
     baysByVoltage:           emptyByVoltage<typeof BAY_COUNT_KEYS[number], number>(BAY_COUNT_KEYS),
     busesByVoltage:          emptyByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS),
+    busCouplerBusSectionByVoltage:
+      emptyByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS),
     capacitorBanksByVoltage: emptyByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS),
     transformersByVoltage:   emptyByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS),
     // Superseded flat totals — seeded null so the stored shape stays total.

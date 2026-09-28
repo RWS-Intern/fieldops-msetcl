@@ -457,6 +457,7 @@ function isAssetCountsTouched(counts: SurveyAssetCounts): boolean {
     // from IndexedDB can predate any of these fields existing.
     hasAnyCount(counts.baysByVoltage) ||
     hasAnyCount(counts.busesByVoltage) ||
+    hasAnyCount(counts.busCouplerBusSectionByVoltage) ||
     hasAnyCount(counts.capacitorBanksByVoltage) ||
     hasAnyCount(counts.transformersByVoltage) ||
     // The superseded flat totals still count as "touched" — an in-progress

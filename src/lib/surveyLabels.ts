@@ -63,17 +63,19 @@ export function storedVoltageLabel(level: StoredVoltageLevel): string {
  * column instead.
  */
 export const ASSET_COUNT_ROW_LABELS = {
-  baysByVoltage:           'Bays',
-  busesByVoltage:          'Bus',
-  capacitorBanksByVoltage: 'Capacitor Banks',
-  transformersByVoltage:   'Transformers',
+  baysByVoltage:                 'Bays',
+  busesByVoltage:                'Bus',
+  busCouplerBusSectionByVoltage: 'Bus Coupler / Bus Section',
+  capacitorBanksByVoltage:       'Capacitor Banks',
+  transformersByVoltage:         'Transformers',
 } as const;
 
 export type AssetCountRowKey = keyof typeof ASSET_COUNT_ROW_LABELS;
 
 /** Row order, matching the source document's own table. */
 export const ASSET_COUNT_ROWS: readonly AssetCountRowKey[] = [
-  'baysByVoltage', 'busesByVoltage', 'capacitorBanksByVoltage', 'transformersByVoltage',
+  'baysByVoltage', 'busesByVoltage', 'busCouplerBusSectionByVoltage',
+  'capacitorBanksByVoltage', 'transformersByVoltage',
 ];
 
 // ─── CRP Relay Details ──────────────────────────────────────────────────────────

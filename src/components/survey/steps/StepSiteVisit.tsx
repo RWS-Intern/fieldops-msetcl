@@ -46,7 +46,7 @@ function toCount(raw: string): number | null {
   return raw === '' ? null : Math.max(0, Number(raw));
 }
 
-/** Column template shared by the grid's heading row and its four data rows. */
+/** Column template shared by the grid's heading row and its five data rows. */
 const ASSET_GRID_COLS = 'grid grid-cols-[7.5rem_repeat(7,minmax(3.25rem,1fr))] items-center gap-1.5';
 
 /** Column template shared by the Office table's header and its three rows. */

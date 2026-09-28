@@ -79,6 +79,8 @@ function buildPopulatedSurvey(): SurveyReport {
   survey.assetCounts.baysByVoltage['132']           = 4;
   survey.assetCounts.baysByVoltage['33']            = 6;
   survey.assetCounts.busesByVoltage['132']          = 2;
+  survey.assetCounts.busCouplerBusSectionByVoltage['132'] = 1;
+  survey.assetCounts.busCouplerBusSectionByVoltage['33']  = 2;
   survey.assetCounts.capacitorBanksByVoltage['33']  = 1;
   survey.assetCounts.transformersByVoltage['132']   = 2;
 

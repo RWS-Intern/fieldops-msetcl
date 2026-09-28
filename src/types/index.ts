@@ -1015,6 +1015,15 @@ export interface SurveyAssetCounts {
    * recover — only the flat totals below, which are surfaced separately.
    */
   busesByVoltage:          Record<SurveyVoltageLevel, number | null>;
+  /**
+   * "Bus Coupler / Bus Section" — its own row in the document's table, counted
+   * per level like the rest. NOT derived from `busesByVoltage`: a coupler is a
+   * bay-like asset between buses, so the two counts are independent facts.
+   *
+   * No legacy key: this row never existed before the 66/33 split, so there is
+   * no pre-split answer to recover — same reasoning as the three rows above.
+   */
+  busCouplerBusSectionByVoltage: Record<SurveyVoltageLevel, number | null>;
   capacitorBanksByVoltage: Record<SurveyVoltageLevel, number | null>;
   transformersByVoltage:   Record<SurveyVoltageLevel, number | null>;
 
