@@ -229,6 +229,17 @@ function EscalationBanner({ stages, liveIndex }: { stages: ApprovalStageResult[]
   );
 }
 
+/**
+ * Which of the two decisions the reviewer has started. `flag` is the
+ * request-changes/agree side, `clear` the approve/disagree side.
+ *
+ * Both now go through the SAME two-step reveal: press the button, write a
+ * note, confirm. The clear side used to fire on a single click with no note at
+ * all — one mis-tap approved a survey with nothing recorded about why, and
+ * nothing to look back at afterwards.
+ */
+type PendingReview = 'flag' | 'clear';
+
 function ReviewActions({
   direction,
   onApprove,
@@ -236,69 +247,111 @@ function ReviewActions({
 }: {
   /** Selects the labels AND which decision each button sends. */
   direction: ReviewDirection;
-  onApprove: () => Promise<void>;
+  onApprove: (notes: string) => Promise<void>;
   onRequestChanges: (notes: string) => Promise<void>;
 }) {
-  const [requestingChanges, setRequestingChanges] = useState(false);
-  const [reviewNotes, setReviewNotes]             = useState('');
-  const [submitting, setSubmitting]               = useState(false);
-
-  async function handleApprove() {
-    setSubmitting(true);
-    try {
-      await onApprove();
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function handleSend() {
-    if (!reviewNotes.trim()) return;
-    setSubmitting(true);
-    try {
-      await onRequestChanges(reviewNotes.trim());
-    } finally {
-      setSubmitting(false);
-    }
-  }
+  const [pending, setPending]         = useState<PendingReview | null>(null);
+  const [reviewNotes, setReviewNotes] = useState('');
+  const [submitting, setSubmitting]   = useState(false);
+  const [error, setError]             = useState<string | null>(null);
 
   // Backward = an escalation review. The same two code paths are reused
   // (request_changes and approve), but their MEANING is different and the
   // labels must say so: a reviewer agreeing with a flag from above is not
   // "requesting changes" on the survey, and one disagreeing is not
   // "approving" it outright.
-  const isEscalation = direction === 'backward';
-  const flagLabel    = isEscalation ? 'Agree' : 'Request Changes';
+  const isEscalation  = direction === 'backward';
+  const flagLabel     = isEscalation ? 'Agree' : 'Request Changes';
   const flagSendLabel = isEscalation ? 'Agree & Pass Down' : 'Send Back';
-  const clearLabel   = isEscalation ? 'Disagree, approve as-is' : 'Approve';
-  const clearBusy    = isEscalation ? 'Sending back up…' : 'Approving…';
+  const clearLabel    = isEscalation ? 'Disagree, approve as-is' : 'Approve';
+  const clearBusy     = isEscalation ? 'Sending back up…' : 'Approving…';
 
-  if (requestingChanges) {
+  /**
+   * Everything that differs between the two pending states, derived from the
+   * SAME `direction` the labels above use — so forward and backward modes are
+   * gated identically and worded to match whichever label is on screen.
+   */
+  const copy = pending === 'flag'
+    ? {
+        placeholder: isEscalation
+          ? 'Why do you agree with the objection above?'
+          : 'Describe what the engineer needs to fix or add…',
+        confirm:     flagSendLabel,
+        busy:        'Sending…',
+        emptyError:  isEscalation
+          ? 'Add a note before agreeing.'
+          : 'Add a note before requesting changes.',
+        className:   'bg-[#F97316] hover:bg-[#EA580C]',
+      }
+    : {
+        placeholder: isEscalation
+          ? 'Why do you disagree with the objection above?'
+          : 'Why is this survey being approved?',
+        confirm:     clearLabel,
+        busy:        clearBusy,
+        emptyError:  isEscalation
+          ? 'Add a note before disagreeing.'
+          : 'Add a note before approving.',
+        className:   '',
+      };
+
+  function start(next: PendingReview) {
+    setPending(next);
+    setReviewNotes('');
+    setError(null);
+  }
+
+  function cancel() {
+    setPending(null);
+    setReviewNotes('');
+    setError(null);
+  }
+
+  async function handleConfirm() {
+    const notes = reviewNotes.trim();
+    // The confirm button is disabled while this is empty, so reaching here
+    // means something got past it — a fast double-click, or a keyboard submit
+    // landing between renders. Say why nothing happened rather than no-op
+    // silently, which reads as a broken button.
+    if (!notes) {
+      setError(copy.emptyError);
+      return;
+    }
+    setError(null);
+    setSubmitting(true);
+    try {
+      if (pending === 'flag') await onRequestChanges(notes);
+      else                    await onApprove(notes);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (pending) {
     return (
       <div className="flex flex-col gap-2 w-full sm:w-72">
         <Textarea
           value={reviewNotes}
-          onChange={(e) => setReviewNotes(e.target.value)}
-          placeholder={isEscalation
-            ? 'Why do you agree with the objection above?'
-            : 'Describe what the engineer needs to fix or add…'}
+          onChange={(e) => {
+            setReviewNotes(e.target.value);
+            if (error) setError(null);
+          }}
+          placeholder={copy.placeholder}
           rows={2}
           autoFocus
+          aria-invalid={error ? true : undefined}
         />
+        {error && <p className="text-xs text-brand-red">{error}</p>}
         <div className="flex gap-2 justify-end">
-          <Button
-            type="button" variant="outline" size="sm"
-            onClick={() => { setRequestingChanges(false); setReviewNotes(''); }}
-            disabled={submitting}
-          >
+          <Button type="button" variant="outline" size="sm" onClick={cancel} disabled={submitting}>
             Cancel
           </Button>
           <Button
-            type="button" size="sm" className="bg-[#F97316] hover:bg-[#EA580C]"
-            onClick={handleSend}
+            type="button" size="sm" className={copy.className}
+            onClick={handleConfirm}
             disabled={submitting || !reviewNotes.trim()}
           >
-            {submitting ? 'Sending…' : flagSendLabel}
+            {submitting ? copy.busy : copy.confirm}
           </Button>
         </div>
       </div>
@@ -307,11 +360,11 @@ function ReviewActions({
 
   return (
     <div className="flex gap-2">
-      <Button type="button" variant="outline" size="sm" onClick={() => setRequestingChanges(true)} disabled={submitting}>
+      <Button type="button" variant="outline" size="sm" onClick={() => start('flag')} disabled={submitting}>
         {flagLabel}
       </Button>
-      <Button type="button" size="sm" onClick={handleApprove} disabled={submitting}>
-        {submitting ? clearBusy : clearLabel}
+      <Button type="button" size="sm" onClick={() => start('clear')} disabled={submitting}>
+        {clearLabel}
       </Button>
     </div>
   );
@@ -451,7 +504,7 @@ export function ApproverSurveyReviewPage() {
     setUploadError(null);
   }
 
-  async function handleApprove() {
+  async function handleApprove(notes: string) {
     if (!survey || !workOrderId) return;
     try {
       const escalating = survey.reviewDirection === 'backward';
@@ -460,6 +513,10 @@ export function ApproverSurveyReviewPage() {
         // button DISAGREES with the flag above rather than approving the
         // survey. reviewSurvey validates the pairing against the direction.
         decision:    escalating ? 'disagree' : 'approve',
+        // Now always supplied — ReviewActions will not submit without one.
+        // reviewSurvey already stores notes on this branch (`trimmedNotes ||
+        // null`), so nothing in the write path changed to accept them.
+        reviewNotes: notes,
         workOrderId,
         approverUid: survey.approverUid,
         // The LIVE array and index — reviewSurvey replaces only the acting
