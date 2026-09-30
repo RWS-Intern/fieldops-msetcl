@@ -1015,15 +1015,20 @@ export function SurveyPreview({
           )}
         </div>
 
-        {/* 3. CRP Relay Details */}
-        <div className="flex flex-col gap-2">
-          <SectionHeading>3. CRP Relay Details</SectionHeading>
-          {survey.relays.length === 0 ? (
-            <p className="text-xs text-gray-400 italic">No relays recorded.</p>
-          ) : (
-            survey.relays.map((relay, i) => <RelayBlock key={relay.uid} relay={relay} index={i} />)
-          )}
-        </div>
+        {/* 3. CRP Relay Details — the whole section, heading included, only
+            when there is something to show.
+
+            The step was removed from the wizard, so relays are no longer a
+            concept for a new survey: an empty "No relays recorded." placeholder
+            would announce a section that will never be filled. A survey
+            recorded BEFORE the removal still renders in full — that data is
+            the reason the section survives at all. */}
+        {survey.relays.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <SectionHeading>3. CRP Relay Details</SectionHeading>
+            {survey.relays.map((relay, i) => <RelayBlock key={relay.uid} relay={relay} index={i} />)}
+          </div>
+        )}
 
         {/* 4. Capacitor Bank Details */}
         <div className="flex flex-col gap-2">
