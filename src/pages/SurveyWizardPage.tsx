@@ -177,6 +177,8 @@ export function SurveyWizardPage() {
 
   const initializedRef        = useRef(false);
   const startedTransitionRef  = useRef(false);
+  /** Single-flight lock for Submit — see handleSubmit for why state won't do. */
+  const submitLockRef         = useRef(false);
 
   // ── One-time WorkOrder meta fetch — workOrderCode/siteName for the header ──
   // A plain getDoc (not a listener): these two fields never change after
@@ -321,8 +323,17 @@ export function SurveyWizardPage() {
   async function handleSubmit() {
     if (!survey || !surveyData || !workOrderId || !currentUser) return;
 
+    // SINGLE-FLIGHT, via a ref rather than the `submitting` state below.
+    // `setSubmitting(true)` only disables the button after React commits a
+    // render; two presses landing in the same tick both read the old state and
+    // both proceed. A ref flips synchronously, so the second call returns here.
+    // Same pattern as startedTransitionRef in ensureInProgress above.
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
+
     if (validateSurvey(surveyData).some((i) => i.severity === 'error')) {
       setShowValidationSummary(true);
+      submitLockRef.current = false;   // nothing was sent — let them fix and retry
       return;
     }
     setShowValidationSummary(false);
@@ -412,6 +423,10 @@ export function SurveyWizardPage() {
     } catch (err) {
       console.error('[SurveyWizardPage] submit failed:', err);
       showToast('Failed to submit. Try again.', 'error');
+      // Released ONLY on failure. A successful submit navigates away, and the
+      // lock must not reopen behind that navigation — leaving it held is what
+      // makes a late tap on an unmounting screen a no-op.
+      submitLockRef.current = false;
     } finally {
       setSubmitting(false);
     }

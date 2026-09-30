@@ -1,9 +1,9 @@
 import {
   doc,
-  getDoc,
   collection,
   addDoc,
   writeBatch,
+  runTransaction,
   serverTimestamp,
 } from 'firebase/firestore';
 import { db }           from '@/firebase/config';
@@ -213,9 +213,43 @@ export function useSurveyActions() {
     // still), and the equality check is against what is stored right now.
     // Reading raw snapshot data — NOT mapSurveyReport — matters: the mapper
     // converts actedAt Timestamps to Dates, which would not compare equal.
-    const liveSnap  = await getDoc(doc(db, 'surveyReports', surveyReportId));
-    const liveData  = liveSnap.data() ?? {};
-    const liveStages = (liveData['approvalStages'] ?? []) as { ownerUid?: string | null; ownerName?: string | null; stageKey?: string }[];
+    //
+    // A TRANSACTION, not getDoc + writeBatch: the status precondition below is
+    // only worth anything if nothing can change between reading the status and
+    // committing the transition. Five identical "Submitted → Approver Level 1"
+    // entries three seconds apart is what the unconditional version produced.
+    //
+    // Offline: both callers are online-gated — SurveyWizardPage.handleSubmit
+    // diverts to the IndexedDB queue when `!isOnline`, and
+    // SurveyQueueProcessor's effect returns early on `!isOnline` — so this
+    // never relies on the SDK queueing the write. A transaction cannot be
+    // queued offline and fails fast instead, which is the behaviour we want
+    // here anyway: if navigator.onLine lies (captive portal), a submit that
+    // silently pends forever is worse than one that errors and can be retried.
+    // The queue processor already catches, increments `attempts` and retries.
+    await runTransaction(db, async (tx) => {
+      const liveSnap  = await tx.get(doc(db, 'surveyReports', surveyReportId));
+      const liveData  = liveSnap.data() ?? {};
+      const liveStages = (liveData['approvalStages'] ?? []) as { ownerUid?: string | null; ownerName?: string | null; stageKey?: string }[];
+
+      // ── Idempotency gate ──────────────────────────────────────────────────
+      // Submitting is only meaningful from a state the engineer still owns.
+      // Anything else — already pending_approval, already approved, closed —
+      // means this call is a duplicate or a stale queue drain, and it must do
+      // NOTHING: no state write, no audit entry.
+      //
+      // 'open' is in the set deliberately. An OFFLINE submission never runs
+      // ensureInProgress (it returns early when !isOnline), so it is queued
+      // while the survey is still 'open' and drained later from that state.
+      // Omitting 'open' would silently discard every offline submission.
+      const liveStatus = liveData['status'] as WorkOrderStatus | undefined;
+      const SUBMITTABLE: WorkOrderStatus[] = ['open', 'in_progress', 'changes_requested'];
+      if (!liveStatus || !SUBMITTABLE.includes(liveStatus)) {
+        console.warn(
+          `[submitSurvey] ignored — survey ${surveyReportId} is "${liveStatus}", not submittable.`,
+        );
+        return;
+      }
 
     // A survey created before the chain existed has no stages to restart —
     // leave its chain fields untouched rather than inventing one.
@@ -237,34 +271,35 @@ export function useSurveyActions() {
       ? { stageKey: liveStages[0].stageKey ?? null, stageIndex: 0 as number | null }
       : { stageKey: null, stageIndex: null };
 
-    const batch = writeBatch(db);
-    batch.update(doc(db, 'surveyReports', surveyReportId), {
-      ...safeData,
-      ...chainRestart,
-      status:          'pending_approval',
-      submittedBy:     input.submittedBy,
-      submittedByName: input.submittedByName,
-      submittedAt:     serverTimestamp(),
-      updatedAt:       serverTimestamp(),
-    });
-    batch.update(doc(db, 'workOrders', input.workOrderId), {
-      ...chainRestart,
-      status:    'pending_approval',
-      updatedAt: serverTimestamp(),
-    });
+      tx.update(doc(db, 'surveyReports', surveyReportId), {
+        ...safeData,
+        ...chainRestart,
+        status:          'pending_approval',
+        submittedBy:     input.submittedBy,
+        submittedByName: input.submittedByName,
+        submittedAt:     serverTimestamp(),
+        updatedAt:       serverTimestamp(),
+      });
+      tx.update(doc(db, 'workOrders', input.workOrderId), {
+        ...chainRestart,
+        status:    'pending_approval',
+        updatedAt: serverTimestamp(),
+      });
 
-    const updateRef = doc(collection(db, 'surveyReports', surveyReportId, 'updates'));
-    batch.set(updateRef, {
-      action:    'submit',
-      actorUid:  input.submittedBy,
-      actorName: input.submittedByName,
-      createdAt: serverTimestamp(),
-      stageKey,
-      stageIndex,
-      payload:   safeData,
+      // Written inside the SAME transaction as the transition above, so the
+      // audit entry and the state change succeed or fail together — an entry
+      // can never record a transition that did not happen, and vice versa.
+      const updateRef = doc(collection(db, 'surveyReports', surveyReportId, 'updates'));
+      tx.set(updateRef, {
+        action:    'submit',
+        actorUid:  input.submittedBy,
+        actorName: input.submittedByName,
+        createdAt: serverTimestamp(),
+        stageKey,
+        stageIndex,
+        payload:   safeData,
+      });
     });
-
-    await batch.commit();
   }
 
   /**

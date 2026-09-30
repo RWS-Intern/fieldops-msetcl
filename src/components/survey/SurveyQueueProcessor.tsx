@@ -172,36 +172,51 @@ export function SurveyQueueProcessor() {
   async function processQueue(): Promise<void> {
     if (processingRef.current || !currentUser) return;
 
-    const queue = await getAllQueuedSurveys();
-    if (queue.length === 0) return;
-
+    // CLAIMED BEFORE THE FIRST AWAIT. It used to be set after
+    // `await getAllQueuedSurveys()`, which left a window where two calls could
+    // both pass the check above, both await the read, and both go on to submit
+    // the same item. Claim-then-read is the only ordering that closes it.
+    //
+    // This ref is per-tab, so it cannot stop two BROWSER TABS draining the same
+    // queue concurrently — IndexedDB is shared, the ref is not. That case is
+    // caught by submitSurvey's status precondition instead, which is why the
+    // idempotency layer is not redundant with this one.
     processingRef.current = true;
-    console.log(`[SurveyQueue] Processing ${queue.length} queued item(s)`);
 
     let succeeded = 0;
     let failed    = 0;
 
-    for (const item of queue) {
-      try {
-        await processSingleItem(item);
-        await dequeueSurveySubmission(item.id!);
-        succeeded++;
-        console.log('[SurveyQueue] Synced:', item.workOrderId);
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Unknown error';
-        console.error('[SurveyQueue] Failed to sync:', item.workOrderId, err);
+    try {
+      const queue = await getAllQueuedSurveys();
+      if (queue.length === 0) return;
 
-        await updateSurveyQueueItem(item.id!, {
-          attempts:  item.attempts + 1,
-          lastError: message,
-        });
+      console.log(`[SurveyQueue] Processing ${queue.length} queued item(s)`);
 
-        failed++;
-        break; // Stop on first failure — device is likely still offline
+      for (const item of queue) {
+        try {
+          await processSingleItem(item);
+          await dequeueSurveySubmission(item.id!);
+          succeeded++;
+          console.log('[SurveyQueue] Synced:', item.workOrderId);
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          console.error('[SurveyQueue] Failed to sync:', item.workOrderId, err);
+
+          await updateSurveyQueueItem(item.id!, {
+            attempts:  item.attempts + 1,
+            lastError: message,
+          });
+
+          failed++;
+          break; // Stop on first failure — device is likely still offline
+        }
       }
+    } finally {
+      // try/finally, not a bare assignment: an unexpected throw between the
+      // claim and the end used to leave the lock held for the tab's lifetime,
+      // silently disabling every later drain.
+      processingRef.current = false;
     }
-
-    processingRef.current = false;
 
     if (succeeded > 0 && failed === 0) {
       _emitToast(
