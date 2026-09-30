@@ -86,6 +86,25 @@ export interface AppConfig {
   engineerNumCounter?: number;
   /** Incremented atomically when a new SiteTask is created. */
   siteTaskNumCounter?: number;
+  // ── Feature switches ────────────────────────────────────────────────────────
+  //
+  // Kill switches, not preferences. Both default to FALSE when the field is
+  // absent, so the app behaves exactly as it did before these features existed
+  // and a rollout is opt-in rather than opt-out. An admin can turn either off
+  // from Settings without a redeploy — which on a live app is worth more than
+  // any amount of pre-release testing.
+  /**
+   * Push the half-finished survey to Firestore while it is being filled in, so
+   * an engineer can resume on another device. Off means the wizard saves only
+   * to this device's IndexedDB, exactly as before.
+   */
+  surveyRemoteAutosaveEnabled?: boolean;
+  /**
+   * Upload survey photos in the background, rather than only at capture time
+   * and at submit. Off means the existing capture-time and submit-time paths
+   * are the only uploaders.
+   */
+  surveyBackgroundPhotoUploadEnabled?: boolean;
 }
 
 // ─── Vendor ────────────────────────────────────────────────────────────────────
@@ -1585,6 +1604,13 @@ export interface SurveyReport {
    * transition, never on its own.
    */
   reviewDirection: ReviewDirection;
+
+  /**
+   * Random token written by each remote autosave — see chooseDraftSource.
+   * Lets a device tell "someone else pushed" without comparing clocks. Null on
+   * documents never autosaved. Never shown.
+   */
+  draftSyncToken?: string | null;
 
   surveyDate: Date | null;
   location: { lat: number; lng: number } | null;   // auto-captured, manual override allowed

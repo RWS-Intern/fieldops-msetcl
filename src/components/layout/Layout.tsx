@@ -13,6 +13,7 @@ import { OfflineBanner }           from '@/components/offline/OfflineBanner';
 import { OfflineQueueProcessor }   from '@/components/offline/OfflineQueueProcessor';
 import { SiteTaskQueueProcessor }  from '@/components/offline/SiteTaskQueueProcessor';
 import { SurveyQueueProcessor }    from '@/components/survey/SurveyQueueProcessor';
+import { SurveyPhotoUploader }     from '@/components/survey/SurveyPhotoUploader';
 
 // Starts the single shared Firestore tasks listener for the whole session.
 function TasksListener() {
@@ -102,6 +103,9 @@ export function Layout() {
       <SiteTaskQueueProcessor />
       {/* Drains survey-submission IndexedDB queue when connection is restored */}
       <SurveyQueueProcessor />
+      {/* Background photo uploader — field sessions only, and inert unless the
+          admin switch is on. Admins never open its flag listener at all. */}
+      {currentUser.role === 'field' && <SurveyPhotoUploader />}
       <Header />
       <SideNav />
       {/* Offline / syncing banner sits below the header */}

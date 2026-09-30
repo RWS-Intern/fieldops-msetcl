@@ -13,6 +13,16 @@ dist-ssr/
 *.local
 .env
 
+# Local env files — never commit.
+# The Firebase web config in here is public by design (it ships in the JS
+# bundle either way), but these files have also carried the Mapbox token, the
+# Cloudinary upload preset and admin credentials, none of which are.
+.env
+.env.*
+!.env.example
+env.download
+env.development.download
+
 serviceAccountKey.json
 .firebase/
 .claude/

@@ -23,6 +23,18 @@ export interface SurveyDraft {
   stepIndex:   number;
   /** Date.now() at save time. */
   updatedAt:   number;
+  /**
+   * Date.now() when this device last confirmed a push of this draft to the
+   * server, or undefined if it never has.
+   *
+   * Undefined on every draft written before remote sync existed, and while the
+   * feature is switched off. chooseDraftSource reads that as "nothing from
+   * this draft has ever reached the server" — see surveyDraftSync.ts for why
+   * that must not be treated as a conflict.
+   */
+  lastSyncedAt?: number;
+  /** Token written with this device's last confirmed push — see chooseDraftSource. */
+  lastSyncedToken?: string;
 }
 
 let _dbPromise: Promise<IDBPDatabase> | null = null;
@@ -46,13 +58,34 @@ export async function saveDraft(
   draft: { data: Partial<SurveyReport>; stepIndex: number },
 ): Promise<void> {
   const db = await getDB();
+  // Carried across rather than dropped: this is the 500ms local autosave, and
+  // clearing lastSyncedAt on every keystroke would make a synced draft look
+  // as though it had never been pushed.
+  const existing = (await db.get(STORE, workOrderId)) as SurveyDraft | undefined;
   const record: SurveyDraft = {
     workOrderId,
     data:      draft.data,
     stepIndex: draft.stepIndex,
     updatedAt: Date.now(),
+    ...(existing?.lastSyncedAt !== undefined ? { lastSyncedAt: existing.lastSyncedAt } : {}),
+    ...(existing?.lastSyncedToken !== undefined ? { lastSyncedToken: existing.lastSyncedToken } : {}),
   };
   await db.put(STORE, record);
+}
+
+/**
+ * Records that this device just pushed the draft to the server.
+ *
+ * Separate from saveDraft so the marker is written ONLY on a confirmed push —
+ * setting it alongside an ordinary local save would claim data reached the
+ * server when it had not, and chooseDraftSource would then discard newer
+ * remote work believing this device was up to date.
+ */
+export async function markDraftSynced(workOrderId: string, token: string): Promise<void> {
+  const db = await getDB();
+  const existing = (await db.get(STORE, workOrderId)) as SurveyDraft | undefined;
+  if (!existing) return;
+  await db.put(STORE, { ...existing, lastSyncedAt: Date.now(), lastSyncedToken: token });
 }
 
 /** Load the draft for a work order, or null if none exists. */

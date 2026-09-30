@@ -1,36 +1,36 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Navigate }                     from 'react-router-dom';
-import { useAuthStore }              from '@/store/authStore';
-import { useAssignedSiteTaskStore }  from '@/store/assignedSiteTaskStore';
-import { SiteTaskCard }              from '@/components/siteTasks/SiteTaskCard';
-import { UpdateSiteTaskDrawer }      from '@/components/siteTasks/UpdateSiteTaskDrawer';
-import { cn }                        from '@/lib/utils';
+import { Navigate } from 'react-router-dom';
+import { useAuthStore } from '@/store/authStore';
+import { useAssignedSiteTaskStore } from '@/store/assignedSiteTaskStore';
+import { SiteTaskCard } from '@/components/siteTasks/SiteTaskCard';
+import { UpdateSiteTaskDrawer } from '@/components/siteTasks/UpdateSiteTaskDrawer';
+import { cn } from '@/lib/utils';
 import type { SiteTask, TaskStatus } from '@/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 /** Shape saved to sessionStorage when "Create new task type" is clicked */
 export interface CreateTaskFormState {
-  title:           string;
-  typeId:          string;
-  description:     string;
-  assignedTo:      string;
-  startDate:       string;
-  dueDate:         string;
-  siteCode:        string;
+  title: string;
+  typeId: string;
+  description: string;
+  assignedTo: string;
+  startDate: string;
+  dueDate: string;
+  siteCode: string;
   linkedProjectId: string;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_PILLS: { key: TaskStatus | 'all'; label: string }[] = [
-  { key: 'all',                label: 'All'                },
-  { key: 'pending',            label: 'Pending'            },
-  { key: 'in_progress',        label: 'In Progress'        },
-  { key: 'pending_approval',   label: 'Pending Approval'   },
-  { key: 'changes_requested',  label: 'Changes Requested'  },
-  { key: 'completed',          label: 'Completed'          },
-  { key: 'blocked',            label: 'Blocked'            },
+  { key: 'all', label: 'All' },
+  { key: 'pending', label: 'Pending' },
+  { key: 'in_progress', label: 'In Progress' },
+  { key: 'pending_approval', label: 'Pending Approval' },
+  { key: 'changes_requested', label: 'Changes Requested' },
+  { key: 'completed', label: 'Completed' },
+  { key: 'blocked', label: 'Blocked' },
 ];
 
 // ─── Field Engineer View ──────────────────────────────────────────────────────
@@ -38,7 +38,7 @@ const STATUS_PILLS: { key: TaskStatus | 'all'; label: string }[] = [
 function FieldTasksView() {
   const { assignedSiteTasks } = useAssignedSiteTaskStore();
 
-  const [search,       setSearch]       = useState('');
+  const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<TaskStatus | 'all'>('all');
   const [selectedTask, setSelectedTask] = useState<SiteTask | null>(null);
 
@@ -74,17 +74,17 @@ function FieldTasksView() {
 
   // ── Counts for pills ─────────────────────────────────────────────────────────
   const counts = useMemo(() => ({
-    all:                assignedSiteTasks.length,
-    pending:            assignedSiteTasks.filter((t) => t.status === 'pending').length,
-    in_progress:        assignedSiteTasks.filter((t) => t.status === 'in_progress').length,
-    pending_approval:   assignedSiteTasks.filter((t) => t.status === 'pending_approval').length,
-    changes_requested:  assignedSiteTasks.filter((t) => t.status === 'changes_requested').length,
-    completed:          assignedSiteTasks.filter((t) => t.status === 'completed').length,
-    blocked:            assignedSiteTasks.filter((t) => t.status === 'blocked').length,
+    all: assignedSiteTasks.length,
+    pending: assignedSiteTasks.filter((t) => t.status === 'pending').length,
+    in_progress: assignedSiteTasks.filter((t) => t.status === 'in_progress').length,
+    pending_approval: assignedSiteTasks.filter((t) => t.status === 'pending_approval').length,
+    changes_requested: assignedSiteTasks.filter((t) => t.status === 'changes_requested').length,
+    completed: assignedSiteTasks.filter((t) => t.status === 'completed').length,
+    blocked: assignedSiteTasks.filter((t) => t.status === 'blocked').length,
   }), [assignedSiteTasks]);
 
   return (
-    <div className="flex flex-col gap-4 max-w-2xl mx-auto pb-24">
+    <div className="">
       {/* Heading */}
       <div className="flex items-center gap-2">
         <h2 className="text-xl font-bold text-gray-900">My Tasks</h2>
@@ -115,7 +115,7 @@ function FieldTasksView() {
       <div className="flex gap-1.5 flex-wrap">
         {STATUS_PILLS.map(({ key, label }) => {
           const isActive = activeFilter === key;
-          const count    = counts[key as keyof typeof counts];
+          const count = counts[key as keyof typeof counts];
           return (
             <button
               key={key}
@@ -144,8 +144,8 @@ function FieldTasksView() {
             {assignedSiteTasks.length === 0
               ? 'No tasks assigned yet.'
               : search || activeFilter !== 'all'
-              ? 'No tasks match your search or filter.'
-              : 'No tasks in this category.'}
+                ? 'No tasks match your search or filter.'
+                : 'No tasks in this category.'}
           </p>
           {assignedSiteTasks.length === 0 && (
             <p className="text-xs text-gray-300 mt-2">

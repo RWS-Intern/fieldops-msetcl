@@ -816,7 +816,7 @@ function CableRunsSection({ cableRuns, difficultRunsNotes }: { cableRuns: Survey
  * "existing" cell reads n/a rather than an em-dash, so a reviewer can tell
  * "question doesn't apply" from "nobody answered".
  */
-function BoqTable({ title, master, lines }: { title: string; master: readonly BoqMasterItem[]; lines: SurveyBoqLine[] }) {
+export function BoqTable({ title, master, lines }: { title: string; master: readonly BoqMasterItem[]; lines: SurveyBoqLine[] }) {
   return (
     <div className="flex flex-col gap-1">
       <SubHeading>{title}</SubHeading>

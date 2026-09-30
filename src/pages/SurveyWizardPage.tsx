@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { AlertTriangle, Clock } from 'lucide-react';
@@ -16,7 +16,13 @@ import {
 import type { PendingSurveyPhoto } from '@/lib/surveySubmitQueue';
 import { useNetworkStatus }     from '@/hooks/useNetworkStatus';
 import { useToast }             from '@/components/ui/toast';
-import { saveDraft, loadDraft, deleteDraft } from '@/lib/surveyDraftStore';
+import { saveDraft, loadDraft, deleteDraft, markDraftSynced } from '@/lib/surveyDraftStore';
+import { chooseDraftSource, surveySignature, buildAutosavePayload } from '@/lib/surveyDraftSync';
+import { v4 as uuidv4 } from 'uuid';
+import { useDebouncedRemoteSave } from '@/hooks/useDebouncedRemoteSave';
+import { useFeatureFlags } from '@/hooks/useFeatureFlags';
+import { usePendingPhotos } from '@/hooks/usePendingPhotos';
+import { PHOTO_UPLOADED_EVENT, type PhotoUploadedDetail } from '@/lib/surveyPhotoUploader';
 import { getPhoto, deletePhoto, blobToDataUrl, deletePhotosForWorkOrder } from '@/lib/surveyPhotoStore';
 import { uploadToCloudinary } from '@/utils/uploadToCloudinary';
 import { validateSurvey, getStepStatuses } from '@/lib/surveyValidation';
@@ -160,6 +166,7 @@ export function SurveyWizardPage() {
   const { currentUser } = useAuthStore();
   const { survey, loading, error } = useSurveyReport(workOrderId);
   const { submitSurvey, saveProgress } = useSurveyActions();
+  const featureFlags                   = useFeatureFlags();
   const { enqueue } = useSurveySubmitQueue();
   const isOnline = useNetworkStatus();
   const { showToast } = useToast();
@@ -174,6 +181,12 @@ export function SurveyWizardPage() {
   const [discardConfirm, setDiscardConfirm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showValidationSummary, setShowValidationSummary] = useState(false);
+
+  // Which copy of the draft to open, when the local and server copies have
+  // both moved. Non-null only while the engineer is being asked.
+  const [draftConflict, setDraftConflict] = useState<
+    { local: SurveyReport; remote: SurveyReport; localStep: number } | null
+  >(null);
 
   const initializedRef        = useRef(false);
   const startedTransitionRef  = useRef(false);
@@ -234,13 +247,36 @@ export function SurveyWizardPage() {
       }
       try {
         const draft = await loadDraft(survey.workOrderId);
-        if (draft) {
+
+        // chooseDraftSource GENERALISES the previous behaviour rather than
+        // replacing it: with remote autosave off, lastSyncedAt is never
+        // written, so it returns 'local' whenever a draft exists and 'remote'
+        // otherwise — exactly what this effect did before. The conflict branch
+        // is unreachable until the feature is switched on.
+        const source = chooseDraftSource({
+          localUpdatedAt:    draft?.updatedAt ?? null,
+          localLastSyncedAt: draft?.lastSyncedAt ?? null,
+          localSyncToken:    draft?.lastSyncedToken ?? null,
+          remoteSyncToken:   survey.draftSyncToken ?? null,
+        });
+
+        if (draft && source === 'local') {
           // Normalised, never spread raw: a draft saved before a field existed
           // would otherwise restore that field as undefined and crash the
           // wizard's render body. See normaliseRestoredDraft.
           setSurveyData(normaliseRestoredDraft(survey, draft.data));
           setStepIndex(draft.stepIndex);
           setDraftInfo({ updatedAt: draft.updatedAt });
+        } else if (draft && source === 'conflict') {
+          // Show the server copy and ask. Never auto-merge: this is a
+          // jointly-signed document, and silently combining two divergent
+          // versions of it is worse than asking one question.
+          setSurveyData(survey);
+          setDraftConflict({
+            local:     normaliseRestoredDraft(survey, draft.data),
+            remote:    survey,
+            localStep: draft.stepIndex,
+          });
         } else {
           setSurveyData(survey);
         }
@@ -278,6 +314,79 @@ export function SurveyWizardPage() {
       startedTransitionRef.current = false; // allow a retry
     }
   }
+
+  // ── Debounced REMOTE autosave — makes the work survive the device ─────────
+  //
+  // The local draft below is the crash buffer; this is the slower push that
+  // lets an engineer resume on another device. Behind a kill switch, and OFF
+  // unless an admin turns it on — see AppConfig.surveyRemoteAutosaveEnabled.
+  //
+  // Only the assigned engineer writes. An admin or approver opening a survey
+  // to look at it must never mutate it by observation, which is the same rule
+  // ensureInProgress above is built around.
+  const remoteAutosaveEnabled =
+    featureFlags.surveyRemoteAutosaveEnabled
+    && !!survey
+    && !!currentUser
+    && survey.assignedTo === currentUser.uid
+    && (survey.status === 'open'
+        || survey.status === 'in_progress'
+        || survey.status === 'changes_requested');
+
+  // Derived from the content, so a new edit path added later cannot forget to
+  // mark the survey dirty. useMemo keys it on the survey object, so the walk
+  // runs once per edit rather than once per render.
+  const dataSignature = useMemo(
+    () => (surveyData ? surveySignature(surveyData) : ''),
+    [surveyData],
+  );
+
+  const remoteSave = useDebouncedRemoteSave({
+    enabled:   remoteAutosaveEnabled && localReady && !!surveyData,
+    signature: dataSignature,
+    save: async () => {
+      if (!survey || !surveyData) return;
+      // uuid, not crypto.randomUUID: the latter is undefined outside a secure
+      // context — including a phone reaching the dev server over plain http.
+      const token = uuidv4();
+      await saveProgress(survey.id, {
+        workOrderId:    survey.workOrderId,
+        data:           buildAutosavePayload(surveyData, token),
+        previousStatus: survey.status,
+      });
+      // Written ONLY after a confirmed push — chooseDraftSource treats this
+      // marker as proof the server has this device's work, and setting it
+      // optimistically would let a genuinely newer remote copy be discarded.
+      if (workOrderId) await markDraftSynced(workOrderId, token);
+    },
+  });
+
+  // A step change is a natural checkpoint and worth far more than any timer.
+  const lastFlushedStepRef = useRef(stepIndex);
+  useEffect(() => {
+    if (lastFlushedStepRef.current === stepIndex) return;
+    lastFlushedStepRef.current = stepIndex;
+    remoteSave.flush();
+  }, [stepIndex, remoteSave]);
+
+  // ── Background photo uploads land here while the wizard is open ──
+  // Applied to live state so the in-memory survey (the source of truth while
+  // open) never lags the uploader. Only claimed once the survey has loaded:
+  // claiming earlier would let the uploader treat an unapplied swap as done.
+  // Inert when the uploader switch is off — nothing dispatches the event.
+  useEffect(() => {
+    if (!workOrderId || !localReady) return;
+    const onUploaded = (e: Event) => {
+      const d = (e as CustomEvent<PhotoUploadedDetail>).detail;
+      if (d.workOrderId !== workOrderId) return;
+      setSurveyData((prev) => (prev ? replaceLocalPhotoRef(prev, d.oldRef, d.newRef) : prev));
+      d.handled = true;
+    };
+    window.addEventListener(PHOTO_UPLOADED_EVENT, onUploaded);
+    return () => window.removeEventListener(PHOTO_UPLOADED_EVENT, onUploaded);
+  }, [workOrderId, localReady]);
+
+  const pendingPhotos = usePendingPhotos(workOrderId);
 
   // ── Debounced local draft autosave — every field change and every step change ──
   useEffect(() => {
@@ -472,8 +581,78 @@ export function SurveyWizardPage() {
         )}
       </div>
 
+      {/* ── Two devices diverged ──
+          Shown instead of the draft banner. Never auto-merged: this is a
+          jointly-signed document headed for government vetting, and silently
+          combining two divergent versions of it is far worse than asking one
+          question. Neither copy is destroyed by the choice — picking the
+          server copy leaves the local draft on disk until the next save. */}
+      {draftConflict && (
+        <div className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+          <div>
+            <p className="text-xs font-semibold text-amber-900">
+              This survey was also updated on another device
+            </p>
+            <p className="mt-0.5 text-xs text-amber-800">
+              You have unsaved changes on this device that never reached the server.
+              Choose which version to continue from.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setSurveyData(draftConflict.local);
+                setStepIndex(draftConflict.localStep);
+                setDraftConflict(null);
+              }}
+              className="rounded-md border border-amber-400 bg-white px-3 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100"
+            >
+              Keep this device&apos;s version
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSurveyData(draftConflict.remote);
+                setDraftConflict(null);
+              }}
+              className="rounded-md border border-amber-400 bg-white px-3 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100"
+            >
+              Use the other device&apos;s version
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Photos still only on this device — the signal that it is not yet
+          safe to switch devices. Shown only with the uploader switch on. */}
+      {featureFlags.surveyBackgroundPhotoUploadEnabled && pendingPhotos > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {pendingPhotos} photo{pendingPhotos !== 1 ? 's' : ''} still uploading from this device
+          {!isOnline && ' — waiting for signal'}. Keep this device until it reaches zero.
+        </div>
+      )}
+
+      {/* Remote sync status — only while the feature is on and there is
+          something to say. Silence is the normal state. */}
+      {remoteAutosaveEnabled && (remoteSave.saving || remoteSave.error || (!isOnline && remoteSave.dirty)) && (
+        <div
+          className={`rounded-lg border px-3 py-2 text-xs ${
+            remoteSave.error
+              ? 'border-amber-200 bg-amber-50 text-amber-800'
+              : 'border-blue-200 bg-blue-50 text-brand-blue'
+          }`}
+        >
+          {!isOnline
+            ? 'Offline — saved on this device. Will sync when signal returns.'
+            : remoteSave.error
+              ? 'Saved on this device, but could not sync yet. It will try again on your next change.'
+              : 'Syncing…'}
+        </div>
+      )}
+
       {/* Draft restored banner */}
-      {draftInfo && !discardConfirm && (
+      {draftInfo && !discardConfirm && !draftConflict && (
         <div className="flex items-center justify-between gap-2 rounded-lg bg-blue-50 border border-blue-200 px-3 py-2">
           <span className="text-xs text-brand-blue">
             Draft restored — last saved {formatTime(draftInfo.updatedAt)}

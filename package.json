@@ -19,7 +19,8 @@
     "reseed": "npx ts-node --esm scripts/reseedAll.ts",
     "fix:users": "npx ts-node --esm scripts/fixUsers.ts",
     "init:v3-counters": "npx ts-node --esm scripts/initV3Counters.ts",
-    "migrate:engineer-codes": "npx ts-node --esm scripts/migrateEngineerCodes.ts"
+    "migrate:engineer-codes": "npx ts-node --esm scripts/migrateEngineerCodes.ts",
+    "test:features": "node scripts/runFeatureTests.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -30,6 +31,7 @@
     "@radix-ui/react-slot": "^1.2.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "exceljs": "^4.4.0",
     "firebase": "^10.14.1",
     "idb": "^8.0.3",
     "lucide-react": "^1.8.0",

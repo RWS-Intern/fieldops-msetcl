@@ -1,15 +1,18 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, Paperclip, X } from 'lucide-react';
-import { useAuthStore }     from '@/store/authStore';
-import { useSurveyReport }  from '@/hooks/useSurveyReport';
+// ArrowLeft is imported only by the commented-out back button below; add it
+// back to this list when that button is re-enabled.
+import { AlertTriangle, Paperclip, X } from 'lucide-react';
+import { useAuthStore } from '@/store/authStore';
+import { useSurveyReport } from '@/hooks/useSurveyReport';
 import { useSurveyActions } from '@/hooks/useSurveyActions';
 import { useSurveyUpdates } from '@/hooks/useSurveyUpdates';
-import { useToast }         from '@/components/ui/toast';
-import { Button }           from '@/components/ui/button';
-import { Textarea }         from '@/components/ui/textarea';
-import { Skeleton }         from '@/components/ui/skeleton';
-import { SurveyPreview }    from '@/components/survey/SurveyPreview';
+import { useToast } from '@/components/ui/toast';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Skeleton } from '@/components/ui/skeleton';
+import { SurveyPreview } from '@/components/survey/SurveyPreview';
+import { BoqReviewPanel } from '@/components/survey/BoqReviewPanel';
 import { LegacyVoltageBanner } from '@/components/survey/LegacyVoltageBanner';
 import { uploadToCloudinary } from '@/utils/uploadToCloudinary';
 import { findApprovalStage } from '@/lib/approvalStages';
@@ -21,20 +24,20 @@ import type {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_LABEL: Record<WorkOrderStatus, string> = {
-  open:              'Open',
-  in_progress:       'In Progress',
-  pending_approval:  'Pending Approval',
+  open: 'Open',
+  in_progress: 'In Progress',
+  pending_approval: 'Pending Approval',
   changes_requested: 'Changes Requested',
-  approved:          'Approved',
-  closed:            'Closed',
+  approved: 'Approved',
+  closed: 'Closed',
 };
 
 const ACTION_LABEL: Record<SurveyUpdate['action'], string> = {
-  submit:          'Submitted',
-  approve:         'Approved',
+  submit: 'Submitted',
+  approve: 'Approved',
   request_changes: 'Changes Requested',
-  agree:           'Agreed With Flag',
-  disagree:        'Disagreed With Flag',
+  agree: 'Agreed With Flag',
+  disagree: 'Disagreed With Flag',
 };
 
 // ─── Review actions — rendered on the record page itself AND passed into
@@ -78,18 +81,18 @@ function stageDisplayState(
 }
 
 const STAGE_PILL_CLASS: Record<StageDisplayState, string> = {
-  approved:  'bg-green-50 text-green-700',
-  current:   'bg-brand-blue text-white',
+  approved: 'bg-green-50 text-green-700',
+  current: 'bg-brand-blue text-white',
   sent_back: 'bg-orange-50 text-orange-700',
-  pending:   'bg-gray-100 text-gray-400',
+  pending: 'bg-gray-100 text-gray-400',
 };
 
 function StageIndicator({
   stages, currentStageIndex, docStatus,
 }: {
-  stages:            ApprovalStageResult[];
+  stages: ApprovalStageResult[];
   currentStageIndex: number;
-  docStatus:         WorkOrderStatus;
+  docStatus: WorkOrderStatus;
 }) {
   if (stages.length === 0) return null;
   const complete = currentStageIndex >= stages.length;
@@ -118,9 +121,8 @@ function StageIndicator({
       <p className="text-xs text-gray-500">
         {complete
           ? 'All approval stages cleared.'
-          : `${stages[currentStageIndex]?.stageLabel ?? 'Current stage'} — ${
-              stages[currentStageIndex]?.ownerName ?? 'no owner assigned'
-            }`}
+          : `${stages[currentStageIndex]?.stageLabel ?? 'Current stage'} — ${stages[currentStageIndex]?.ownerName ?? 'no owner assigned'
+          }`}
       </p>
     </div>
   );
@@ -139,12 +141,12 @@ function StageIndicator({
 function AttachmentControl({
   fileName, uploading, error, disabled, onSelect, onClear,
 }: {
-  fileName:  string | null;
+  fileName: string | null;
   uploading: boolean;
-  error:     string | null;
-  disabled:  boolean;
-  onSelect:  (file: File) => void;
-  onClear:   () => void;
+  error: string | null;
+  disabled: boolean;
+  onSelect: (file: File) => void;
+  onClear: () => void;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -250,21 +252,21 @@ function ReviewActions({
   onApprove: (notes: string) => Promise<void>;
   onRequestChanges: (notes: string) => Promise<void>;
 }) {
-  const [pending, setPending]         = useState<PendingReview | null>(null);
+  const [pending, setPending] = useState<PendingReview | null>(null);
   const [reviewNotes, setReviewNotes] = useState('');
-  const [submitting, setSubmitting]   = useState(false);
-  const [error, setError]             = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Backward = an escalation review. The same two code paths are reused
   // (request_changes and approve), but their MEANING is different and the
   // labels must say so: a reviewer agreeing with a flag from above is not
   // "requesting changes" on the survey, and one disagreeing is not
   // "approving" it outright.
-  const isEscalation  = direction === 'backward';
-  const flagLabel     = isEscalation ? 'Agree' : 'Request Changes';
+  const isEscalation = direction === 'backward';
+  const flagLabel = isEscalation ? 'Agree' : 'Request Changes';
   const flagSendLabel = isEscalation ? 'Agree & Pass Down' : 'Send Back';
-  const clearLabel    = isEscalation ? 'Disagree, approve as-is' : 'Approve';
-  const clearBusy     = isEscalation ? 'Sending back up…' : 'Approving…';
+  const clearLabel = isEscalation ? 'Disagree, approve as-is' : 'Approve';
+  const clearBusy = isEscalation ? 'Sending back up…' : 'Approving…';
 
   /**
    * Everything that differs between the two pending states, derived from the
@@ -273,27 +275,27 @@ function ReviewActions({
    */
   const copy = pending === 'flag'
     ? {
-        placeholder: isEscalation
-          ? 'Why do you agree with the objection above?'
-          : 'Describe what the engineer needs to fix or add…',
-        confirm:     flagSendLabel,
-        busy:        'Sending…',
-        emptyError:  isEscalation
-          ? 'Add a note before agreeing.'
-          : 'Add a note before requesting changes.',
-        className:   'bg-[#F97316] hover:bg-[#EA580C]',
-      }
+      placeholder: isEscalation
+        ? 'Why do you agree with the objection above?'
+        : 'Describe what the engineer needs to fix or add…',
+      confirm: flagSendLabel,
+      busy: 'Sending…',
+      emptyError: isEscalation
+        ? 'Add a note before agreeing.'
+        : 'Add a note before requesting changes.',
+      className: 'bg-[#F97316] hover:bg-[#EA580C]',
+    }
     : {
-        placeholder: isEscalation
-          ? 'Why do you disagree with the objection above?'
-          : 'Why is this survey being approved?',
-        confirm:     clearLabel,
-        busy:        clearBusy,
-        emptyError:  isEscalation
-          ? 'Add a note before disagreeing.'
-          : 'Add a note before approving.',
-        className:   '',
-      };
+      placeholder: isEscalation
+        ? 'Why do you disagree with the objection above?'
+        : `Why is this survey being approved?`,
+      confirm: clearLabel,
+      busy: clearBusy,
+      emptyError: isEscalation
+        ? 'Add a note before disagreeing.'
+        : 'Add a note before approving.',
+      className: '',
+    };
 
   function start(next: PendingReview) {
     setPending(next);
@@ -321,7 +323,7 @@ function ReviewActions({
     setSubmitting(true);
     try {
       if (pending === 'flag') await onRequestChanges(notes);
-      else                    await onApprove(notes);
+      else await onApprove(notes);
     } finally {
       setSubmitting(false);
     }
@@ -394,7 +396,7 @@ function HistorySection({ updates, loading, stages }: {
   updates: SurveyUpdate[];
   loading: boolean;
   /** The survey's chain, for resolving each entry's stage label. */
-  stages:  ApprovalStageResult[];
+  stages: ApprovalStageResult[];
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -415,7 +417,7 @@ function HistorySection({ updates, loading, stages }: {
                       'text-xs font-semibold px-2 py-0.5 rounded-full shrink-0',
                       u.action === 'approve' ? 'bg-green-50 text-green-700'
                         : u.action === 'request_changes' ? 'bg-orange-50 text-orange-700'
-                        : 'bg-blue-50 text-brand-blue',
+                          : 'bg-blue-50 text-brand-blue',
                     )}>
                       {ACTION_LABEL[u.action]}
                     </span>
@@ -427,6 +429,7 @@ function HistorySection({ updates, loading, stages }: {
                         {stageLabel}
                       </span>
                     )}
+
                   </div>
                   <span className="text-xs text-gray-400 shrink-0">{u.createdAt.toLocaleString()}</span>
                 </div>
@@ -460,23 +463,24 @@ export function ApproverSurveyReviewPage() {
   const { workOrderId } = useParams<{ workOrderId: string }>();
   const navigate = useNavigate();
   const { currentUser } = useAuthStore();
-  const { survey, loading, error }     = useSurveyReport(workOrderId);
+  const { survey, loading, error } = useSurveyReport(workOrderId);
   const { updates, loading: updatesLoading } = useSurveyUpdates(workOrderId);
-  const { reviewSurvey }               = useSurveyActions();
-  const { showToast, ToastComponent }  = useToast();
+  const { reviewSurvey } = useSurveyActions();
+  const { showToast, ToastComponent } = useToast();
   // Lands on the record page (header, History, actions) rather than the full
   // preview — closing the preview then returns somewhere the user has
   // already seen, instead of straight back out of the page entirely.
-  const [showPreview, setShowPreview]  = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [showBoq, setShowBoq] = useState(false);
 
   // ── Optional stage attachment ────────────────────────────────────────────
   // Held at page level, not inside ReviewActions: that component is mounted
   // twice (record page + preview toolbar) with independent state, and the
   // attachment has to be the same whichever one the reviewer acts from.
-  const [attachmentUrl,  setAttachmentUrl]  = useState<string | null>(null);
+  const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null);
   const [attachmentName, setAttachmentName] = useState<string | null>(null);
-  const [uploading,      setUploading]      = useState(false);
-  const [uploadError,    setUploadError]    = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   async function handleSelectAttachment(file: File) {
     setUploading(true);
@@ -486,7 +490,7 @@ export function ApproverSurveyReviewPage() {
       // Cloudinary's image endpoint rejects non-images outright.
       const { url } = await uploadToCloudinary(file, {
         resourceType: 'auto',
-        taskNum:      survey?.workOrderCode || undefined,
+        taskNum: survey?.workOrderCode || undefined,
       });
       setAttachmentUrl(url);
       setAttachmentName(file.name);
@@ -512,7 +516,7 @@ export function ApproverSurveyReviewPage() {
         // Same code path, different meaning: during an escalation review this
         // button DISAGREES with the flag above rather than approving the
         // survey. reviewSurvey validates the pairing against the direction.
-        decision:    escalating ? 'disagree' : 'approve',
+        decision: escalating ? 'disagree' : 'approve',
         // Now always supplied — ReviewActions will not submit without one.
         // reviewSurvey already stores notes on this branch (`trimmedNotes ||
         // null`), so nothing in the write path changed to accept them.
@@ -521,21 +525,19 @@ export function ApproverSurveyReviewPage() {
         approverUid: survey.approverUid,
         // The LIVE array and index — reviewSurvey replaces only the acting
         // entry. Rebuilding the chain is rejected by firestore.rules.
-        approvalStages:    survey.approvalStages,
+        approvalStages: survey.approvalStages,
         currentStageIndex: survey.currentStageIndex,
-        reviewDirection:   survey.reviewDirection,
+        reviewDirection: survey.reviewDirection,
         attachmentUrl,
       });
       const wasFinal = survey.currentStageIndex >= survey.approvalStages.length - 1;
       showToast(
         escalating
-          ? `Sent back up to ${
-              survey.approvalStages[survey.currentStageIndex + 1]?.ownerName ?? 'the stage above'
-            } to reconsider`
+          ? `Sent back up to ${survey.approvalStages[survey.currentStageIndex + 1]?.ownerName ?? 'the stage above'
+          } to reconsider`
           : wasFinal
-          ? 'Survey fully approved — all stages cleared'
-          : `${survey.approvalStages[survey.currentStageIndex]?.stageLabel ?? 'Stage'} approved — sent to ${
-              survey.approvalStages[survey.currentStageIndex + 1]?.ownerName ?? 'the next approver'
+            ? 'Survey fully approved — all stages cleared'
+            : `${survey.approvalStages[survey.currentStageIndex]?.stageLabel ?? 'Stage'} approved — sent to ${survey.approvalStages[survey.currentStageIndex + 1]?.ownerName ?? 'the next approver'
             }`,
         'success',
       );
@@ -555,13 +557,13 @@ export function ApproverSurveyReviewPage() {
       const escalating = survey.reviewDirection === 'backward';
       const atLevelOne = survey.currentStageIndex === 0;
       await reviewSurvey(survey.id, {
-        decision:    escalating ? 'agree' : 'request_changes',
+        decision: escalating ? 'agree' : 'request_changes',
         reviewNotes: notes,
         workOrderId,
         approverUid: survey.approverUid,
-        approvalStages:    survey.approvalStages,
+        approvalStages: survey.approvalStages,
         currentStageIndex: survey.currentStageIndex,
-        reviewDirection:   survey.reviewDirection,
+        reviewDirection: survey.reviewDirection,
         attachmentUrl,
       });
       // Says where it actually went. Only Level 1 reaches the field; anything
@@ -570,9 +572,8 @@ export function ApproverSurveyReviewPage() {
       showToast(
         atLevelOne
           ? 'Sent back to the engineer — resubmission restarts the chain at Approver Level 1'
-          : `Passed down to ${
-              survey.approvalStages[survey.currentStageIndex - 1]?.ownerName ?? 'the stage below'
-            } to review — the engineer is not notified yet`,
+          : `Passed down to ${survey.approvalStages[survey.currentStageIndex - 1]?.ownerName ?? 'the stage below'
+          } to review — the engineer is not notified yet`,
         'success',
       );
       // Close the preview first — otherwise its full-screen overlay can
@@ -628,7 +629,13 @@ export function ApproverSurveyReviewPage() {
 
   function renderActions() {
     if (canAct) {
-      return <ReviewActions direction={reviewDirection} onApprove={handleApprove} onRequestChanges={handleRequestChanges} />;
+      return (
+        <ReviewActions
+          direction={reviewDirection}
+          onApprove={handleApprove}
+          onRequestChanges={handleRequestChanges}
+        />
+      );
     }
     // A viewer sees the status, never "Not assigned to you" — nothing is ever
     // assigned to them, so that wording would imply an action they could have.
@@ -651,14 +658,14 @@ export function ApproverSurveyReviewPage() {
       {ToastComponent}
 
       <div className="flex items-start gap-2">
-        <Button
+        {/* <Button
           type="button" variant="outline" size="sm"
           onClick={() => navigate(-1)}
           aria-label="Back"
           className="shrink-0"
         >
           <ArrowLeft className="h-4 w-4" />
-        </Button>
+        </Button> */}
         <div className="min-w-0">
           {survey.workOrderCode && (
             <p className="text-xs text-gray-400 font-mono">{survey.workOrderCode}</p>
@@ -710,10 +717,33 @@ export function ApproverSurveyReviewPage() {
         {renderActions()}
       </div>
 
-      {!showPreview && (
-        <Button type="button" onClick={() => setShowPreview(true)}>
-          View Survey
+      {/* Equal halves. Both stay mounted whichever panel is open, so the pair
+          never reflows to a single full-width button. */}
+      <div className="grid grid-cols-2 gap-2">
+        <Button
+          type="button"
+          variant={showBoq ? 'outline' : 'default'}
+          className="w-full"
+          onClick={() => setShowBoq((v) => !v)}
+        >
+          {showBoq ? 'Hide BOQ' : 'View BOQ'}
         </Button>
+        <Button
+          type="button"
+          variant={showPreview ? 'outline' : 'default'}
+          className="w-full"
+          onClick={() => setShowPreview((v) => !v)}
+        >
+          {showPreview ? 'Hide Survey' : 'View Survey'}
+        </Button>
+        {/* The BOQ on its own. It carries the commercial numbers, so a
+            reviewer checking quantities should not have to scroll the whole
+            survey to reach them. */}
+
+      </div>
+
+      {showBoq && (
+        <BoqReviewPanel survey={survey} onClose={() => setShowBoq(false)} />
       )}
 
       <HistorySection updates={updates} loading={updatesLoading} stages={survey.approvalStages} />
@@ -725,7 +755,6 @@ export function ApproverSurveyReviewPage() {
           workOrderCode={survey.workOrderCode}
           readOnly
           onClose={() => setShowPreview(false)}
-          renderActions={renderActions}
         />
       )}
     </div>

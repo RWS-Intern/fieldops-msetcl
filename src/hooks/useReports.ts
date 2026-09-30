@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useUserStore } from '@/store/userStore';
-import type { SiteTask } from '@/types';
+import type { SiteTask, SurveyReport } from '@/types';
 
 // ─── Exported types ───────────────────────────────────────────────────────────
 
@@ -30,32 +30,39 @@ export interface EngineerStat {
  * The caller (ReportsPage) owns the filter logic and passes the result in;
  * this hook just computes the aggregations.
  */
-export function useReports(siteTasks: SiteTask[]) {
+export function useReports(siteTasks: SiteTask[], surveys: SurveyReport[] = []) {
   const { users } = useUserStore();
 
-  // Tasks by status — doughnut chart
-  const byStatus = useMemo((): StatusCount[] => [
-    {
-      name:   'Pending',
-      value:  siteTasks.filter((t) => t.status === 'pending').length,
-      colour: '#9CA3AF',
-    },
-    {
-      name:   'In Progress',
-      value:  siteTasks.filter((t) => t.status === 'in_progress').length,
-      colour: '#F4A261',
-    },
-    {
-      name:   'Completed',
-      value:  siteTasks.filter((t) => t.status === 'completed').length,
-      colour: '#2A9D8F',
-    },
-    {
-      name:   'Blocked',
-      value:  siteTasks.filter((t) => t.status === 'blocked').length,
-      colour: '#E63946',
-    },
-  ], [siteTasks]);
+  /**
+   * Tasks by status — doughnut chart. Counts surveys alongside site tasks,
+   * so its centre total equals the Total tile.
+   *
+   * EVERY status has a segment. Pending Approval and Changes Requested used
+   * to be missing, which meant the centre silently under-reported whenever
+   * anything sat in review — the chart summed four buckets while the tile
+   * counted all six. Adding work in those states (surveys routinely are)
+   * made the gap obvious, but it was wrong for tasks alone too.
+   *
+   * One fixed segment set regardless of the Task Type filter: the labels are
+   * shared wording, so 'open' joins Pending and 'approved'/'closed' join
+   * Completed. Blocked stays task-only — no work order can be blocked.
+   *
+   * Colours match the StatCard accents on ReportsPage, so a segment and its
+   * tile read as the same thing.
+   */
+  const byStatus = useMemo((): StatusCount[] => {
+    const t = (...st: string[]) => siteTasks.filter((x) => st.includes(x.status)).length;
+    const v = (...st: string[]) => surveys.filter((x) => st.includes(x.status)).length;
+
+    return [
+      { name: 'Pending',           value: t('pending') + v('open'),                        colour: '#9CA3AF' },
+      { name: 'In Progress',       value: t('in_progress') + v('in_progress'),             colour: '#F4A261' },
+      { name: 'Pending Approval',  value: t('pending_approval') + v('pending_approval'),   colour: '#8B5CF6' },
+      { name: 'Changes Requested', value: t('changes_requested') + v('changes_requested'), colour: '#F97316' },
+      { name: 'Completed',         value: t('completed') + v('approved', 'closed'),        colour: '#2A9D8F' },
+      { name: 'Blocked',           value: t('blocked'),                                    colour: '#E63946' },
+    ];
+  }, [siteTasks, surveys]);
 
   // Tasks by task label — bar chart
   const byType = useMemo((): TypeCount[] => {
@@ -91,25 +98,60 @@ export function useReports(siteTasks: SiteTask[]) {
       .filter((e) => e.total > 0); // only engineers with at least one task in view
   }, [siteTasks, users]);
 
-  // Summary KPI cards
+  /**
+   * Summary KPI cards — site tasks PLUS surveys.
+   *
+   * A survey is work assigned to a field engineer just as a site task is, so
+   * the headline numbers count both. Matches the My Tasks tiles on
+   * DashboardPage, which fold assigned surveys in for the same reason.
+   *
+   * The charts above stay TASK-ONLY on purpose: "Tasks by Type" is keyed on
+   * taskLabel, which a survey has no equivalent of, and the per-engineer
+   * completion chart compares like with like. Only the tiles are combined.
+   *
+   * Status mapping, mirroring DashboardPage:
+   *   approved | closed  → completed
+   *   in_progress        → in progress
+   *   pending_approval   → pending approval
+   *   changes_requested  → changes requested
+   *   open               → counted in the total only, like a pending task
+   *
+   * Two tiles gain nothing from surveys, and that is a property of the data,
+   * not an oversight: WorkOrderStatus has no blocked state, and a survey
+   * carries no due date, so neither Blocked nor Overdue can move.
+   */
   const summary = useMemo(() => {
-    const now       = new Date();
-    const completed = siteTasks.filter((t) => t.status === 'completed').length;
+    const now = new Date();
+
+    const taskCompleted   = siteTasks.filter((t) => t.status === 'completed').length;
+    const surveyCompleted = surveys.filter(
+      (s) => s.status === 'approved' || s.status === 'closed',
+    ).length;
+
+    const total     = siteTasks.length + surveys.length;
+    const completed = taskCompleted + surveyCompleted;
+
     return {
-      total:             siteTasks.length,
+      total,
       completed,
-      inProgress:        siteTasks.filter((t) => t.status === 'in_progress').length,
-      pendingApproval:   siteTasks.filter((t) => t.status === 'pending_approval').length,
-      changesRequested:  siteTasks.filter((t) => t.status === 'changes_requested').length,
-      blocked:           siteTasks.filter((t) => t.status === 'blocked').length,
-      overdue:        siteTasks.filter(
+      inProgress:
+        siteTasks.filter((t) => t.status === 'in_progress').length +
+        surveys.filter((s) => s.status === 'in_progress').length,
+      pendingApproval:
+        siteTasks.filter((t) => t.status === 'pending_approval').length +
+        surveys.filter((s) => s.status === 'pending_approval').length,
+      changesRequested:
+        siteTasks.filter((t) => t.status === 'changes_requested').length +
+        surveys.filter((s) => s.status === 'changes_requested').length,
+      blocked: siteTasks.filter((t) => t.status === 'blocked').length,
+      overdue: siteTasks.filter(
         (t) => t.status !== 'completed' && t.dueDate != null && t.dueDate < now,
       ).length,
-      completionRate: siteTasks.length > 0
-        ? Math.round((completed / siteTasks.length) * 100)
-        : 0,
+      completionRate: total > 0 ? Math.round((completed / total) * 100) : 0,
+      /** How many of `total` are surveys — lets the UI explain the tiles. */
+      surveyCount: surveys.length,
     };
-  }, [siteTasks]);
+  }, [siteTasks, surveys]);
 
   return { byStatus, byType, byEngineer, summary };
 }
