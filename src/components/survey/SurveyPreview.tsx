@@ -926,10 +926,74 @@ const PRINT_CSS = `
  * preview and a surveyor walking the form are looking at the same document in
  * the same order.
  */
+/**
+ * The Preview's NUMBERED sections, in document order.
+ *
+ * Numbers are derived from this list at render time, never written into the
+ * heading text. They used to be literals, which broke the moment the CRP Relay
+ * section became conditional: a survey with no relays printed 1, 2, 4, 5, …
+ * and a skipped number on a document of record reads as a missing section, not
+ * an absent one.
+ *
+ * `visible` is omitted for a section that always renders. Only the retired
+ * relay section has one today; another conditional section would add its own
+ * predicate here and need no other change.
+ *
+ * The sub-headings that carry no number — Confirmation, Person Info Block,
+ * Signatures — are deliberately absent: they are parts of the section above
+ * them, not numbered sections of the document.
+ */
+type PreviewSectionKey =
+  | 'siteVisit' | 'feeders' | 'relays' | 'capacitorBanks' | 'transformers'
+  | 'infrastructure' | 'acdcDetails' | 'cableRuns' | 'photos' | 'boq' | 'signOff';
+
+interface PreviewSection {
+  key:   PreviewSectionKey;
+  title: string;
+  /** Omitted = always shown. */
+  visible?: (survey: SurveyReport) => boolean;
+}
+
+const PREVIEW_SECTIONS: readonly PreviewSection[] = [
+  { key: 'siteVisit',      title: 'Site & Visit' },
+  { key: 'feeders',        title: 'Feeder List' },
+  { key: 'relays',         title: 'CRP Relay Details', visible: (s) => s.relays.length > 0 },
+  { key: 'capacitorBanks', title: 'Capacitor Bank Details' },
+  { key: 'transformers',   title: 'Transformer Details' },
+  { key: 'infrastructure', title: 'Site Infrastructure & Checklist' },
+  { key: 'acdcDetails',    title: 'ACDB & DCDB Details' },
+  { key: 'cableRuns',      title: 'Cable Runs' },
+  { key: 'photos',         title: 'Site Photographs' },
+  { key: 'boq',            title: 'Bill of Quantity' },
+  { key: 'signOff',        title: 'Sign-Off' },
+];
+
+/**
+ * "N. Title" for each visible section, keyed by section.
+ *
+ * Built as a lookup in one pass rather than by a counter incremented inside
+ * JSX: a mutable render-time counter is order-dependent and would double-count
+ * under strict-mode's double render. This is a pure function of the survey.
+ */
+function sectionHeadings(survey: SurveyReport): Record<PreviewSectionKey, string> {
+  const visible = PREVIEW_SECTIONS.filter((s) => s.visible?.(survey) ?? true);
+  const out = {} as Record<PreviewSectionKey, string>;
+  for (const section of PREVIEW_SECTIONS) {
+    const index = visible.indexOf(section);
+    // A hidden section still gets an entry — an unnumbered one — so a heading
+    // rendered outside its own visibility guard degrades to a plain title
+    // rather than printing "0." or "-1.".
+    out[section.key] = index === -1 ? section.title : `${index + 1}. ${section.title}`;
+  }
+  return out;
+}
+
 export function SurveyPreview({
   survey, siteName, siteMaster, workOrderCode, onChange, workOrderId, readOnly = false, onClose,
   renderActions,
 }: SurveyPreviewProps) {
+  // One pass per render, shared by every heading below.
+  const heading = sectionHeadings(survey);
   const issues = validateSurvey(survey);
   const errorCount = issues.filter((i) => i.severity === 'error').length;
   const canEditSignatures = !!onChange && !!workOrderId && !readOnly;
@@ -986,7 +1050,7 @@ export function SurveyPreview({
 
         {/* 1. Site & Visit */}
         <div className="flex flex-col gap-3">
-          <SectionHeading>1. Site &amp; Visit</SectionHeading>
+          <SectionHeading>{heading.siteVisit}</SectionHeading>
           <div className="grid grid-cols-2 gap-2">
             {/* Site Code is the app's OWN identifier, not part of the MSETCL
                 document — dropped from this summary. The field itself is
@@ -1007,7 +1071,7 @@ export function SurveyPreview({
 
         {/* 2. Feeder List */}
         <div className="flex flex-col gap-2">
-          <SectionHeading>2. Feeder List</SectionHeading>
+          <SectionHeading>{heading.feeders}</SectionHeading>
           {survey.feeders.length === 0 ? (
             <p className="text-xs text-gray-400 italic">No feeders recorded.</p>
           ) : (
@@ -1025,14 +1089,14 @@ export function SurveyPreview({
             the reason the section survives at all. */}
         {survey.relays.length > 0 && (
           <div className="flex flex-col gap-2">
-            <SectionHeading>3. CRP Relay Details</SectionHeading>
+            <SectionHeading>{heading.relays}</SectionHeading>
             {survey.relays.map((relay, i) => <RelayBlock key={relay.uid} relay={relay} index={i} />)}
           </div>
         )}
 
         {/* 4. Capacitor Bank Details */}
         <div className="flex flex-col gap-2">
-          <SectionHeading>4. Capacitor Bank Details</SectionHeading>
+          <SectionHeading>{heading.capacitorBanks}</SectionHeading>
           {survey.capacitorBanks.length === 0 ? (
             <p className="text-xs text-gray-400 italic">No capacitor banks recorded.</p>
           ) : (
@@ -1042,7 +1106,7 @@ export function SurveyPreview({
 
         {/* 5. Transformer Details */}
         <div className="flex flex-col gap-2">
-          <SectionHeading>5. Transformer Details</SectionHeading>
+          <SectionHeading>{heading.transformers}</SectionHeading>
           {survey.transformers.length === 0 ? (
             <p className="text-xs text-gray-400 italic">No transformers recorded.</p>
           ) : (
@@ -1052,26 +1116,29 @@ export function SurveyPreview({
 
         {/* 6. Infrastructure — still the pre-rebuild shape (see note at top of file) */}
         <div className="flex flex-col gap-2">
-          <SectionHeading>6. Site Infrastructure &amp; Checklist</SectionHeading>
+          <SectionHeading>{heading.infrastructure}</SectionHeading>
           <InfrastructureSection infra={survey.infrastructure} checklist={survey.siteChecklist} />
         </div>
 
-        {/* 7. ACDB & DCDB Details — the station's own boards. Distinct from the
-            per-voltage-level DC breaker voltages in section 6 above. */}
+        {/* ACDB & DCDB Details — the station's own boards. Distinct from the
+            per-voltage-level DC breaker voltages in Site Infrastructure &
+            Checklist above (named, not numbered: the numbers are derived now
+            and a hardcoded one here would go stale the same way the headings
+            did). */}
         <div className="flex flex-col gap-2">
-          <SectionHeading>7. ACDB &amp; DCDB Details</SectionHeading>
+          <SectionHeading>{heading.acdcDetails}</SectionHeading>
           <AcdcDetailsSection details={survey.acdcMcbDetails} />
         </div>
 
         {/* 8. Cable Runs */}
         <div className="flex flex-col gap-2">
-          <SectionHeading>8. Cable Runs</SectionHeading>
+          <SectionHeading>{heading.cableRuns}</SectionHeading>
           <CableRunsSection cableRuns={survey.cableRuns} difficultRunsNotes={survey.difficultRunsNotes} />
         </div>
 
         {/* 9. Site Photographs — grouped by slot, in SURVEY_PHOTO_SLOTS order (not array order) */}
         <div className="flex flex-col gap-3">
-          <SectionHeading>9. Site Photographs</SectionHeading>
+          <SectionHeading>{heading.photos}</SectionHeading>
           {SURVEY_PHOTO_SLOTS.map((slot) => {
             const entries = survey.sitePhotos.filter((p) => p.caption === slot);
             const remarked = entries.filter((p) => !!p.remark?.trim());
@@ -1098,7 +1165,7 @@ export function SurveyPreview({
 
         {/* 10. BOQ */}
         <div className="flex flex-col gap-3">
-          <SectionHeading>10. Bill of Quantity</SectionHeading>
+          <SectionHeading>{heading.boq}</SectionHeading>
           <BoqTable title="Supply" master={SUPPLY_BOQ_MASTER} lines={survey.boqSupply} />
         </div>
 
@@ -1118,7 +1185,7 @@ export function SurveyPreview({
 
         {/* 11. Sign-off — unchanged shape */}
         <div className="flex flex-col gap-2">
-          <SectionHeading>11. Sign-Off</SectionHeading>
+          <SectionHeading>{heading.signOff}</SectionHeading>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Surveyor" value={dash(survey.surveyorName)} />
             <Field label="MSETCL Engineer Name" value={dash(survey.signOff.msetclEngineerName)} />
