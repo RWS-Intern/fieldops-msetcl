@@ -36,45 +36,92 @@ interface SignedPdfAttachProps {
  * the local blob path. `uploadToCloudinary` already skips compression for
  * non-images by checking the file's own MIME type.
  */
+/**
+ * Cloudinary's per-file ceiling on this account, MEASURED not assumed: an
+ * 11 MB upload is refused with "File size too large. Got 11534791. Maximum is
+ * 10485760." Checked here so an oversized scan fails instantly with an
+ * actionable message, instead of after a long upload with a 400 whose body the
+ * shared uploader discards.
+ */
+const MAX_BYTES = 10 * 1024 * 1024;
+
+const mb = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
+
+/**
+ * Why this file cannot be attached, or null if it can.
+ *
+ * Accepts on EITHER the extension or the MIME type: `accept` is only a hint to
+ * the picker (a user can switch it to "All files"), and some Android file
+ * managers hand back a PDF with an empty `file.type`, so requiring the MIME
+ * would reject valid scans on exactly the devices this is for.
+ */
+function rejectReason(file: File): string | null {
+  const looksPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
+  if (!looksPdf) {
+    return `“${file.name}” is not a PDF. Attach a PDF, or photograph the signed page instead.`;
+  }
+  if (file.size > MAX_BYTES) {
+    return `“${file.name}” is ${mb(file.size)} MB — the limit is 10 MB. `
+      + 'Re-scan in black and white or at a lower resolution, or photograph the page instead.';
+  }
+  return null;
+}
+
 export function SignedPdfAttach({
   pdfs, onChange, siteCode, readOnly, label,
 }: SignedPdfAttachProps) {
   const isOnline = useNetworkStatus();
   const inputRef = useRef<HTMLInputElement>(null);
+  // Synchronous lock. `uploading` only disables the button after React commits
+  // a render, so two taps in the same tick both get past it — same reasoning as
+  // the Submit control's lock.
+  const busyRef  = useRef(false);
   const [uploading, setUploading] = useState(false);
-  const [error, setError]         = useState<string | null>(null);
+  const [errors, setErrors]       = useState<string[]>([]);
 
   async function handleFiles(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
+    if (busyRef.current) return;
+    busyRef.current = true;
+
     setUploading(true);
-    setError(null);
+    setErrors([]);
 
-    const added: string[] = [];
-    let failures = 0;
+    const added:  string[] = [];
+    const failed: string[] = [];
 
-    for (const file of Array.from(fileList)) {
-      try {
-        // resourceType 'auto', not the 'image' default: it is what lets
-        // Cloudinary classify a non-image upload. Verified against this
-        // account's own unsigned preset — a PDF comes back as an `image`
-        // resource with format `pdf`, which is also what makes the page-1
-        // preview transformation available.
-        const result = await uploadToCloudinary(file, {
-          taskNum:      siteCode,
-          resourceType: 'auto',
-        });
-        added.push(result.url);
-      } catch (err) {
-        console.error('[SignedPdfAttach] upload failed:', err);
-        failures++;
+    try {
+      for (const file of Array.from(fileList)) {
+        // Checked BEFORE the upload: a 10 MB scan over a substation's mobile
+        // signal is a long wait to be told it was never going to work.
+        const reason = rejectReason(file);
+        if (reason) { failed.push(reason); continue; }
+
+        try {
+          // resourceType 'auto', not the 'image' default: it is what lets
+          // Cloudinary classify a non-image upload. Verified against this
+          // account's own unsigned preset — a PDF comes back as an `image`
+          // resource with format `pdf`, which is also what makes the page-1
+          // preview transformation available.
+          const result = await uploadToCloudinary(file, {
+            taskNum:      siteCode,
+            resourceType: 'auto',
+          });
+          added.push(result.url);
+        } catch (err) {
+          console.error('[SignedPdfAttach] upload failed:', err);
+          failed.push(`“${file.name}” didn't upload. Check the connection and try again.`);
+        }
       }
-    }
 
-    if (added.length > 0) onChange([...pdfs, ...added]);
-    if (failures > 0) {
-      setError(`Couldn't upload ${failures} file${failures !== 1 ? 's' : ''}. Check the connection and try again.`);
+      // Only successful uploads are appended, so a failure never leaves a
+      // broken entry behind.
+      if (added.length > 0) onChange([...pdfs, ...added]);
+      setErrors(failed);
+    } finally {
+      setUploading(false);
+      busyRef.current = false;
     }
-    setUploading(false);
   }
 
   return (
@@ -147,7 +194,15 @@ export function SignedPdfAttach({
         </>
       )}
 
-      {error && <p className="text-xs text-brand-red">{error}</p>}
+      {/* One line per rejected file, naming it — a batch where only the third
+          scan was oversized should say which. */}
+      {errors.length > 0 && (
+        <ul className="flex flex-col gap-0.5">
+          {errors.map((msg) => (
+            <li key={msg} className="text-xs text-brand-red">{msg}</li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
