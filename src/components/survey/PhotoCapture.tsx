@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Camera, Check, Image as ImageIcon, Loader2, X } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { compressImage } from '@/utils/imageCompression';
+import { compressImage, ImageCompressionError } from '@/utils/imageCompression';
 import { uploadToCloudinary } from '@/utils/uploadToCloudinary';
 import { savePhoto, getPhoto, deletePhoto } from '@/lib/surveyPhotoStore';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
@@ -127,6 +127,10 @@ export function PhotoCapture({
     setLastError(null);
 
     const added: { ref: string; file: File }[] = [];
+    // The FIRST failure's own message, not a count. "Couldn't add 1 photo. Try
+    // again." was wrong for every real cause — none of them is fixed by
+    // retrying, and the user had no way to tell which had happened.
+    let firstFailure: string | null = null;
     let failures = 0;
 
     // Sequential, not Promise.all: keeps compress+store from fighting over
@@ -139,8 +143,16 @@ export function PhotoCapture({
         await savePhoto(photoId, workOrderId, compressed, compressed.type);
         added.push({ ref: `${LOCAL_PREFIX}${photoId}`, file: compressed });
       } catch (err) {
-        console.error('[PhotoCapture] compress/store failed:', err);
+        // compressImage already logged the file's name/type/size/lastModified
+        // and classified the reason; this keeps the call-site context.
+        console.error('[PhotoCapture] compress/store failed:', file.name, err);
         failures++;
+        if (!firstFailure) {
+          firstFailure = err instanceof ImageCompressionError
+            ? err.message
+            // Not a classification failure — savePhoto (IndexedDB) threw.
+            : `“${file.name}” couldn't be saved on this device. Free up some space and try again.`;
+        }
       }
     }
 
@@ -151,7 +163,12 @@ export function PhotoCapture({
       onChange([...photos, ...added.map((a) => a.ref)]);
     }
     if (failures > 0) {
-      setLastError(`Couldn't add ${failures} photo${failures !== 1 ? 's' : ''}. Try again.`);
+      // The specific reason, plus a count only when more than one failed.
+      setLastError(
+        failures > 1
+          ? `${firstFailure} (${failures - 1} other photo${failures > 2 ? 's' : ''} also failed.)`
+          : firstFailure,
+      );
     }
     setProcessing(false);
 
