@@ -75,6 +75,50 @@ export interface ReviewHistoryEntry {
  * One-time fetches, not a live listener: this is a browsing/paging history
  * tool, the same call the oversight listing makes for the same reason.
  */
+/**
+ * Flattens one survey into at most one entry — the given user's own stage.
+ *
+ * Returns null when they hold no stage on it, or hold one they have not acted
+ * on yet (that survey belongs in Approvals, not history).
+ *
+ * If the same person owns more than one stage on a chain, the LAST acted-on one
+ * wins: that is their most recent decision on this survey.
+ *
+ * Pure and exported so the approver dashboard derives its weekly counts from
+ * the SAME definition of "a review I performed" that the history page lists.
+ * Two copies of this would drift, and the dashboard would quietly disagree with
+ * the page its "View all" link opens.
+ */
+export function toReviewHistoryEntry(
+  survey: SurveyReport,
+  uid: string,
+): ReviewHistoryEntry | null {
+  // A direct loop, not forEach: an assignment inside a callback defeats
+  // TypeScript's control-flow narrowing, leaving `stage` as `never` below.
+  let stage: ApprovalStageResult | null = null;
+  let stageIndex = -1;
+  for (let i = 0; i < survey.approvalStages.length; i++) {
+    const candidate = survey.approvalStages[i];
+    if (candidate.ownerUid === uid && candidate.status !== 'pending') {
+      stage = candidate;
+      stageIndex = i;
+    }
+  }
+  if (!stage) return null;
+  return {
+    surveyId:      survey.id,
+    workOrderId:   survey.workOrderId,
+    workOrderCode: survey.workOrderCode,
+    siteCode:      survey.siteCode,
+    siteName:      survey.siteName,
+    stageLabel:    stage.stageLabel,
+    stageIndex,
+    decision:      stage.status === 'approved' ? 'approved' : 'changes_requested',
+    actedAt:       stage.actedAt,
+    reviewNotes:   stage.reviewNotes,
+  };
+}
+
 export function useMyReviewHistory() {
   const { currentUser } = useAuthStore();
   const uid = currentUser?.uid ?? null;
@@ -95,34 +139,11 @@ export function useMyReviewHistory() {
    * one wins: that's their most recent decision on this survey, which is what
    * a history list should show.
    */
-  const toEntry = useCallback((survey: SurveyReport): ReviewHistoryEntry | null => {
-    if (!uid) return null;
-
-    // A direct loop, not forEach: an assignment inside a callback defeats
-    // TypeScript's control-flow narrowing, leaving `match` as `never` below.
-    let stage: ApprovalStageResult | null = null;
-    let stageIndex = -1;
-    for (let i = 0; i < survey.approvalStages.length; i++) {
-      const candidate = survey.approvalStages[i];
-      if (candidate.ownerUid === uid && candidate.status !== 'pending') {
-        stage = candidate;
-        stageIndex = i;
-      }
-    }
-    if (!stage) return null;
-    return {
-      surveyId:      survey.id,
-      workOrderId:   survey.workOrderId,
-      workOrderCode: survey.workOrderCode,
-      siteCode:      survey.siteCode,
-      siteName:      survey.siteName,
-      stageLabel:    stage.stageLabel,
-      stageIndex,
-      decision:      stage.status === 'approved' ? 'approved' : 'changes_requested',
-      actedAt:       stage.actedAt,
-      reviewNotes:   stage.reviewNotes,
-    };
-  }, [uid]);
+  const toEntry = useCallback(
+    (survey: SurveyReport): ReviewHistoryEntry | null =>
+      (uid ? toReviewHistoryEntry(survey, uid) : null),
+    [uid],
+  );
 
   const fetchPage = useCallback(
     (after: QueryDocumentSnapshot<DocumentData> | null) => {
