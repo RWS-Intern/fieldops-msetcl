@@ -10,7 +10,9 @@ import {
 } from '@/components/ui/select';
 import { VOLTAGE_LEVEL_LABELS, storedVoltageLabel } from '@/lib/surveyLabels';
 import { SURVEY_VOLTAGE_LEVELS } from '@/types';
-import { LegacyVoltageNote, LegacyCombinedMfmNote } from '@/components/survey/LegacyVoltageNote';
+import {
+  LegacyVoltageNote, LegacyCombinedMfmNote, LegacyMfmRs485Note,
+} from '@/components/survey/LegacyVoltageNote';
 import type { SurveyStepProps } from './StepProps';
 import type { SurveyFeederEntry, SurveyVoltageLevel } from '@/types';
 
@@ -27,6 +29,9 @@ function createFeeder(): SurveyFeederEntry {
     // Superseded — seeded null and never written again, so a new feeder can
     // never acquire one. Present only so old entries keep their answer.
     existingMfmAvailableWorking:    null,
+    existingMfmAvailableToIntegrate: null,
+    // Superseded — seeded null and never written again, so a new feeder can
+    // never acquire one. Present only so old entries keep their answer.
     existingMfmRs485Available:      null,
     existingMfmRs485Working:        null,
     mfmModbusCompatible:            null,
@@ -137,13 +142,13 @@ export function StepFeederList({ survey, onChange, readOnly, onReplacePhotoRef }
         />
 
         <TriStateToggle
-          label="Existing MFM available?"
+          label="Existing MFM available? (With RS485)"
           value={feeder.existingMfmAvailable}
           onChange={(v) => update({ existingMfmAvailable: v })}
           readOnly={readOnly}
         />
         <TriStateToggle
-          label="Existing MFM working?"
+          label="Existing MFM working? (With RS485)"
           value={feeder.existingMfmWorking}
           onChange={(v) => update({ existingMfmWorking: v })}
           readOnly={readOnly}
@@ -152,29 +157,29 @@ export function StepFeederList({ survey, onChange, readOnly, onReplacePhotoRef }
             for manual re-entry into the two toggles above, never auto-split:
             a recorded "no" does not say which half it meant. */}
         <LegacyCombinedMfmNote value={feeder.existingMfmAvailableWorking} />
+        {/* The superseded RS485 answers, shown ONLY where a feeder still holds
+            one. The two questions above changed meaning, so this says so rather
+            than leaving the surveyor to notice; it is never converted into
+            them, because "available = Yes, RS485 = No" reads differently under
+            the new wording and only a person can re-decide it. */}
+        <LegacyMfmRs485Note
+          available={feeder.existingMfmRs485Available}
+          working={feeder.existingMfmRs485Working}
+        />
         {/*
-          RS485 is only a meaningful question about an MFM that exists, so the
-          pair gates on "available" rather than the old combined field. Note the
-          answers are NOT cleared when the parent flips back to no/unanswered —
+          Questions about a meter that EXISTS, so they gate on "available".
+          Answers are NOT cleared when the parent flips back to no/unanswered —
           silently discarding a recorded observation would be worse than a
           hidden stale value, and the reviewer sees the parent answer too.
         */}
         {feeder.existingMfmAvailable === true && (
           <>
             <TriStateToggle
-              label="Existing MFM RS485 available?"
-              value={feeder.existingMfmRs485Available}
-              onChange={(v) => update({ existingMfmRs485Available: v })}
+              label="Is existing MFM available to integrate?"
+              value={feeder.existingMfmAvailableToIntegrate}
+              onChange={(v) => update({ existingMfmAvailableToIntegrate: v })}
               readOnly={readOnly}
             />
-            <TriStateToggle
-              label="Existing MFM RS485 working?"
-              value={feeder.existingMfmRs485Working}
-              onChange={(v) => update({ existingMfmRs485Working: v })}
-              readOnly={readOnly}
-            />
-            {/* Also a question about a meter that exists, so it sits inside
-                the same gate as the RS485 pair rather than below it. */}
             <TriStateToggle
               label="Existing MFM MODBUS protocol compatible?"
               value={feeder.mfmModbusCompatible}

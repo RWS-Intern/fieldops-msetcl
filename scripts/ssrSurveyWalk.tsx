@@ -98,7 +98,9 @@ function buildPopulatedSurvey(): SurveyReport {
     panelSpaceAvailable: true,
     existingMfmAvailable: true, existingMfmWorking: false,
     existingMfmAvailableWorking: null,
-    existingMfmRs485Available: true, existingMfmRs485Working: false,
+    // Superseded RS485 pair — null on the CLEAN fixture so it stays unflagged.
+    existingMfmRs485Available: null, existingMfmRs485Working: null,
+    existingMfmAvailableToIntegrate: true,
     mfmModbusCompatible: true,
     frtuSpaceAvailable: true, cat6LengthFrtuToBaySwitchM: 45,
     cmrSpaceAvailable: false, biAiTbSpaceAvailable: true,
@@ -307,6 +309,11 @@ function buildLegacySurvey(): SurveyReport {
   // count towards the re-enter total.
   survey.relays[0].protocol  = 'iec_61850';
   survey.relays[0].ipAddress = '192.168.1.10';
+  // The superseded RS485 pair on one feeder, so the reference path is
+  // exercised. A `false` is included deliberately: these default to null, so a
+  // recorded "No" is a real answer and must surface.
+  survey.feeders[0].existingMfmRs485Available = true;
+  survey.feeders[0].existingMfmRs485Working   = false;
   // The combined MFM answer the two toggles replaced. Left set ALONGSIDE the
   // two new fields being unanswered, which is exactly how a stored document
   // written before the split looks.
@@ -355,6 +362,10 @@ function buildStaleDraftSurvey(): SurveyReport {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const signOff = survey.signOff as any;
   delete signOff.titleBlock;
+  // The new MFM field absent from EVERY feeder entry, exactly as a draft saved
+  // before this change has it.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  survey.feeders.forEach((f) => { delete (f as any).existingMfmAvailableToIntegrate; });
   return survey;
 }
 
@@ -534,9 +545,9 @@ export function runSurveyWalk(): number {
     const reenter   = legacyHits.filter((h) => h.kind !== 'reference');
     const reference = legacyHits.filter((h) => h.kind === 'reference');
     const legacyOk = surveyHasLegacyVoltageData(legacy) === true
-      && legacyHits.length === 38 && reenter.length === 12 && reference.length === 26;
+      && legacyHits.length === 40 && reenter.length === 12 && reference.length === 28;
     console.log(`  ${legacyOk ? 'ok  ' : 'FAIL'} legacy survey: flagged, ${legacyHits.length} hits`
-      + ` — ${reenter.length} to re-enter (expected 12), ${reference.length} reference (expected 26)`);
+      + ` — ${reenter.length} to re-enter (expected 12), ${reference.length} reference (expected 28)`);
     if (!legacyOk) failures++;
     legacyHits.forEach((h) => console.log(
       `         - [${h.kind ?? 're-enter'}] ${h.section}: ${h.label}${h.value ? ` (was ${h.value})` : ''}`));

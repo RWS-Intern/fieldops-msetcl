@@ -172,8 +172,13 @@ function mapFeeder(raw: Record<string, any>): SurveyFeederEntry {
     // back. Deliberately NOT used as a fallback for the two above: a combined
     // answer cannot be split without guessing.
     existingMfmAvailableWorking:    raw['existingMfmAvailableWorking']    ?? null,
+    // Superseded pair — read only, so an old answer can be shown back.
+    // Deliberately NOT used as a fallback for the relabelled questions.
     existingMfmRs485Available:      raw['existingMfmRs485Available']      ?? null,
     existingMfmRs485Working:        raw['existingMfmRs485Working']        ?? null,
+    // `?? null` per entry: a feeder written before this field existed must read
+    // as unanswered, never undefined, or every read site has to guard it.
+    existingMfmAvailableToIntegrate: raw['existingMfmAvailableToIntegrate'] ?? null,
     mfmModbusCompatible:            raw['mfmModbusCompatible']            ?? null,
     frtuSpaceAvailable:             raw['frtuSpaceAvailable']             ?? null,
     cat6LengthFrtuToBaySwitchM:     raw['cat6LengthFrtuToBaySwitchM']     ?? null,

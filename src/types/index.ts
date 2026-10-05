@@ -685,12 +685,29 @@ export interface SurveyFeederEntry {
   existingMfmAvailableWorking: boolean | null;
 
   /**
-   * RS485 port. `existingMfmRs485Available` keeps its exact name AND meaning
-   * from before — the document simply adds a second question beside it, so
-   * this pair is purely additive and needs no migration.
+   * @deprecated Removed from the form — the RS485 questions are not required.
+   *
+   * Dead but deliberately present: both were live, editable inputs, so they may
+   * hold answers on submitted surveys AND on in-progress drafts sitting on
+   * field phones, which are the only copy of those surveys. The factory and
+   * mapper keep their entries so every document and draft round-trips.
+   *
+   * NEVER copied into the relabelled questions above. A feeder recorded as
+   * available = Yes with RS485 = No reads differently now that "available"
+   * means "available WITH RS485"; only a person can re-decide that. Surfaced
+   * as REFERENCE, never re-enter — the old field can no longer be edited, so a
+   * re-enter item could not be cleared even by re-confirming the answer.
    */
   existingMfmRs485Available: boolean | null;
+  /** @deprecated See the note on `existingMfmRs485Available` above. */
   existingMfmRs485Working: boolean | null;
+  /**
+   * "Is existing MFM available to integrate?"
+   *
+   * Informational in this pass: it feeds no BOQ line, no validation rule and
+   * nothing derived. Sits with the other questions about a meter that exists.
+   */
+  existingMfmAvailableToIntegrate: boolean | null;
   /**
    * Whether the existing MFM speaks MODBUS.
    *

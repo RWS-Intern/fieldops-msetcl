@@ -453,15 +453,18 @@ function FeederBlock({ feeder, index }: { feeder: SurveyFeederEntry; index: numb
         <Field label="No. of F-RTU / Remote-IO Modules Required" value={dash(feeder.frtuModulesRequired)} />
       </div>
       <TriField label="Panel space available" value={feeder.panelSpaceAvailable} />
-      <TriField label="Existing MFM available" value={feeder.existingMfmAvailable} />
-      <TriField label="Existing MFM working" value={feeder.existingMfmWorking} />
+      <TriField label="Existing MFM available? (With RS485)" value={feeder.existingMfmAvailable} />
+      <TriField label="Existing MFM working? (With RS485)" value={feeder.existingMfmWorking} />
       {feeder.existingMfmAvailable === true && (
         <>
-          <TriField label="Existing MFM RS485 available" value={feeder.existingMfmRs485Available} />
-          <TriField label="Existing MFM RS485 working" value={feeder.existingMfmRs485Working} />
+          <TriField label="Is existing MFM available to integrate?" value={feeder.existingMfmAvailableToIntegrate} />
           <TriField label="Existing MFM MODBUS protocol compatible" value={feeder.mfmModbusCompatible} />
         </>
       )}
+      {/* Superseded and no longer collected. The two questions above changed
+          meaning, so the old answers are shown rather than dropped. */}
+      <RemovedField label="Existing MFM RS485 available" value={feeder.existingMfmRs485Available} />
+      <RemovedField label="Existing MFM RS485 working" value={feeder.existingMfmRs485Working} />
       {/* The pre-split combined answer, flagged rather than silently dropped,
           so a reviewer can see this feeder still needs re-entering. */}
       {feeder.existingMfmAvailableWorking != null && (

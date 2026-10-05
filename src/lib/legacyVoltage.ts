@@ -17,6 +17,8 @@ import type { StoredVoltageLevel, SurveyReport } from '@/types';
  *   - the Step 6 checklist rows with no equivalent in the document's own five
  *     tables, retired by the same reconciliation;
  *   - the BOQ Confirmation checkboxes, removed outright;
+ *   - the per-feeder RS485 pair, removed when the MFM questions were relabelled
+ *     to mean "with RS485";
  *   - the manual TPT trio on Transformer Details, replaced by a derived count;
  *   - the Install Location and Existing Network Readiness blocks, retained
  *     through the Step 6 reconciliation and then removed when the document
@@ -55,7 +57,7 @@ export interface LegacyVoltageHit {
          | 'Office (Circle / Division)' | 'Relay Protocol / IP'
          | 'Contact Details' | 'Control Room' | 'Site Checklist'
          | 'BOQ confirmation' | 'Install Location' | 'Network Readiness'
-         | 'Transformer TPT';
+         | 'Transformer TPT' | 'MFM RS485';
   /** How that one entry identifies itself, e.g. a bay name. */
   label: string;
   /** The old value as recorded, where there is one worth showing back. */
@@ -252,6 +254,29 @@ export function findLegacyVoltageData(survey: SurveyReport): LegacyVoltageHit[] 
   //
   // Gated on `!= null` — all three default to null in createTransformer, so a
   // stored `false` is a real answer worth showing back.
+  // The RS485 pair the relabelled MFM questions replaced. REFERENCE only: the
+  // fields are gone from the form, so a re-enter item could never be cleared —
+  // not even by a surveyor who re-confirms the same answer.
+  //
+  // Gated on `!= null`, not `=== true`: both default to null in createFeeder,
+  // so a recorded "No" is a real answer and must surface.
+  survey.feeders.forEach((f, i) => {
+    const label = f.bayName?.trim() || `Feeder #${i + 1}`;
+    const pair: [string, boolean | null][] = [
+      ['RS485 available', f.existingMfmRs485Available],
+      ['RS485 working',   f.existingMfmRs485Working],
+    ];
+    for (const [field, value] of pair) {
+      if (value == null) continue;
+      hits.push({
+        kind:    'reference',
+        section: 'MFM RS485',
+        label,
+        value:   `${field}: ${value ? 'Yes' : 'No'}`,
+      });
+    }
+  });
+
   survey.transformers.forEach((t, i) => {
     const label = t.transformerNumber?.trim() || `Transformer #${i + 1}`;
     const retired: [string, string | number | boolean | null][] = [
