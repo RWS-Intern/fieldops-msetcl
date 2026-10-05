@@ -9,7 +9,7 @@ import { formatMetresAsKm } from '@/lib/units';
 import { transformerNeedsNewTpt } from '@/lib/boqDerivation';
 import { isPdfRef, pdfPreviewUrl } from '@/lib/signedDocs';
 import {
-  VOLTAGE_LEVEL_LABELS, ASSET_COUNT_ROWS, ASSET_COUNT_ROW_LABELS,
+  VOLTAGE_LEVEL_LABELS, ASSET_COUNT_ROWS, ASSET_COUNT_ROW_LABELS, sumAnsweredLevels,
   RELAY_TYPE_LABELS, PROTOCOL_LABELS,
   CAPACITOR_CONTROL_TYPE_LABELS, TRAYS_LABELS,
   DC_VOLTAGE_LABELS, MCB_POLE_TYPE_LABELS, BOQ_CHECK_LABELS, storedVoltageLabel,
@@ -292,18 +292,11 @@ function AssetCountsBlock({
   counts: SurveyAssetCounts;
   siteMaster?: { totalBays: number | null; numPowerTransformers: number | null } | null;
 }) {
-  // Sum of the levels actually answered — null until at least one is, so a
-  // half-filled row never flags a misleadingly large discrepancy against the
-  // site master. Same rule as the Site & Visit step's own hint.
-  // Defensive on the record itself — see the note on the step's own copy.
-  const sumAnswered = (record: Record<string, number | null> | undefined | null): number | null => {
-    if (!record) return null;
-    const answered = Object.values(record).filter((n): n is number => n != null);
-    return answered.length > 0 ? answered.reduce((sum, n) => sum + n, 0) : null;
-  };
-
-  const totalBays = sumAnswered(counts.baysByVoltage);
-  const totalTransformers = sumAnswered(counts.transformersByVoltage);
+  // ONE helper for all ten totals — sumAnsweredLevels, shared with the step.
+  // The inline copy that used to live here was a second definition of the same
+  // arithmetic on a document an MSETCL engineer signs.
+  const totalBays = sumAnsweredLevels(counts.baysByVoltage);
+  const totalTransformers = sumAnsweredLevels(counts.transformersByVoltage);
 
   const bayFlag =
     siteMaster?.totalBays != null && totalBays != null && siteMaster.totalBays !== totalBays
@@ -348,9 +341,65 @@ function AssetCountsBlock({
         </div>
       </div>
 
+      {/* A total per asset row, not just bays and transformers. Each is the sum
+          of its ANSWERED levels, so a row nobody filled reads "—" rather than
+          a confident 0. The two site-master comparisons stay where they were. */}
       <div className="mt-1 grid grid-cols-2 gap-2">
-        <Field label="Total Bays (sum of answered levels)" value={dash(totalBays)} flag={bayFlag} />
-        <Field label="Total Transformers (sum of answered levels)" value={dash(totalTransformers)} flag={transformerFlag} />
+        {ASSET_COUNT_ROWS.map((row) => (
+          <Field
+            key={row}
+            label={`Total ${ASSET_COUNT_ROW_LABELS[row]} (sum of answered levels)`}
+            value={dash(sumAnsweredLevels(counts[row]))}
+            flag={row === 'baysByVoltage' ? bayFlag
+              : row === 'transformersByVoltage' ? transformerFlag
+              : null}
+          />
+        ))}
+      </div>
+
+      {/* ── Spare / WIP ─────────────────────────────────────────────────────
+          Not a new numbered section — it belongs to Asset Counts, so the
+          document's section numbering is unchanged. A survey written before
+          this existed has no spareWip at all and shows "—" throughout. */}
+      <div className="mt-2 flex flex-col gap-1">
+        <span className="text-xs font-semibold text-gray-600">Spare / WIP (Work in Progress)</span>
+        <span className="text-[10px] text-gray-400">
+          Assets that are spare or work in progress and not yet installed.
+        </span>
+        <div className="overflow-x-auto">
+          <div className="min-w-[34rem]">
+            <div className={ASSET_GRID_COLS}>
+              <span className="text-[10px] uppercase tracking-wide text-gray-400">Asset</span>
+              {SURVEY_VOLTAGE_LEVELS.map((level) => (
+                <span key={level} className="text-center text-[10px] uppercase tracking-wide text-gray-400">
+                  {VOLTAGE_LEVEL_LABELS[level]}
+                </span>
+              ))}
+            </div>
+            {ASSET_COUNT_ROWS.map((row) => (
+              <div key={row} className={`${ASSET_GRID_COLS} border-b border-gray-100 py-1`}>
+                <span className="text-xs font-medium text-gray-600">{ASSET_COUNT_ROW_LABELS[row]}</span>
+                {SURVEY_VOLTAGE_LEVELS.map((level) => (
+                  <span key={level} className="text-center text-xs text-gray-800">
+                    {dash(counts.spareWip?.[row]?.[level])}
+                  </span>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* The same five totals, with NO site-master comparison: the master
+            describes what is installed, so flagging spares against it would be
+            comparing two different things. */}
+        <div className="mt-1 grid grid-cols-2 gap-2">
+          {ASSET_COUNT_ROWS.map((row) => (
+            <Field
+              key={row}
+              label={`Spare / WIP ${ASSET_COUNT_ROW_LABELS[row]} (sum of answered levels)`}
+              value={dash(sumAnsweredLevels(counts.spareWip?.[row]))}
+            />
+          ))}
+        </div>
       </div>
 
       {/* Answers recorded before this section changed shape — shown so a

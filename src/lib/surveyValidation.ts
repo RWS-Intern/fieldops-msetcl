@@ -441,6 +441,14 @@ function isAssetCountsTouched(counts: SurveyAssetCounts): boolean {
     hasAnyCount(counts.busCouplerBusSectionByVoltage) ||
     hasAnyCount(counts.capacitorBanksByVoltage) ||
     hasAnyCount(counts.transformersByVoltage) ||
+    // Spare / WIP counts as touched on its own: a survey where only spares were
+    // entered is not an untouched step. `?.` throughout — spareWip is absent on
+    // every survey and draft written before it existed.
+    hasAnyCount(counts.spareWip?.baysByVoltage) ||
+    hasAnyCount(counts.spareWip?.busesByVoltage) ||
+    hasAnyCount(counts.spareWip?.busCouplerBusSectionByVoltage) ||
+    hasAnyCount(counts.spareWip?.capacitorBanksByVoltage) ||
+    hasAnyCount(counts.spareWip?.transformersByVoltage) ||
     // The superseded flat totals still count as "touched" — an in-progress
     // survey that answered them has not left this step untouched.
     counts.transformerCount   != null ||

@@ -82,6 +82,12 @@ function buildPopulatedSurvey(): SurveyReport {
   survey.assetCounts.baysByVoltage['33']            = 6;
   survey.assetCounts.busesByVoltage['132']          = 2;
   survey.assetCounts.busCouplerBusSectionByVoltage['132'] = 1;
+  // Spare / WIP — populated so both grids render with real data.
+  survey.assetCounts.spareWip.baysByVoltage['132']                 = 2;
+  survey.assetCounts.spareWip.busesByVoltage['33']                 = 1;
+  survey.assetCounts.spareWip.busCouplerBusSectionByVoltage['132'] = 1;
+  survey.assetCounts.spareWip.capacitorBanksByVoltage['33']        = 3;
+  survey.assetCounts.spareWip.transformersByVoltage['132']         = 1;
   survey.assetCounts.busCouplerBusSectionByVoltage['33']  = 2;
   survey.assetCounts.capacitorBanksByVoltage['33']  = 1;
   survey.assetCounts.transformersByVoltage['132']   = 2;
@@ -333,6 +339,9 @@ function buildStaleDraftSurvey(): SurveyReport {
   const survey = buildPopulatedSurvey();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const counts = survey.assetCounts as any;
+  // The whole Spare / WIP object absent, exactly as every pre-change document
+  // and IndexedDB draft has it.
+  delete counts.spareWip;
   delete counts.busesByVoltage;
   delete counts.capacitorBanksByVoltage;
   delete counts.transformersByVoltage;

@@ -13,6 +13,7 @@ import type {
   SurveyBoqChecks, SurveyContactDetails, SurveyControlRoom, SurveyAssetCounts,
   SurveySignOff,
   SurveySiteChecklist, SurveyAcdcMcbDetails, AcdcMcbBoardDetail, McbSlot,
+  SurveySpareWipCounts,
   SurveyDcVoltage, SurveyVoltageLevel,
   ApprovalStageResult, WorkOrderStatus,
 } from '@/types';
@@ -303,6 +304,27 @@ function mapControlRoom(raw: Record<string, any> | undefined): SurveyControlRoom
  * counts bays per voltage level, and a single legacy total can't be split
  * across levels without inventing a distribution.
  */
+/**
+ * Spare / WIP counts, every row defaulted to a full null-filled record.
+ *
+ * Tolerates the object being absent (every document and draft written before
+ * this existed), present but missing rows, or holding a row that is not an
+ * object at all — mapByVoltage builds from the level list, so it never trusts
+ * the stored keys.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapSpareWip(raw: Record<string, any> | undefined): SurveySpareWipCounts {
+  const level = (key: string) =>
+    mapByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS, raw?.[key]);
+  return {
+    baysByVoltage:                 level('baysByVoltage'),
+    busesByVoltage:                level('busesByVoltage'),
+    busCouplerBusSectionByVoltage: level('busCouplerBusSectionByVoltage'),
+    capacitorBanksByVoltage:       level('capacitorBanksByVoltage'),
+    transformersByVoltage:         level('transformersByVoltage'),
+  };
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapAssetCounts(raw: Record<string, any> | undefined): SurveyAssetCounts {
   return {
@@ -312,6 +334,12 @@ function mapAssetCounts(raw: Record<string, any> | undefined): SurveyAssetCounts
       mapByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS, raw?.['busCouplerBusSectionByVoltage']),
     capacitorBanksByVoltage: mapByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS, raw?.['capacitorBanksByVoltage']),
     transformersByVoltage:   mapByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS, raw?.['transformersByVoltage']),
+    // FIELD BY FIELD, never `raw?.['spareWip'] ?? {...}`: a whole-object
+    // fallback only fires when the object is entirely absent, so a document
+    // holding a PARTIAL spareWip (one row written by a newer build, or a
+    // half-restored draft) would come back with undefined rows. That is the
+    // exact shape that crashed Sign-Off and the asset grid before.
+    spareWip: mapSpareWip(raw?.['spareWip']),
     // Superseded flat totals, still read so an old answer can be shown back.
     transformerCount:   raw?.['transformerCount']   ?? null,
     busCount:           raw?.['busCount']           ?? null,
