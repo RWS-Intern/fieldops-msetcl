@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AlertTriangle } from 'lucide-react';
 import { useAuthStore }              from '@/store/authStore';
 import { useSiteStore }              from '@/store/siteStore';
 import { useAssignedSiteTaskStore }  from '@/store/assignedSiteTaskStore';
@@ -18,7 +19,8 @@ import { SiteTaskDetailDrawer }     from '@/components/siteTasks/SiteTaskDetailD
 import { AdminMap }                  from '@/components/map/AdminMap';
 import { Skeleton }                  from '@/components/ui/skeleton';
 import { cn }                        from '@/lib/utils';
-import type { SiteTask, SurveyReport } from '@/types';
+import type { SiteTask } from '@/types';
+import type { ReviewHistoryEntry } from '@/hooks/useMyReviewHistory';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -186,7 +188,10 @@ function RecentActivity({ tasks, onUpdate }: RecentActivityProps) {
 
 type ReviewedRow =
   | { kind: 'siteTask'; reviewedAt: Date; task: SiteTask }
-  | { kind: 'survey';   reviewedAt: Date; survey: SurveyReport };
+  // A per-STAGE entry, not the survey document: `reviewedBy` names only the
+  // most recent reviewer, so a Level 1 approver's own action would disappear
+  // from this list the moment Level 2 acted on the same survey.
+  | { kind: 'survey';   reviewedAt: Date; survey: ReviewHistoryEntry };
 
 function RecentlyReviewed({ rows, onViewAll }: { rows: ReviewedRow[]; onViewAll: () => void }) {
   return (
@@ -214,8 +219,8 @@ function RecentlyReviewed({ rows, onViewAll }: { rows: ReviewedRow[]; onViewAll:
             const isSurvey    = row.kind === 'survey';
             const siteCode    = isSurvey ? row.survey.siteCode : row.task.siteCode;
             const label       = isSurvey ? 'Survey' : row.task.taskLabel;
-            const isApproved  = isSurvey ? row.survey.status === 'approved' : row.task.status === 'completed';
-            const key         = isSurvey ? `survey-${row.survey.id}` : `task-${row.task.id}`;
+            const isApproved  = isSurvey ? row.survey.decision === 'approved' : row.task.status === 'completed';
+            const key         = isSurvey ? `survey-${row.survey.surveyId}-${row.survey.stageIndex}` : `task-${row.task.id}`;
             return (
               <div
                 key={key}
@@ -343,7 +348,13 @@ export function DashboardPage() {
   const { queue: approvalQueue, loading: approvalQueueLoading }             = useApprovalQueue();
   const { queue: surveyApprovalQueue, loading: surveyApprovalQueueLoading } = useSurveyApprovalQueue();
   const { tasks: reviewedTasks, loading: reviewedLoading }                  = useReviewedSiteTasks();
-  const { surveys: reviewedSurveys, loading: reviewedSurveysLoading }      = useReviewedSurveys();
+  const {
+    entries: reviewedSurveyStages,
+    approvedThisWeek: surveysApprovedThisWeek,
+    sentBackThisWeek: surveysSentBackThisWeek,
+    loading: reviewedSurveysLoading,
+    error:   reviewedSurveysError,
+  } = useReviewedSurveys();
   const approverLoading =
     approvalQueueLoading || surveyApprovalQueueLoading || reviewedLoading || reviewedSurveysLoading;
 
@@ -353,32 +364,32 @@ export function DashboardPage() {
     const reviewedTasksThisWeek = reviewedTasks.filter(
       (t) => t.reviewedAt != null && t.reviewedAt >= sevenDaysAgo,
     );
-    const reviewedSurveysThisWeek = reviewedSurveys.filter(
-      (s) => s.reviewedAt != null && s.reviewedAt >= sevenDaysAgo,
-    );
+    // The survey halves arrive already windowed and split by the hook, which
+    // owns the 7-day boundary for its own paging. Site tasks are filtered here
+    // exactly as before.
     return {
       pendingMyApproval: approvalQueue.length + surveyApprovalQueue.length,
       approvedThisWeek:
         reviewedTasksThisWeek.filter((t) => t.status === 'completed').length +
-        reviewedSurveysThisWeek.filter((s) => s.status === 'approved').length,
+        surveysApprovedThisWeek,
       sentBackThisWeek:
         reviewedTasksThisWeek.filter((t) => t.status === 'changes_requested').length +
-        reviewedSurveysThisWeek.filter((s) => s.status === 'changes_requested').length,
+        surveysSentBackThisWeek,
     };
-  }, [approvalQueue, surveyApprovalQueue, reviewedTasks, reviewedSurveys]);
+  }, [approvalQueue, surveyApprovalQueue, reviewedTasks, surveysApprovedThisWeek, surveysSentBackThisWeek]);
 
   const recentlyReviewed = useMemo((): ReviewedRow[] =>
     [
       ...reviewedTasks
         .filter((t) => t.reviewedAt != null)
         .map((task): ReviewedRow => ({ kind: 'siteTask', reviewedAt: task.reviewedAt!, task })),
-      ...reviewedSurveys
-        .filter((s) => s.reviewedAt != null)
-        .map((survey): ReviewedRow => ({ kind: 'survey', reviewedAt: survey.reviewedAt!, survey })),
+      ...reviewedSurveyStages
+        .filter((e) => e.actedAt != null)
+        .map((entry): ReviewedRow => ({ kind: 'survey', reviewedAt: entry.actedAt!, survey: entry })),
     ]
       .sort((a, b) => b.reviewedAt.getTime() - a.reviewedAt.getTime())
       .slice(0, 5),
-    [reviewedTasks, reviewedSurveys]
+    [reviewedTasks, reviewedSurveyStages]
   );
 
   // ── Drawer state ────────────────────────────────────────────────────────────
@@ -536,6 +547,19 @@ export function DashboardPage() {
                 colour="#F97316"
                 onClick={() => navigate('/approvals')}
               />
+            </div>
+          )}
+
+          {/* Never let a failed read look like a quiet week: the counters above
+              and the list below both exclude surveys when this errors, so say
+              so rather than presenting an understated number as fact. */}
+          {reviewedSurveysError && !approverLoading && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+              <p className="text-xs text-amber-800">
+                Your survey reviews could not be loaded, so the counts above and the list below
+                cover site tasks only. Reload to try again.
+              </p>
             </div>
           )}
 

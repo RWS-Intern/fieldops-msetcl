@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Camera, Check, Loader2, X } from 'lucide-react';
+import { Camera, Check, Image as ImageIcon, Loader2, X } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import { compressImage } from '@/utils/imageCompression';
+import { compressImage, ImageCompressionError } from '@/utils/imageCompression';
 import { uploadToCloudinary } from '@/utils/uploadToCloudinary';
 import { savePhoto, getPhoto, deletePhoto } from '@/lib/surveyPhotoStore';
 import { claimPhoto, releasePhoto } from '@/lib/surveyPhotoUploader';
@@ -44,7 +44,10 @@ export function PhotoCapture({
   photos, onChange, onReplacePhotoRef, workOrderId, siteCode, readOnly, label,
 }: PhotoCaptureProps) {
   const isOnline = useNetworkStatus();
-  const inputRef = useRef<HTMLInputElement>(null);
+  // Two inputs: the camera one keeps `capture`, the gallery one must NOT
+  // have it — that attribute is precisely what suppresses the chooser.
+  const cameraInputRef  = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
   const [processing, setProcessing]       = useState(false);
   const [uploadingIds, setUploadingIds]   = useState<Set<string>>(new Set());
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
@@ -129,6 +132,10 @@ export function PhotoCapture({
     setLastError(null);
 
     const added: { ref: string; file: File }[] = [];
+    // The FIRST failure's own message, not a count. "Couldn't add 1 photo. Try
+    // again." was wrong for every real cause — none of them is fixed by
+    // retrying, and the user had no way to tell which had happened.
+    let firstFailure: string | null = null;
     let failures = 0;
 
     // Sequential, not Promise.all: keeps compress+store from fighting over
@@ -141,8 +148,16 @@ export function PhotoCapture({
         await savePhoto(photoId, workOrderId, compressed, compressed.type);
         added.push({ ref: `${LOCAL_PREFIX}${photoId}`, file: compressed });
       } catch (err) {
-        console.error('[PhotoCapture] compress/store failed:', err);
+        // compressImage already logged the file's name/type/size/lastModified
+        // and classified the reason; this keeps the call-site context.
+        console.error('[PhotoCapture] compress/store failed:', file.name, err);
         failures++;
+        if (!firstFailure) {
+          firstFailure = err instanceof ImageCompressionError
+            ? err.message
+            // Not a classification failure — savePhoto (IndexedDB) threw.
+            : `“${file.name}” couldn't be saved on this device. Free up some space and try again.`;
+        }
       }
     }
 
@@ -153,7 +168,12 @@ export function PhotoCapture({
       onChange([...photos, ...added.map((a) => a.ref)]);
     }
     if (failures > 0) {
-      setLastError(`Couldn't add ${failures} photo${failures !== 1 ? 's' : ''}. Try again.`);
+      // The specific reason, plus a count only when more than one failed.
+      setLastError(
+        failures > 1
+          ? `${firstFailure} (${failures - 1} other photo${failures > 2 ? 's' : ''} also failed.)`
+          : firstFailure,
+      );
     }
     setProcessing(false);
 
@@ -238,34 +258,85 @@ export function PhotoCapture({
           );
         })}
 
+        {/*
+          TWO tiles, not one button behind a menu.
+
+          `capture="environment"` on the single old input is what made phones
+          skip the chooser and open the camera app directly — there was no way
+          to reach the gallery at all. The obvious fix is a popover offering
+          both, but a Radix menu UNMOUNTS its children when it closes, and an
+          input unmounted before its change event fires drops the photo
+          silently. Two always-visible tiles avoid that entirely, and cost one
+          tap instead of two.
+
+          Each tile is 80px square, comfortably over the 44px minimum.
+        */}
         {!readOnly && (
-          <button
-            type="button"
-            disabled={processing}
-            onClick={() => inputRef.current?.click()}
-            className="h-20 w-20 rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center gap-1 text-gray-400 hover:border-brand-blue hover:text-brand-blue transition-colors shrink-0 disabled:opacity-50"
-          >
-            <Camera className="h-5 w-5" />
-            <span className="text-[10px]">{processing ? 'Saving…' : 'Add photo'}</span>
-          </button>
+          <>
+            <button
+              type="button"
+              disabled={processing}
+              // Synchronous click inside the tap handler — iOS Safari refuses
+              // to open a file picker from anything deferred.
+              onClick={() => cameraInputRef.current?.click()}
+              className="h-20 w-20 rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center gap-1 text-gray-400 hover:border-brand-blue hover:text-brand-blue transition-colors shrink-0 disabled:opacity-50"
+            >
+              <Camera className="h-5 w-5" />
+              <span className="text-[10px] leading-tight text-center">
+                {processing ? 'Saving…' : 'Take photo'}
+              </span>
+            </button>
+            <button
+              type="button"
+              disabled={processing}
+              onClick={() => galleryInputRef.current?.click()}
+              className="h-20 w-20 rounded-lg border-2 border-dashed border-gray-300 flex flex-col items-center justify-center gap-1 text-gray-400 hover:border-brand-blue hover:text-brand-blue transition-colors shrink-0 disabled:opacity-50"
+            >
+              <ImageIcon className="h-5 w-5" />
+              <span className="text-[10px] leading-tight text-center">
+                {processing ? 'Saving…' : 'Gallery'}
+              </span>
+            </button>
+          </>
         )}
       </div>
 
       {lastError && <p className="text-xs text-brand-red">{lastError}</p>}
 
+      {/*
+        Both inputs live here at the component root — never inside a popover,
+        sheet or conditional that a selection could unmount mid-event. They feed
+        the SAME handler, so compression, the blob store, the local:// reference
+        and the upload queue are identical for a gallery pick and a camera shot;
+        nothing about what gets stored changes.
+
+        One file per pick: `multiple` is deliberately absent. handleFilesSelected
+        already loops a FileList, so restoring it later is a one-word change.
+      */}
       {!readOnly && (
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            void handleFilesSelected(e.target.files);
-            e.target.value = '';
-          }}
-        />
+        <>
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => {
+              void handleFilesSelected(e.target.files);
+              e.target.value = '';
+            }}
+          />
+          <input
+            ref={galleryInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              void handleFilesSelected(e.target.files);
+              e.target.value = '';
+            }}
+          />
+        </>
       )}
     </div>
   );

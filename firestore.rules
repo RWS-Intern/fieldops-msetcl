@@ -550,6 +550,26 @@ service cloud.firestore {
                     // comparison is trivially satisfied.
                     || (isAuthenticated() && !isViewer()
                         && resource.data.assignedTo == request.auth.uid
+                        // The CURRENT status, not just the incoming one. Without
+                        // it the branch says nothing about the state being
+                        // written FROM, so a stale submit — an offline queue
+                        // item drained late, an old cached bundle, a direct API
+                        // call — could rewind a review already under way, or
+                        // edit answers on an approved survey. isChainRestart
+                        // cannot catch either: it compares approvalStages
+                        // byte-for-byte and submitSurvey copies that array
+                        // verbatim from the live document, and a content-only
+                        // edit touches no chain field at all.
+                        //
+                        // Placed here, ahead of every other test, so a denied
+                        // write costs one scalar comparison instead of the map
+                        // equality inside isValidEngineerChainWrite — the
+                        // expression budget on this file is tight.
+                        //
+                        // 'open' belongs in the set: an offline submission is
+                        // queued while the survey is still 'open' and drains
+                        // from that state later.
+                        && resource.data.status in ['open', 'in_progress', 'changes_requested']
                         && request.resource.data.status in ['in_progress', 'pending_approval']
                         && request.resource.data.assignedTo  == resource.data.assignedTo
                         && isValidEngineerChainWrite(resource.data, request.resource.data))
@@ -610,6 +630,26 @@ service cloud.firestore {
                     // reasoning, including why .get(field, default) is used).
                     || (isAuthenticated() && !isViewer()
                         && resource.data.assignedTo == request.auth.uid
+                        // The CURRENT status, not just the incoming one. Without
+                        // it the branch says nothing about the state being
+                        // written FROM, so a stale submit — an offline queue
+                        // item drained late, an old cached bundle, a direct API
+                        // call — could rewind a review already under way, or
+                        // edit answers on an approved survey. isChainRestart
+                        // cannot catch either: it compares approvalStages
+                        // byte-for-byte and submitSurvey copies that array
+                        // verbatim from the live document, and a content-only
+                        // edit touches no chain field at all.
+                        //
+                        // Placed here, ahead of every other test, so a denied
+                        // write costs one scalar comparison instead of the map
+                        // equality inside isValidEngineerChainWrite — the
+                        // expression budget on this file is tight.
+                        //
+                        // 'open' belongs in the set: an offline submission is
+                        // queued while the survey is still 'open' and drains
+                        // from that state later.
+                        && resource.data.status in ['open', 'in_progress', 'changes_requested']
                         && request.resource.data.status in ['in_progress', 'pending_approval']
                         && request.resource.data.assignedTo  == resource.data.assignedTo
                         && isValidEngineerChainWrite(resource.data, request.resource.data))
