@@ -43,17 +43,48 @@ const STEP = {
 /**
  * Section I's seven named photo slots — stored in sitePhotos[] keyed by
  * caption (see StepPhotos.tsx). Exported so the UI and this validator never
- * drift on the exact slot names; slot 0 is the required one.
+ * drift on the exact slot names.
+ *
+ * Slot 2 WAS 'Each relay / control panel'. It is now 'Proposed RTU Location',
+ * a DIFFERENT caption rather than a reworded one: reusing the old string would
+ * have silently relabelled every relay photo already in the field as an RTU
+ * location, and satisfied the new mandatory rule with a photograph of
+ * something else entirely. Photos stored under the old caption now match no
+ * slot and surface under "Earlier photos (no longer requested)" — see
+ * `isRetiredPhoto` below.
  */
 export const SURVEY_PHOTO_SLOTS = [
   'Substation nameplate / entrance',
   'Existing SLD (photo)',
-  'Each relay / control panel',
+  'Proposed RTU Location',
   'Existing MFM / GPS / RTU (if any)',
   'Panel space earmarked for new equipment',
   'Any site-specific constraint',
   'Marked-up SLD / architecture prepared for this site',
 ] as const;
+
+/**
+ * The slots Submit will not pass without. Declarative rather than positional:
+ * "required" used to mean `SURVEY_PHOTO_SLOTS[0]` here and `i === 0` in the
+ * step, two separate pieces of index arithmetic that had to be kept in step by
+ * hand. With two mandatory slots that was one edit away from the asterisk and
+ * the rule disagreeing.
+ */
+export const REQUIRED_SURVEY_PHOTO_SLOTS: readonly string[] = [
+  SURVEY_PHOTO_SLOTS[0],
+  SURVEY_PHOTO_SLOTS[2],
+];
+
+/**
+ * True for a stored photo whose caption matches no current slot — one taken
+ * against a slot that has since been retired or reworded. Such photos are
+ * never dropped: they stay in sitePhotos[], are submitted, count toward the
+ * photo tally, and render read-only under "Earlier photos (no longer
+ * requested)" in both the step and the preview.
+ */
+export function isRetiredPhoto(photo: { caption: string }): boolean {
+  return !(SURVEY_PHOTO_SLOTS as readonly string[]).includes(photo.caption);
+}
 
 export interface SurveyValidationIssue {
   stepIndex: number;
@@ -225,10 +256,14 @@ function validatePhotos(survey: SurveyReport): SurveyValidationIssue[] {
     issues.push(issue(STEP.photos, 'At least one photo is required.'));
   }
 
-  const hasNameplatePhoto = survey.sitePhotos.some((p) => p.caption === SURVEY_PHOTO_SLOTS[0]);
-  if (!hasNameplatePhoto) {
-    issues.push(issue(STEP.photos, `"${SURVEY_PHOTO_SLOTS[0]}" photo is required.`));
-  }
+  // Matched on the CURRENT caption only. A photo stored under a retired
+  // caption counts toward the tally above but can never satisfy a slot — it
+  // was taken of a different subject, under a different instruction.
+  REQUIRED_SURVEY_PHOTO_SLOTS.forEach((slot) => {
+    if (!survey.sitePhotos.some((p) => p.caption === slot)) {
+      issues.push(issue(STEP.photos, `"${slot}" photo is required.`));
+    }
+  });
 
   // The marked-up SLD cross-check went with the Confirmation checkbox it read.
   // Keeping it would have left an old survey that ticked the box raising an

@@ -208,6 +208,12 @@ function buildPopulatedSurvey(): SurveyReport {
     url: 'https://example.test/b.jpg', caption: 'Existing SLD (photo)',
     remark: null,
   });
+  // The second mandatory slot. Without this the clean fixture cannot reach
+  // Submit, which is the whole point of it being clean.
+  survey.sitePhotos.push({
+    url: 'https://example.test/rtu.jpg', caption: 'Proposed RTU Location',
+    remark: 'North wall of control room, beside the existing panel.',
+  });
   // Drawing title block — Prepared By filled in, plus a real document number,
   // so the table renders with data rather than as an empty grid.
   survey.signOff.titleBlock.preparedByDate        = new Date('2026-09-20');
@@ -329,6 +335,14 @@ function buildLegacySurvey(): SurveyReport {
     { poleType: null, ratingA: null },
     { poleType: 'double', ratingA: '10 A' },
   ];
+  // A photograph taken against the retired relay/control-panel slot. Its
+  // caption matches nothing in SURVEY_PHOTO_SLOTS now, so it must surface
+  // under "Earlier photos (no longer requested)" in the step AND the preview
+  // — and must NOT satisfy the mandatory RTU slot.
+  survey.sitePhotos.push({
+    url: 'https://example.test/relay-old.jpg', caption: 'Each relay / control panel',
+    remark: 'Panel 3, overcurrent relay.',
+  });
   return survey;
 }
 
@@ -366,6 +380,9 @@ function buildStaleDraftSurvey(): SurveyReport {
   // before this change has it.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   survey.feeders.forEach((f) => { delete (f as any).existingMfmAvailableToIntegrate; });
+  // A draft saved before the RTU slot existed has no photo under that caption
+  // — nothing to delete a key from, the entry simply is not there.
+  survey.sitePhotos = survey.sitePhotos.filter((p) => p.caption !== 'Proposed RTU Location');
   return survey;
 }
 

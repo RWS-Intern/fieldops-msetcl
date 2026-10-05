@@ -4,7 +4,7 @@ import { AlertTriangle, FileText, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { SUPPLY_BOQ_MASTER } from '@/lib/boqMaster';
-import { SURVEY_PHOTO_SLOTS, validateSurvey } from '@/lib/surveyValidation';
+import { SURVEY_PHOTO_SLOTS, isRetiredPhoto, validateSurvey } from '@/lib/surveyValidation';
 import { formatMetresAsKm } from '@/lib/units';
 import { transformerNeedsNewTpt } from '@/lib/boqDerivation';
 import { isPdfRef, pdfPreviewUrl } from '@/lib/signedDocs';
@@ -1046,6 +1046,9 @@ export function SurveyPreview({
 }: SurveyPreviewProps) {
   // One pass per render, shared by every heading below.
   const heading = sectionHeadings(survey);
+  // Photos whose caption matches no current slot — the slot-keyed render
+  // below would otherwise skip them entirely.
+  const retiredPhotos = survey.sitePhotos.filter(isRetiredPhoto);
   const issues = validateSurvey(survey);
   const errorCount = issues.filter((i) => i.severity === 'error').length;
   const canEditSignatures = !!onChange && !!workOrderId && !readOnly;
@@ -1213,6 +1216,29 @@ export function SurveyPreview({
               </div>
             );
           })}
+
+          {/* Photographs stored against a slot that no longer exists. Grouped
+              last and labelled, rather than dropped: the slot-keyed filter
+              above matches on caption, so without this block an older
+              survey's photos would silently disappear from the record a
+              reviewer signs. */}
+          {retiredPhotos.length > 0 && (
+            <div className="flex flex-col gap-1 break-inside-avoid">
+              <span className="text-xs font-medium text-gray-500">
+                Earlier photos (no longer requested)
+              </span>
+              <PhotoGrid refs={retiredPhotos.map((p) => p.url)} />
+              <ul className="mt-0.5 flex flex-col gap-0.5">
+                {retiredPhotos.map((p, i) => (
+                  <li key={p.url} className="text-xs text-gray-500">
+                    <span className="text-gray-400">Photo {i + 1}:</span>{' '}
+                    {p.caption || 'No label'}
+                    {!!p.remark?.trim() && <span className="italic"> — {p.remark}</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         {/* 10. BOQ */}

@@ -1,4 +1,6 @@
-import { SURVEY_PHOTO_SLOTS } from '@/lib/surveyValidation';
+import {
+  SURVEY_PHOTO_SLOTS, REQUIRED_SURVEY_PHOTO_SLOTS, isRetiredPhoto,
+} from '@/lib/surveyValidation';
 import { PhotoCapture } from '@/components/survey/PhotoCapture';
 import { SurveyPhotoThumb } from '@/components/survey/SurveyPhotoThumb';
 import { Input } from '@/components/ui/input';
@@ -46,6 +48,8 @@ function withPhotoRemark(
  * widening it would push an unused field into both.
  */
 export function StepPhotos({ survey, onChange, readOnly, onReplacePhotoRef }: SurveyStepProps) {
+  const retired = survey.sitePhotos.filter(isRetiredPhoto);
+
   return (
     <div className="flex flex-col gap-4">
       <h3 className="text-base font-semibold text-gray-900">Site Photographs</h3>
@@ -61,7 +65,9 @@ export function StepPhotos({ survey, onChange, readOnly, onReplacePhotoRef }: Su
               </span>
               <span className="text-sm font-medium text-gray-700">
                 {slot}
-                {i === 0 && <span className="text-brand-red"> *</span>}
+                {REQUIRED_SURVEY_PHOTO_SLOTS.includes(slot) && (
+                  <span className="text-brand-red"> *</span>
+                )}
               </span>
             </div>
             <PhotoCapture
@@ -99,6 +105,35 @@ export function StepPhotos({ survey, onChange, readOnly, onReplacePhotoRef }: Su
           </div>
         );
       })}
+
+      {/* Photographs taken against a slot that no longer exists — shown
+          read-only so the field expert can see nothing was lost, and so a
+          reviewer still sees the evidence. They stay in sitePhotos[] and are
+          submitted with the survey; there is deliberately no way to re-caption
+          or delete them here, because either would be an edit to a record of
+          what was photographed on an earlier visit. */}
+      {retired.length > 0 && (
+        <div className="flex flex-col gap-2 p-3 rounded-lg border border-gray-200 bg-gray-50">
+          <span className="text-sm font-medium text-gray-600">
+            Earlier photos (no longer requested)
+          </span>
+          <div className="flex flex-col gap-2">
+            {retired.map((photo) => (
+              <div key={photo.url} className="flex items-start gap-2">
+                <div className="h-12 w-12 shrink-0 overflow-hidden rounded border border-gray-200">
+                  <SurveyPhotoThumb reference={photo.url} className="h-full w-full" />
+                </div>
+                <div className="min-w-0 flex flex-col gap-0.5 pt-0.5">
+                  <span className="text-xs text-gray-500">{photo.caption || 'No label'}</span>
+                  {!!photo.remark?.trim() && (
+                    <span className="text-xs italic text-gray-400">{photo.remark}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
