@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
-import { AlertTriangle, Clock } from 'lucide-react';
+import { AlertTriangle, Clock, X } from 'lucide-react';
 import { db } from '@/firebase/config';
 import { useAuthStore }         from '@/store/authStore';
 import { useSurveyReport, normaliseRestoredDraft } from '@/hooks/useSurveyReport';
@@ -171,6 +171,13 @@ export function SurveyWizardPage() {
   const [stepIndex, setStepIndex]   = useState(0);
   const [localReady, setLocalReady] = useState(false);
   const [draftInfo, setDraftInfo]   = useState<{ updatedAt: number } | null>(null);
+  /**
+   * True once the restore pass has looked and found nothing on this device.
+   * Distinct from `draftInfo === null`, which is also the state before the
+   * lookup has run — and the notice must not flash during load.
+   */
+  const [noDraftFound, setNoDraftFound] = useState(false);
+  const [noDraftNoticeDismissed, setNoDraftNoticeDismissed] = useState(false);
   const [discardConfirm, setDiscardConfirm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showValidationSummary, setShowValidationSummary] = useState(false);
@@ -245,10 +252,15 @@ export function SurveyWizardPage() {
           setDraftInfo({ updatedAt: draft.updatedAt });
         } else {
           setSurveyData(survey);
+          setNoDraftFound(true);
         }
       } catch (err) {
         console.error('[SurveyWizardPage] draft load failed:', err);
         setSurveyData(survey);
+        // A failed lookup is indistinguishable from an absent draft as far as
+        // the engineer is concerned: either way this device has nothing to
+        // continue from, and saying so is what matters.
+        setNoDraftFound(true);
       }
       setLocalReady(true);
     })();
@@ -280,6 +292,34 @@ export function SurveyWizardPage() {
       startedTransitionRef.current = false; // allow a retry
     }
   }
+
+  /**
+   * Ask the browser to keep this origin's storage.
+   *
+   * An in-progress survey exists ONLY in IndexedDB until Submit, and without
+   * this the browser may evict it under storage pressure — which loses 30-45
+   * minutes of field work with no server copy to fall back on. Best-effort by
+   * design: Chrome may grant it silently, Safari may decline, and a refusal is
+   * not an error worth showing anyone. Logged so a future loss report can be
+   * checked against whether storage was actually persisted.
+   */
+  const persistAskedRef = useRef(false);
+  useEffect(() => {
+    if (persistAskedRef.current) return;
+    if (!survey || !currentUser || survey.assignedTo !== currentUser.uid) return;
+    if (!navigator.storage?.persist) return;
+    persistAskedRef.current = true;
+
+    void (async () => {
+      try {
+        const persisted = await navigator.storage.persist();
+        const estimate  = await navigator.storage.estimate?.();
+        console.info('[SurveyWizardPage] storage persisted:', persisted, estimate ?? '(no estimate)');
+      } catch (err) {
+        console.warn('[SurveyWizardPage] storage.persist() failed:', err);
+      }
+    })();
+  }, [survey, currentUser]);
 
   // ── Debounced local draft autosave — every field change and every step change ──
   useEffect(() => {
@@ -317,7 +357,7 @@ export function SurveyWizardPage() {
     setStepIndex(0);
     setDraftInfo(null);
     setDiscardConfirm(false);
-    showToast('Draft discarded — reverted to last saved version', 'success');
+    showToast('Local changes discarded — showing the last submitted version', 'success');
   }
 
   async function handleSubmit() {
@@ -451,6 +491,38 @@ export function SurveyWizardPage() {
   }
 
   const isReadOnly = survey.status === 'pending_approval' || survey.status === 'approved';
+
+  /**
+   * Never submitted. `submittedAt` is seeded null by createEmptySurveyReport
+   * and written ONLY by submitSurvey, and nothing ever clears it — so a null
+   * here means no version of this survey has ever reached the server with
+   * content in it.
+   */
+  const neverSubmitted = survey.submittedAt == null;
+  const isAssignedEngineer = !!currentUser && survey.assignedTo === currentUser.uid;
+
+  /**
+   * Discarding reverts to the SERVER copy — which, for a survey that has never
+   * been submitted, is an empty shell. Offering "revert" there is offering to
+   * delete everything with nothing to revert to, so the control is hidden
+   * entirely. It stays for a sent-back survey, where the submitted version is
+   * a real thing to go back to.
+   */
+  const canDiscardDraft = !!draftInfo && !neverSubmitted;
+
+  /**
+   * This device has no draft for a survey someone has already started working
+   * on. Shown only to the assigned engineer, and only where it is genuinely
+   * ambiguous: 'open' means nothing was started, and 'changes_requested' means
+   * the server copy holds the submitted data, so neither is a mystery.
+   */
+  const showNoDraftNotice =
+    isAssignedEngineer
+    && !isReadOnly
+    && noDraftFound
+    && !noDraftNoticeDismissed
+    && neverSubmitted
+    && survey.status === 'in_progress';
   // Stays visible while the engineer reworks and after status moves on to
   // in_progress — gating on the literal 'changes_requested' status would hide
   // the notes the moment ensureInProgress() flips it, which is the whole
@@ -488,24 +560,46 @@ export function SurveyWizardPage() {
       </div>
 
       {/* Draft restored banner */}
+      {/* No draft on this device for a survey that was already started. */}
+      {showNoDraftNotice && (
+        <div className="flex items-start justify-between gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+          <p className="text-xs text-amber-800">
+            No draft found on this device. If you started this survey on another phone, browser or
+            the installed app, open it there to continue. Anything you enter here starts a blank
+            form.
+          </p>
+          <button
+            type="button"
+            onClick={() => setNoDraftNoticeDismissed(true)}
+            aria-label="Dismiss"
+            className="shrink-0 rounded p-0.5 text-amber-700 hover:bg-amber-100"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       {draftInfo && !discardConfirm && (
         <div className="flex items-center justify-between gap-2 rounded-lg bg-blue-50 border border-blue-200 px-3 py-2">
           <span className="text-xs text-brand-blue">
             Draft restored — last saved {formatTime(draftInfo.updatedAt)}
           </span>
-          <button
-            type="button"
-            onClick={() => setDiscardConfirm(true)}
-            className="text-xs font-medium text-brand-red hover:underline shrink-0"
-          >
-            Discard draft
-          </button>
+          {canDiscardDraft && (
+            <button
+              type="button"
+              onClick={() => setDiscardConfirm(true)}
+              className="text-xs font-medium text-brand-red hover:underline shrink-0"
+            >
+              Discard draft
+            </button>
+          )}
         </div>
       )}
       {discardConfirm && (
         <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 flex flex-col gap-2">
           <p className="text-xs text-red-700">
-            Discard your local draft and revert to the last saved server version?
+            This deletes the changes you made on this device since the last submitted version,
+            including photos not yet uploaded. It cannot be undone.
           </p>
           <div className="flex gap-2 justify-end">
             <Button type="button" variant="outline" size="sm" className="text-xs" onClick={() => setDiscardConfirm(false)}>
