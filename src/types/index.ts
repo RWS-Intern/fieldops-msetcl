@@ -846,6 +846,18 @@ export interface SurveyTransformerEntry {
   rtccLowStep: string | null;
   /** "(Resistance/Lamp)" per the source document — no third option exists. */
   tapPositionConnectionType: TapPositionConnectionType | null;
+  /**
+   * Resistance of ONE tap step, in ohms. Informational — nothing derives from
+   * it and nothing validates it, so `null` (unanswered) is a normal state all
+   * the way through Submit.
+   *
+   * Asked regardless of `tapPositionConnectionType`: a Lamp-type connection
+   * does not make the per-tap resistance meaningless, and hiding the box on a
+   * dropdown the surveyor may set afterwards would lose an already-typed
+   * answer. Number, not text, because `0` and "not measured" must stay
+   * distinguishable — which a string field cannot do.
+   */
+  resistancePerTapOhm: number | null;
   rtccPanelWorking: boolean | null;
   /**
    * The document calls this TPT throughout; it was built as "TPI". Same

@@ -544,6 +544,12 @@ function TransformerBlock({ tx, index }: { tx: SurveyTransformerEntry; index: nu
         <Field label="RTCC High Step" value={dash(tx.rtccHighStep)} />
         <Field label="RTCC Low Step" value={dash(tx.rtccLowStep)} />
         <Field label="Tap Position Connection Type" value={dash(tx.tapPositionConnectionType)} />
+        {/* != null, not a truthiness test: a measured 0 Ω is a real answer and
+            must read "0 Ω", not "—". Same rule as the metre fields above. */}
+        <Field
+          label="Resistance per Tap (Ω)"
+          value={tx.resistancePerTapOhm != null ? `${tx.resistancePerTapOhm} Ω` : '—'}
+        />
       </div>
       <TriField label="RTCC panel working" value={tx.rtccPanelWorking} />
       <TriField label="Existing TPT working" value={tx.existingTptWorking} />

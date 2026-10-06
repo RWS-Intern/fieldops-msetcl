@@ -129,6 +129,7 @@ function buildPopulatedSurvey(): SurveyReport {
     uid: 't', transformerNumber: 'TR', voltageLevel: '132' as const,
     mvaRating: '50/63 MVA', rtccHighStep: '+9', rtccLowStep: '-9',
     tapPositionConnectionType: 'resistance' as const, rtccPanelWorking: true,
+    resistancePerTapOhm: 2.5,
     existingTptWorking: null, modbusAvailable: null,
     // Superseded trio — null on the CLEAN fixture so it stays unflagged.
     existingTpi4to20mAAvailable: null, tptRequired: null, requiredTptCount: null,
@@ -137,11 +138,13 @@ function buildPopulatedSurvey(): SurveyReport {
   // (a) no working TPT           -> needs a new one      -> COUNTS
   survey.transformers.push(tx({ uid: 't1', transformerNumber: 'TR-1', existingTptWorking: false }));
   // (b) working + Modbus         -> integrate existing   -> does NOT count
-  survey.transformers.push(tx({ uid: 't2', transformerNumber: 'TR-2', existingTptWorking: true, modbusAvailable: true }));
+  // resistancePerTapOhm: 0 here on purpose — a TYPED ZERO must render "0 Ω",
+  // not "—", and only a fixture that holds one can prove it.
+  survey.transformers.push(tx({ uid: 't2', transformerNumber: 'TR-2', existingTptWorking: true, modbusAvailable: true, resistancePerTapOhm: 0 }));
   // (c) working, no Modbus       -> cannot integrate     -> COUNTS
   survey.transformers.push(tx({ uid: 't3', transformerNumber: 'TR-3', existingTptWorking: true, modbusAvailable: false }));
   // (d) unanswered               -> contributes nothing  -> neither counted nor zeroed
-  survey.transformers.push(tx({ uid: 't4', transformerNumber: 'TR-4' }));
+  survey.transformers.push(tx({ uid: 't4', transformerNumber: 'TR-4', resistancePerTapOhm: null }));
   // Both cable types — each is now a REQUIRED group, and each renders in its
   // own list on the step and in the preview.
   survey.cableRuns.push({
@@ -380,6 +383,10 @@ function buildStaleDraftSurvey(): SurveyReport {
   // before this change has it.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   survey.feeders.forEach((f) => { delete (f as any).existingMfmAvailableToIntegrate; });
+  // The new transformer field absent from EVERY entry, as a draft saved
+  // before this change has it.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  survey.transformers.forEach((t) => { delete (t as any).resistancePerTapOhm; });
   // A draft saved before the RTU slot existed has no photo under that caption
   // — nothing to delete a key from, the entry simply is not there.
   survey.sitePhotos = survey.sitePhotos.filter((p) => p.caption !== 'Proposed RTU Location');

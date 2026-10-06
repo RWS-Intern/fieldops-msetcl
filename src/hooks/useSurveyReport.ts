@@ -233,6 +233,9 @@ function mapTransformer(raw: Record<string, any>): SurveyTransformerEntry {
     rtccHighStep:                raw['rtccHighStep']                ?? null,
     rtccLowStep:                 raw['rtccLowStep']                 ?? null,
     tapPositionConnectionType:   raw['tapPositionConnectionType']   ?? null,
+    // Absent on every entry saved before this field existed — defaulted
+    // here so no read site, draft restore included, ever sees undefined.
+    resistancePerTapOhm:         raw['resistancePerTapOhm']         ?? null,
     rtccPanelWorking:            raw['rtccPanelWorking']            ?? null,
     // TPI -> TPT is a pure rename of the same physical thing, so an old answer
     // carries forward transparently. Only the new key is ever written.
