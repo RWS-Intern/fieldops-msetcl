@@ -200,6 +200,19 @@ export function SurveyWizardPage() {
    */
   const [noDraftFound, setNoDraftFound] = useState(false);
   const [noDraftNoticeDismissed, setNoDraftNoticeDismissed] = useState(false);
+  /**
+   * A draft DOES exist on this device, but chooseDraftSource picked the
+   * server's copy because another device pushed more recently.
+   *
+   * Tracked separately from `noDraftFound` because the two are opposite facts
+   * that used to share one branch: the restore effect's `else` set
+   * `noDraftFound` for both, so an engineer whose work had been superseded was
+   * told "No draft found on this device" when there was one. That reads as
+   * "your work is gone" at exactly the moment it has not been — the cloud copy
+   * is newer, and the local one was simply not needed.
+   */
+  const [cloudCopyUsed, setCloudCopyUsed] = useState(false);
+  const [cloudCopyNoticeDismissed, setCloudCopyNoticeDismissed] = useState(false);
   const [discardConfirm, setDiscardConfirm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showValidationSummary, setShowValidationSummary] = useState(false);
@@ -289,7 +302,13 @@ export function SurveyWizardPage() {
           setDraftInfo({ updatedAt: draft.updatedAt });
         } else {
           setSurveyData(survey);
-          setNoDraftFound(true);
+          // Two different facts, two different notices. `noDraftFound` means
+          // this device genuinely holds nothing; a draft that exists but lost
+          // to a newer cloud copy is the opposite situation and gets its own
+          // message. Deciding on `draft` alone — never on `source` — keeps
+          // this correct whichever way chooseDraftSource is extended later.
+          if (draft) setCloudCopyUsed(true);
+          else setNoDraftFound(true);
         }
       } catch (err) {
         console.error('[SurveyWizardPage] draft load failed:', err);
@@ -813,6 +832,22 @@ export function SurveyWizardPage() {
     && !noDraftNoticeDismissed
     && neverSubmitted
     && survey.status === 'in_progress';
+
+  /**
+   * The cloud copy was opened in preference to this device's older draft.
+   *
+   * Same audience gate as the notice above — the assigned engineer, on a
+   * survey they can still edit. An admin, approver or viewer never filled
+   * this form on another device, so for them it would be noise about a draft
+   * that is not theirs. Deliberately NOT gated on neverSubmitted or on a
+   * particular status: unlike the no-draft case there is nothing ambiguous
+   * here, it is simply a fact about which copy is on screen.
+   */
+  const showCloudCopyNotice =
+    isAssignedEngineer
+    && !isReadOnly
+    && cloudCopyUsed
+    && !cloudCopyNoticeDismissed;
   // Stays visible while the engineer reworks and after status moves on to
   // in_progress — gating on the literal 'changes_requested' status would hide
   // the notes the moment ensureInProgress() flips it, which is the whole
@@ -895,6 +930,27 @@ export function SurveyWizardPage() {
       )}
 
       {/* Draft restored banner */}
+      {/* A newer copy from another device was opened instead of this one's
+          older draft. Blue, not amber: nothing is wrong and nothing needs
+          acting on — it only explains why the form may not look like the
+          engineer left it here. */}
+      {showCloudCopyNotice && (
+        <div className="flex items-start justify-between gap-2 rounded-lg bg-blue-50 border border-blue-200 px-3 py-2">
+          <p className="text-xs text-brand-blue">
+            Opened the latest version saved from another device. The older copy on this device was
+            not used.
+          </p>
+          <button
+            type="button"
+            onClick={() => setCloudCopyNoticeDismissed(true)}
+            aria-label="Dismiss"
+            className="shrink-0 rounded p-0.5 text-brand-blue hover:bg-blue-100"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* No draft on this device for a survey that was already started. */}
       {showNoDraftNotice && (
         <div className="flex items-start justify-between gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
