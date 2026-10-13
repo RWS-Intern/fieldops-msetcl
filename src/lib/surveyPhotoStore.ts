@@ -71,6 +71,12 @@ export async function deletePhoto(photoId: string): Promise<void> {
 }
 
 /** List every locally-stored photo for a work order. */
+/** Every stored photo across all work orders — for the background uploader. */
+export async function listAllPhotos(): Promise<StoredSurveyPhoto[]> {
+  const db = await getDB();
+  return db.getAll(STORE) as Promise<StoredSurveyPhoto[]>;
+}
+
 export async function listPhotosForWorkOrder(workOrderId: string): Promise<StoredSurveyPhoto[]> {
   const db = await getDB();
   return db.getAllFromIndex(STORE, WORK_ORDER_INDEX, workOrderId) as Promise<StoredSurveyPhoto[]>;

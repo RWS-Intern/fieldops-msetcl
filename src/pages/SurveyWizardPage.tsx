@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { AlertTriangle, Clock, X } from 'lucide-react';
@@ -16,7 +16,20 @@ import {
 import type { PendingSurveyPhoto } from '@/lib/surveySubmitQueue';
 import { useNetworkStatus }     from '@/hooks/useNetworkStatus';
 import { useToast }             from '@/components/ui/toast';
-import { saveDraft, loadDraft, deleteDraft } from '@/lib/surveyDraftStore';
+import { saveDraft, loadDraft, deleteDraft, markDraftSynced } from '@/lib/surveyDraftStore';
+import { chooseDraftSource, surveySignature, buildAutosavePayload } from '@/lib/surveyDraftSync';
+import { v4 as uuidv4 } from 'uuid';
+import { mergePhotoFields, photoRefsIn, removedRefs } from '@/lib/surveyPhotoMerge';
+import {
+  signFields, writeSurveyFields, shieldFilledAnswers, planAutosave,
+  recordTouches, composeTouched, adoptWithTouches,
+  type FieldSignatures, type TouchedInputs,
+} from '@/lib/surveyDelta';
+import { stripLocalPhotoRefs as stripLocalRefsForSync } from '@/lib/surveySubmitQueue';
+import { useDebouncedRemoteSave } from '@/hooks/useDebouncedRemoteSave';
+import { useFeatureFlags } from '@/hooks/useFeatureFlags';
+import { usePendingPhotos } from '@/hooks/usePendingPhotos';
+import { PHOTO_UPLOADED_EVENT, type PhotoUploadedDetail } from '@/lib/surveyPhotoUploader';
 import { getPhoto, deletePhoto, blobToDataUrl, deletePhotosForWorkOrder } from '@/lib/surveyPhotoStore';
 import { uploadToCloudinary } from '@/utils/uploadToCloudinary';
 import { validateSurvey, getStepStatuses } from '@/lib/surveyValidation';
@@ -154,12 +167,21 @@ async function resolveOnlinePhotoUploads(
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+/** Top-level fields that hold photo references. */
+const PHOTO_FIELDS = ['feeders', 'relays', 'sitePhotos', 'signOff'] as const;
+
+/** A field still holding a photo that exists only on this device. */
+function holdsLocalPhoto(value: unknown): boolean {
+  return JSON.stringify(value ?? null).includes('local://');
+}
+
 export function SurveyWizardPage() {
   const { workOrderId } = useParams<{ workOrderId: string }>();
   const navigate = useNavigate();
   const { currentUser } = useAuthStore();
   const { survey, loading, error } = useSurveyReport(workOrderId);
   const { submitSurvey, saveProgress } = useSurveyActions();
+  const featureFlags                   = useFeatureFlags();
   const { enqueue } = useSurveySubmitQueue();
   const isOnline = useNetworkStatus();
   const { showToast } = useToast();
@@ -236,6 +258,7 @@ export function SurveyWizardPage() {
     if (loading || initializedRef.current) return;
     initializedRef.current = true;
 
+    let restoredLocal: SurveyReport | null = null;
     (async () => {
       if (!survey) {
         setLocalReady(true);
@@ -243,11 +266,25 @@ export function SurveyWizardPage() {
       }
       try {
         const draft = await loadDraft(survey.workOrderId);
-        if (draft) {
+
+        // chooseDraftSource GENERALISES the previous behaviour rather than
+        // replacing it: with remote autosave off, lastSyncedAt is never
+        // written, so it returns 'local' whenever a draft exists and 'remote'
+        // otherwise — exactly what this effect did before. The conflict branch
+        // is unreachable until the feature is switched on.
+        const source = chooseDraftSource({
+          localUpdatedAt:    draft?.updatedAt ?? null,
+          localLastSyncedAt: draft?.lastSyncedAt ?? null,
+          localSyncToken:    draft?.lastSyncedToken ?? null,
+          remoteSyncToken:   survey.draftSyncToken ?? null,
+        });
+
+        if (draft && source === 'local') {
           // Normalised, never spread raw: a draft saved before a field existed
           // would otherwise restore that field as undefined and crash the
           // wizard's render body. See normaliseRestoredDraft.
-          setSurveyData(normaliseRestoredDraft(survey, draft.data));
+          restoredLocal = normaliseRestoredDraft(survey, draft.data);
+          setSurveyData(restoredLocal);
           setStepIndex(draft.stepIndex);
           setDraftInfo({ updatedAt: draft.updatedAt });
         } else {
@@ -262,6 +299,23 @@ export function SurveyWizardPage() {
         // continue from, and saying so is what matters.
         setNoDraftFound(true);
       }
+      // "What the server holds" = the EXACT snapshot the form was built from.
+      // This first snapshot can come from Firestore's offline cache and be
+      // older than the server. Taking the baseline from a LATER snapshot
+      // instead made the stale values on screen look like local edits, and
+      // the new device pushed them over the other device's work. With the
+      // baseline here, a fresher snapshot is simply adopted field by field.
+      serverSigsRef.current      = sigsOf(survey);
+      serverBaseRef.current      = survey;
+      // A restored local draft (this device's own, or the only copy) may hold
+      // edits that never reached the server — mark exactly those as touched so
+      // they still go out. A form loaded from the server starts untouched.
+      if (restoredLocal) {
+        const keys = new Set([...serverSigsRef.current.keys(), ...sigsOf(restoredLocal).keys()]);
+        keys.delete('draftSyncToken');
+        recordTouches(touchedRef.current, survey, restoredLocal, keys);
+      }
+      lastPushedTokenRef.current = survey.draftSyncToken ?? null;
       setLocalReady(true);
     })();
   }, [survey, loading]);
@@ -321,6 +375,224 @@ export function SurveyWizardPage() {
     })();
   }, [survey, currentUser]);
 
+  // ── Debounced REMOTE autosave — makes the work survive the device ─────────
+  //
+  // The local draft below is the crash buffer; this is the slower push that
+  // lets an engineer resume on another device. Behind a kill switch, and OFF
+  // unless an admin turns it on — see AppConfig.surveyRemoteAutosaveEnabled.
+  //
+  // Only the assigned engineer writes. An admin or approver opening a survey
+  // to look at it must never mutate it by observation, which is the same rule
+  // ensureInProgress above is built around.
+  const remoteAutosaveEnabled =
+    featureFlags.surveyRemoteAutosaveEnabled
+    && !!survey
+    && !!currentUser
+    && survey.assignedTo === currentUser.uid
+    && (survey.status === 'open'
+        || survey.status === 'in_progress'
+        || survey.status === 'changes_requested');
+
+  // Derived from the content, so a new edit path added later cannot forget to
+  // mark the survey dirty. useMemo keys it on the survey object, so the walk
+  // runs once per edit rather than once per render.
+  const dataSignature = useMemo(
+    () => (surveyData ? surveySignature(surveyData) : ''),
+    [surveyData],
+  );
+
+  const remoteSave = useDebouncedRemoteSave({
+    enabled:   remoteAutosaveEnabled && localReady && !!surveyData,
+    signature: dataSignature,
+    // Near-real-time: ~2s after typing stops, never more than 8s while typing.
+    // Affordable because each save is now a small delta, not the whole survey.
+    debounceMs: 2_000,
+    maxWaitMs:  8_000,
+    save: async () => {
+      if (!survey || !surveyData) return;
+      // uuid, not crypto.randomUUID: the latter is undefined outside a secure
+      // context — including a phone reaching the dev server over plain http.
+      const token = uuidv4();
+      lastPushedTokenRef.current = token;
+      // Photos are merged, not replaced: the server may hold photos another
+      // device added since this one last adopted. local:// refs are stripped —
+      // they are blobs on this device only and would reach others as broken.
+      // SHIELD: never blank an answer this device has never seen filled.
+      const base     = serverBaseRef.current ?? survey;
+      const shielded = shieldFilledAnswers(surveyData, survey, base);
+      if (shielded !== surveyData) {
+        // Show the protected answers here too, so the screen matches the server.
+        setSurveyData((prev) => (prev ? shieldFilledAnswers(prev, survey, base) : prev));
+      }
+      const merged  = mergePhotoFields(shielded, survey);
+      // PER-INPUT: the latest server copy with ONLY the inputs the user
+      // operated on here laid over it. Anything not touched on this device is
+      // the server's own value, so it can never be overwritten from here.
+      const composed = composeTouched(survey, merged, touchedRef.current);
+      const payload  = buildAutosavePayload(stripLocalRefsForSync(composed), token) as Record<string, unknown>;
+
+      // ONLY changed fields, on every path — see planAutosave. A device that
+      // has not typed anything writes nothing, so opening the survey on another
+      // device (even from a stale offline copy) can never overwrite it.
+      const plan = planAutosave(payload, serverSigsRef.current, survey.status, new Set(touchedRef.current.keys()));
+      // Touched inputs are now either sent or already equal to the server, so
+      // they leave the set — except a field still holding an un-uploaded photo,
+      // which stays protected until the upload lands. An edit made while this
+      // save is in the air re-records itself; a failed save puts these back.
+      const released: TouchedInputs = new Map();
+      for (const [k, paths] of touchedRef.current) {
+        if (holdsLocalPhoto((merged as unknown as Record<string, unknown>)[k])) continue;
+        released.set(k, paths);
+        touchedRef.current.delete(k);
+      }
+      const restoreTouches = () => {
+        for (const [k, paths] of released) {
+          const m = touchedRef.current.get(k) ?? new Map();
+          for (const [id, path] of paths) m.set(id, path);
+          touchedRef.current.set(k, m);
+        }
+      };
+      if (plan.kind === 'skip') {
+        lastPushedTokenRef.current = survey.draftSyncToken ?? null;
+        return;
+      }
+      const sentKeys = Object.keys(plan.fields).filter((k) => k !== 'draftSyncToken');
+      try {
+      if (plan.kind === 'fields') {
+        await writeSurveyFields(survey.id, plan.fields);
+      } else {
+        // open / changes_requested: saveProgress also performs the status
+        // transition the rules require — but with the delta, never the full survey.
+        await saveProgress(survey.id, {
+          workOrderId:    survey.workOrderId,
+          data:           plan.fields,
+          previousStatus: survey.status,
+        });
+      }
+      } catch (err) {
+        restoreTouches();
+        throw err;
+      }
+      // The server now holds what was SENT — untouched fields keep whatever
+      // the server had, so only the sent ones are recorded as changed.
+      serverSigsRef.current = new Map([...serverSigsRef.current, ...signFields(plan.fields)]);
+      const nextBase = { ...(serverBaseRef.current ?? survey) } as Record<string, unknown>;
+      for (const k of sentKeys) nextBase[k] = (composed as unknown as Record<string, unknown>)[k];
+      serverBaseRef.current = nextBase as unknown as SurveyReport;
+      // Show this device the photos it just merged in. Our own echo is skipped
+      // by the live effect below, so without this they would not appear here.
+      // Only when the merge actually changed the photo set: replacing the form
+      // state on every save re-rendered every input and felt like a refresh.
+      setSurveyData((prev) => {
+        if (!prev) return prev;
+        const next = mergePhotoFields(prev, merged);
+        const same =
+          JSON.stringify(photoRefsIn(next)) === JSON.stringify(photoRefsIn(prev))
+          && JSON.stringify(next.removedPhotoRefs ?? []) === JSON.stringify(prev.removedPhotoRefs ?? []);
+        return same ? prev : next;
+      });
+      // Written ONLY after a confirmed push — chooseDraftSource treats this
+      // marker as proof the server has this device's work, and setting it
+      // optimistically would let a genuinely newer remote copy be discarded.
+      if (workOrderId) await markDraftSynced(workOrderId, token);
+    },
+  });
+
+  // ── Live A↔B: adopt another device's save while this survey is open ──
+  // Latest save wins. Skipped while this device has unsent edits: those go out
+  // on the next save and the OTHER device adopts them instead, so neither
+  // side's newest typing is thrown away mid-keystroke.
+  const lastPushedTokenRef = useRef<string | null>(null);
+  // True once a save from ANOTHER device lands while this form is open — the
+  // exact situation that risks losing data. Cancel hides it for this visit.
+  const [otherDeviceActive, setOtherDeviceActive] = useState(false);
+  const [otherDeviceDismissed, setOtherDeviceDismissed] = useState(false);
+  // The exact inputs the user operated on HERE that have not reached the
+  // server yet. Only these are ever sent, and only these are kept over the
+  // server's values — see composeTouched / adoptWithTouches.
+  const touchedRef = useRef<TouchedInputs>(new Map());
+  // Per-field signatures of the last server version this device knows.
+  const serverSigsRef = useRef<FieldSignatures>(new Map());
+  // The server copy the form is built on — the shield's "what this device saw".
+  const serverBaseRef = useRef<SurveyReport | null>(null);
+  // Per-field signatures of what this device believes is on the server — the
+  // basis for both delta saves and per-field adopt.
+  const sigsOf = (data: SurveyReport): FieldSignatures =>
+    signFields(buildAutosavePayload(stripLocalRefsForSync(data), '') as Record<string, unknown>);
+
+  // Runs on EVERY server snapshot (own echoes included), so the known-server
+  // state never goes stale. Adopts only fields the other device changed that
+  // this device has not touched — typed answers are never overwritten.
+  useEffect(() => {
+    if (!remoteAutosaveEnabled || !localReady || !survey) return;
+
+    const known      = serverSigsRef.current;
+    const serverSigs = sigsOf(survey);
+
+    // First snapshot after load: just record the baseline.
+    if (known.size === 0) {
+      serverSigsRef.current = serverSigs;
+      lastPushedTokenRef.current = survey.draftSyncToken ?? null;
+      return;
+    }
+
+    // A save from ANOTHER device (not our own echo) — for the warning only.
+    const tok = survey.draftSyncToken ?? null;
+    if (tok && tok !== lastPushedTokenRef.current) {
+      setOtherDeviceActive(true);
+      lastPushedTokenRef.current = tok;
+    }
+
+    setSurveyData((prev) => {
+      if (!prev) return prev;
+      const keys = [...serverSigs.keys()].filter((k) => k !== 'draftSyncToken');
+      const adopted = adoptWithTouches(prev, survey, keys, touchedRef.current);
+      const merged  = mergePhotoFields(adopted, survey);
+      const photosSame =
+        JSON.stringify(photoRefsIn(merged)) === JSON.stringify(photoRefsIn(adopted))
+        && JSON.stringify(merged.removedPhotoRefs ?? []) === JSON.stringify(adopted.removedPhotoRefs ?? []);
+      // Untouched state is returned as-is so the form does not re-render.
+      if (adopted === prev && photosSame) return prev;
+      return photosSame ? adopted : merged;
+    });
+
+    serverSigsRef.current = serverSigs;
+    serverBaseRef.current = survey;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [survey]);
+
+  // A step change is a natural checkpoint and worth far more than any timer.
+  const lastFlushedStepRef = useRef(stepIndex);
+  useEffect(() => {
+    if (lastFlushedStepRef.current === stepIndex) return;
+    lastFlushedStepRef.current = stepIndex;
+    remoteSave.flush();
+  }, [stepIndex, remoteSave]);
+
+  // ── Background photo uploads land here while the wizard is open ──
+  // Applied to live state so the in-memory survey (the source of truth while
+  // open) never lags the uploader. Only claimed once the survey has loaded:
+  // claiming earlier would let the uploader treat an unapplied swap as done.
+  // Inert when the uploader switch is off — nothing dispatches the event.
+  useEffect(() => {
+    if (!workOrderId || !localReady) return;
+    const onUploaded = (e: Event) => {
+      const d = (e as CustomEvent<PhotoUploadedDetail>).detail;
+      if (d.workOrderId !== workOrderId) return;
+      setSurveyData((prev) => {
+        if (!prev) return prev;
+        const next = replaceLocalPhotoRef(prev, d.oldRef, d.newRef);
+        recordTouches(touchedRef.current, prev, next, PHOTO_FIELDS);
+        return next;
+      });
+      d.handled = true;
+    };
+    window.addEventListener(PHOTO_UPLOADED_EVENT, onUploaded);
+    return () => window.removeEventListener(PHOTO_UPLOADED_EVENT, onUploaded);
+  }, [workOrderId, localReady]);
+
+  const pendingPhotos = usePendingPhotos(workOrderId);
+
   // ── Debounced local draft autosave — every field change and every step change ──
   useEffect(() => {
     if (!localReady || !surveyData || !workOrderId) return;
@@ -333,7 +605,20 @@ export function SurveyWizardPage() {
   }, [surveyData, stepIndex, workOrderId, localReady]);
 
   function handleChange(patch: Partial<SurveyReport>) {
-    setSurveyData((prev) => (prev ? { ...prev, ...patch } : prev));
+    setSurveyData((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, ...patch };
+      // The exact inputs this edit changed — only these may ever be sent.
+      recordTouches(touchedRef.current, prev, next, Object.keys(patch));
+      if (!featureFlags.surveyRemoteAutosaveEnabled) return next;
+      // A photo the user removed becomes a tombstone, so another device's
+      // copy of it is not merged back in on the next sync.
+      const gone = removedRefs(photoRefsIn(prev), photoRefsIn(next));
+      if (!gone.length) return next;
+      const withTombstones = { ...next, removedPhotoRefs: [...new Set([...(prev.removedPhotoRefs ?? []), ...gone])] };
+      recordTouches(touchedRef.current, next, withTombstones, ['removedPhotoRefs']);
+      return withTombstones;
+    });
     void ensureInProgress();
   }
 
@@ -342,7 +627,12 @@ export function SurveyWizardPage() {
   // prop snapshot, concurrent replacements (e.g. several photos uploading in
   // the same React batch) can never clobber each other here.
   function replacePhotoReference(oldRef: string, newRef: string) {
-    setSurveyData((prev) => (prev ? replaceLocalPhotoRef(prev, oldRef, newRef) : prev));
+    setSurveyData((prev) => {
+      if (!prev) return prev;
+      const next = replaceLocalPhotoRef(prev, oldRef, newRef);
+      recordTouches(touchedRef.current, prev, next, PHOTO_FIELDS);
+      return next;
+    });
   }
 
   async function handleDiscardDraft() {
@@ -559,6 +849,51 @@ export function SurveyWizardPage() {
         )}
       </div>
 
+      {/* Photos still only on this device — the signal that it is not yet
+          safe to switch devices. Shown only with the uploader switch on. */}
+      {featureFlags.surveyBackgroundPhotoUploadEnabled && pendingPhotos > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {pendingPhotos} photo{pendingPhotos !== 1 ? 's' : ''} still uploading from this device
+          {!isOnline && ' — waiting for signal'}. Keep this device until it reaches zero.
+        </div>
+      )}
+
+      {/* Same form open on another device — warn in plain words. */}
+      {remoteAutosaveEnabled && otherDeviceActive && !otherDeviceDismissed && (
+        <div role="alert" className="flex items-start justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5">
+          <p className="text-xs text-amber-900">
+            <span className="font-semibold">This form is open on another device too.</span>{' '}
+            Please fill it on one device only, so no data gets lost.
+          </p>
+          <button
+            type="button"
+            onClick={() => setOtherDeviceDismissed(true)}
+            className="shrink-0 rounded-md border border-amber-400 bg-white px-2.5 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Remote sync status — only while the feature is on and there is
+          something to say. Silence is the normal state. */}
+      {/* Routine saves are silent: with saves every couple of seconds, a
+          "Syncing…" banner appearing above the form made the whole step jump
+          on each one. Only states the engineer must act on are shown. */}
+      {remoteAutosaveEnabled && (remoteSave.error || (!isOnline && remoteSave.dirty)) && (
+        <div
+          className={`rounded-lg border px-3 py-2 text-xs ${
+            remoteSave.error
+              ? 'border-amber-200 bg-amber-50 text-amber-800'
+              : 'border-blue-200 bg-blue-50 text-brand-blue'
+          }`}
+        >
+          {!isOnline
+            ? 'Offline — saved on this device. Will sync when signal returns.'
+            : 'Saved on this device, but could not sync yet. It will try again on your next change.'}
+        </div>
+      )}
+
       {/* Draft restored banner */}
       {/* No draft on this device for a survey that was already started. */}
       {showNoDraftNotice && (
@@ -579,7 +914,7 @@ export function SurveyWizardPage() {
         </div>
       )}
 
-      {draftInfo && !discardConfirm && (
+      {draftInfo && !discardConfirm && !featureFlags.surveyRemoteAutosaveEnabled && (
         <div className="flex items-center justify-between gap-2 rounded-lg bg-blue-50 border border-blue-200 px-3 py-2">
           <span className="text-xs text-brand-blue">
             Draft restored — last saved {formatTime(draftInfo.updatedAt)}

@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAssignedWorkOrders } from '@/hooks/useAssignedWorkOrders';
+import { usePendingPhotos } from '@/hooks/usePendingPhotos';
+import { useFeatureFlags } from '@/hooks/useFeatureFlags';
 import { listDrafts }            from '@/lib/surveyDraftStore';
 import { useSurveySubmitQueue }  from '@/lib/surveySubmitQueue';
 import { Skeleton }              from '@/components/ui/skeleton';
@@ -62,6 +64,10 @@ function WorkOrderRow({
   hasDraft:  boolean;
   onOpen:    () => void;
 }) {
+  // Per-row, so each work order reports its own stranded photos.
+  const pending     = usePendingPhotos(workOrder.id);
+  const showPending = useFeatureFlags().surveyBackgroundPhotoUploadEnabled;
+
   return (
     <div
       className="flex rounded-lg border border-gray-100 bg-white shadow-sm overflow-hidden cursor-pointer hover:border-brand-blue transition-colors"
@@ -88,6 +94,11 @@ function WorkOrderRow({
         <p className="text-xs text-gray-400 font-mono">{workOrder.workOrderCode}</p>
         {hasDraft && (
           <p className="text-xs text-brand-blue mt-1">Draft saved locally</p>
+        )}
+        {showPending && pending > 0 && (
+          <p className="text-xs text-amber-700 mt-1">
+            {pending} photo{pending !== 1 ? 's' : ''} not yet uploaded from this device
+          </p>
         )}
       </div>
       <div className="flex items-center pr-3 shrink-0">

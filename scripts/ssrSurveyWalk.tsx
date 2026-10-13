@@ -51,7 +51,7 @@ import { isPdfRef, pdfPreviewUrl } from '@/lib/signedDocs';
 import type { SurveyReport } from '@/types';
 
 /** A survey with one entry in every repeatable group — not an empty state. */
-function buildPopulatedSurvey(): SurveyReport {
+export function buildPopulatedSurvey(): SurveyReport {
   const survey = createEmptySurveyReport({
     workOrderId: 'wo-1', workOrderCode: 'WO-001', siteId: 'site-1',
     siteCode: 'SUB-001', siteName: 'Test Substation',

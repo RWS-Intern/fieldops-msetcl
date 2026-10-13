@@ -1,30 +1,34 @@
 import { useState, useMemo } from 'react';
 import { Download, SlidersHorizontal, X } from 'lucide-react';
-import { useReports }        from '@/hooks/useReports';
-import { useAllSiteTasks }   from '@/hooks/useAllSiteTasks';
-import { useSiteStore }      from '@/store/siteStore';
-import { useUserStore }      from '@/store/userStore';
-import { useVendorStore }    from '@/store/vendorStore';
-import { StatusChart }       from '@/components/reports/StatusChart';
-import { TypeChart }         from '@/components/reports/TypeChart';
-import { EngineerChart }     from '@/components/reports/EngineerChart';
-import { CityChart }         from '@/components/reports/CityChart';
+import { useReports } from '@/hooks/useReports';
+import { useAllSiteTasks } from '@/hooks/useAllSiteTasks';
+import { useSiteStore } from '@/store/siteStore';
+import { useUserStore } from '@/store/userStore';
+import { useVendorStore } from '@/store/vendorStore';
+import { useAllSurveys } from '@/hooks/useAllSurveys';
+import { SURVEY_APPROVAL_STAGES } from '@/lib/approvalStages';
+import { exportReportsExcel } from '@/utils/exportReportsExcel';
+import { useToast } from '@/components/ui/toast';
+import { StatusChart } from '@/components/reports/StatusChart';
+import { TypeChart } from '@/components/reports/TypeChart';
+import { EngineerChart } from '@/components/reports/EngineerChart';
+import { CityChart } from '@/components/reports/CityChart';
 import { SiteCompletionChart } from '@/components/reports/SiteCompletionChart';
-import { Button }            from '@/components/ui/button';
-import { Skeleton }          from '@/components/ui/skeleton';
-import { exportToCsv }       from '@/utils/exportToCsv';
+import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
+import { exportToCsv } from '@/utils/exportToCsv';
 import { getStatusColour, getStatusLabel } from '@/lib/taskUtils';
 import { cn } from '@/lib/utils';
-import type { TaskStatus } from '@/types';
+import { IN_HOUSE_VENDOR_ID, type TaskStatus, type User } from '@/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmt(d: Date) {
   return d.toLocaleString('en-AU', {
-    day:    '2-digit',
-    month:  '2-digit',
-    year:   'numeric',
-    hour:   '2-digit',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
     minute: '2-digit',
     hour12: false,
   });
@@ -67,8 +71,8 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
 function CompletionRing({ rate }: { rate: number }) {
   const colour =
     rate >= 70 ? '#2A9D8F' :
-    rate >= 40 ? '#F4A261' :
-                 '#E63946';
+      rate >= 40 ? '#F4A261' :
+        '#E63946';
 
   const circumference = 2 * Math.PI * 44;
   const dash = (rate / 100) * circumference;
@@ -116,8 +120,8 @@ function StatusBadge({ status }: { status: string }) {
 function FilterSelect({
   label, value, onChange, children,
 }: {
-  label:    string;
-  value:    string;
+  label: string;
+  value: string;
   onChange: (v: string) => void;
   children: React.ReactNode;
 }) {
@@ -139,32 +143,83 @@ function FilterSelect({
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
+/**
+ * A status filter value of the form `stage:<n>` means "awaiting approval AT
+ * that stage", where n indexes SURVEY_APPROVAL_STAGES.
+ *
+ * SURVEY-ONLY, and that is a property of the data rather than a shortcut: a
+ * SiteTask has one approverUid and no chain, so it cannot be at a stage.
+ * Selecting one therefore excludes every task.
+ */
+const STAGE_FILTER_PREFIX = 'stage:';
+
+const stageFilterValue = (index: number) => `${STAGE_FILTER_PREFIX}${index}`;
+
+/**
+ * Fully approved surveys — the end of the chain, after the stage tiles.
+ * Survey-only like the stages: no task has this status, so it excludes tasks.
+ */
+const APPROVED_SURVEYS_FILTER = 'survey_approved';
+
+/** The stage index a filter value selects, or null when it is a plain status. */
+function stageIndexFromFilter(filterValue: string): number | null {
+  if (!filterValue.startsWith(STAGE_FILTER_PREFIX)) return null;
+  const n = Number(filterValue.slice(STAGE_FILTER_PREFIX.length));
+  return Number.isInteger(n) ? n : null;
+}
+
 const STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: '',                   label: 'All statuses'     },
-  { value: 'pending',            label: 'Pending'          },
-  { value: 'in_progress',        label: 'In Progress'      },
-  { value: 'pending_approval',   label: 'Pending Approval' },
-  { value: 'changes_requested',  label: 'Changes Requested' },
-  { value: 'completed',          label: 'Completed'        },
-  { value: 'blocked',            label: 'Blocked'          },
+  { value: '', label: 'All statuses' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'pending_approval', label: 'Pending Approval' },
+  { value: 'changes_requested', label: 'Changes Requested' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'blocked', label: 'Blocked' },
+  // Labels come from SURVEY_APPROVAL_STAGES so the dropdown, the tiles and the
+  // review screens can never disagree about what a stage is called.
+  ...SURVEY_APPROVAL_STAGES.map((stage, i) => ({
+    value: stageFilterValue(i),
+    label: `Awaiting ${stage.label}`,
+  })),
+  { value: APPROVED_SURVEYS_FILTER, label: 'Approved Surveys' },
 ];
+
+/**
+ * The vendor an engineer reports under. Field engineers created before
+ * vendors existed have no vendorId saved; new ones default to the in-house
+ * vendor (see CreateUserModal), so a missing vendor means in-house too.
+ * Without this, their surveys and tasks matched NO vendor and vanished from
+ * every vendor filter while still counting under "All vendors".
+ */
+function vendorIdOf(u: User): string | null {
+  return u.vendorId ?? (u.role === 'field' ? IN_HOUSE_VENDOR_ID : null);
+}
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function ReportsPage() {
   const { tasks: allTasks, loading: tasksLoading } = useAllSiteTasks();
-  const { sites }  = useSiteStore();
-  const { users }  = useUserStore();
+  const { surveys: allSurveys } = useAllSurveys();
+  const { sites } = useSiteStore();
+  const { users } = useUserStore();
   const { vendors } = useVendorStore();
+  const { showToast } = useToast();
+  const [exporting, setExporting] = useState(false);
 
   // ── Filter state ──────────────────────────────────────────────────────────
-  const [filterCity,      setFilterCity]      = useState('');
-  const [filterProject,   setFilterProject]   = useState('');
-  const [filterEngineer,  setFilterEngineer]  = useState('');
-  const [filterVendor,    setFilterVendor]    = useState('');
-  const [filterStatus,    setFilterStatus]    = useState('');
-  const [filterFrom,      setFilterFrom]      = useState('');
-  const [filterTo,        setFilterTo]        = useState('');
+  // Which KIND of work the whole page reports on. Applied last, after every
+  // other filter, by emptying the side that is excluded — so the tiles, the
+  // charts and the submission history all narrow together rather than each
+  // needing its own awareness of it.
+  const [filterKind, setFilterKind] = useState<'all' | 'surveys' | 'tasks'>('all');
+  const [filterCity, setFilterCity] = useState('');
+  const [filterProject, setFilterProject] = useState('');
+  const [filterEngineer, setFilterEngineer] = useState('');
+  const [filterVendor, setFilterVendor] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterFrom, setFilterFrom] = useState('');
+  const [filterTo, setFilterTo] = useState('');
 
   const allFieldUsers = users.filter((u) => u.role === 'field' && u.active);
 
@@ -173,14 +228,17 @@ export function ReportsPage() {
   // task's assignee is the only link a vendor-wise report needs.
   const vendorByUid = useMemo(() => {
     const map = new Map<string, string>();
-    users.forEach((u) => { if (u.vendorId) map.set(u.id, u.vendorId); });
+    users.forEach((u) => {
+      const vendorId = vendorIdOf(u);
+      if (vendorId) map.set(u.id, vendorId);
+    });
     return map;
   }, [users]);
 
   // With a vendor selected, the Engineer picker narrows to that vendor's
   // engineers — the two filters compose rather than contradicting each other.
   const fieldUsers = filterVendor
-    ? allFieldUsers.filter((u) => u.vendorId === filterVendor)
+    ? allFieldUsers.filter((u) => vendorIdOf(u) === filterVendor)
     : allFieldUsers;
 
   // Archived vendors stay listed: their engineers' past work is still in the
@@ -193,16 +251,18 @@ export function ReportsPage() {
     [vendors],
   );
 
-  // Changing vendor clears any engineer selection that is no longer offered,
-  // which would otherwise sit in the filter bar matching nothing.
+  // Any vendor change clears the engineer selection.
+  //
+  // Cleared unconditionally, not just when the engineer leaves the new
+  // vendor's roster: the Engineer dropdown only renders while a vendor is
+  // selected, so returning to "All vendors" would otherwise strand an
+  // invisible filter still narrowing every tile and chart, with no control
+  // on screen to explain why.
+
+
   function changeVendor(next: string) {
     setFilterVendor(next);
-    if (next && filterEngineer) {
-      const stillListed = allFieldUsers.some(
-        (u) => u.id === filterEngineer && u.vendorId === next,
-      );
-      if (!stillListed) setFilterEngineer('');
-    }
+    setFilterEngineer('');
   }
 
   // ── Unique cities + projects from sites ───────────────────────────────────
@@ -224,9 +284,10 @@ export function ReportsPage() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [activeSites]);
 
-  const hasFilters = filterCity || filterProject || filterVendor || filterEngineer || filterStatus || filterFrom || filterTo;
+  const hasFilters = filterKind !== 'all' || filterCity || filterProject || filterVendor || filterEngineer || filterStatus || filterFrom || filterTo;
 
   function clearFilters() {
+    setFilterKind('all');
     setFilterCity('');
     setFilterProject('');
     setFilterEngineer('');
@@ -238,23 +299,107 @@ export function ReportsPage() {
 
   // ── Apply filters to all siteTasks ────────────────────────────────────────
   const filteredTasks = useMemo(() => {
+    if (filterKind === 'surveys') return [];
     return allTasks.filter((t) => {
-      if (filterCity     && t.city       !== filterCity)     return false;
-      if (filterProject  && t.projectId  !== filterProject)  return false;
+      if (filterCity && t.city !== filterCity) return false;
+      if (filterProject && t.projectId !== filterProject) return false;
       if (filterEngineer && t.assignedTo !== filterEngineer) return false;
       // An unassigned task belongs to no vendor, so it drops out whenever a
       // specific vendor is selected — it cannot be credited to one.
       if (filterVendor &&
-          (!t.assignedTo || vendorByUid.get(t.assignedTo) !== filterVendor)) return false;
-      if (filterStatus   && t.status     !== filterStatus)   return false;
-      if (filterFrom     && fmtDate(t.updatedAt) < filterFrom) return false;
-      if (filterTo       && fmtDate(t.updatedAt) > filterTo)   return false;
+        (!t.assignedTo || vendorByUid.get(t.assignedTo) !== filterVendor)) return false;
+      // A stage filter is survey-only — a task has no approval chain, so it
+      // can never be "awaiting Approver Level 2".
+      if (filterStatus && stageIndexFromFilter(filterStatus) !== null) return false;
+      if (filterStatus && t.status !== filterStatus) return false;
+      if (filterFrom && fmtDate(t.updatedAt) < filterFrom) return false;
+      if (filterTo && fmtDate(t.updatedAt) > filterTo) return false;
       return true;
     });
-  }, [allTasks, filterCity, filterProject, filterEngineer, filterVendor, vendorByUid, filterStatus, filterFrom, filterTo]);
+  }, [allTasks, filterKind, filterCity, filterProject, filterEngineer, filterVendor, vendorByUid, filterStatus, filterFrom, filterTo]);
+
+  // ── Apply the same filters to surveys ─────────────────────────────────────
+  //
+  // A SurveyReport carries no city or projectId of its own, so those two
+  // filters resolve through the site it belongs to. The sites store is
+  // already loaded for this page, making it an in-memory lookup rather than
+  // a reason to denormalise two more fields onto every survey document.
+  const siteById = useMemo(() => {
+    const map = new Map<string, { city: string; projectId: string }>();
+    sites.forEach((site) => map.set(site.id, { city: site.city, projectId: site.projectId }));
+    return map;
+  }, [sites]);
+
+  const filteredSurveys = useMemo(() => {
+    // The Status filter offers TASK statuses; these are their survey
+    // equivalents. 'blocked' maps to nothing — a work order has no blocked
+    // state — so filtering by it correctly yields no surveys at all.
+    const SURVEY_STATUSES_FOR: Record<string, string[]> = {
+      pending: ['open'],
+      in_progress: ['in_progress'],
+      pending_approval: ['pending_approval'],
+      changes_requested: ['changes_requested'],
+      completed: ['approved', 'closed'],
+      blocked: [],
+      [APPROVED_SURVEYS_FILTER]: ['approved', 'closed'],
+    };
+
+    if (filterKind === 'tasks') return [];
+    return allSurveys.filter((sv) => {
+      const site = siteById.get(sv.siteId);
+      if (filterCity && site?.city !== filterCity) return false;
+      if (filterProject && site?.projectId !== filterProject) return false;
+      if (filterEngineer && sv.assignedTo !== filterEngineer) return false;
+      if (filterVendor &&
+        (!sv.assignedTo || vendorByUid.get(sv.assignedTo) !== filterVendor)) return false;
+      if (filterStatus) {
+        const stageIndex = stageIndexFromFilter(filterStatus);
+        if (stageIndex !== null) {
+          // "Awaiting stage N" means the chain is parked there right now —
+          // still under review AND currentStageIndex points at it.
+          if (sv.status !== 'pending_approval' || sv.currentStageIndex !== stageIndex) return false;
+        } else if (!(SURVEY_STATUSES_FOR[filterStatus] ?? []).includes(sv.status)) {
+          return false;
+        }
+      }
+      if (filterFrom && fmtDate(sv.updatedAt) < filterFrom) return false;
+      if (filterTo && fmtDate(sv.updatedAt) > filterTo) return false;
+      return true;
+    });
+  }, [
+    allSurveys, siteById, filterKind, filterCity, filterProject, filterEngineer,
+    filterVendor, vendorByUid, filterStatus, filterFrom, filterTo,
+  ]);
 
   // ── Chart data from filtered tasks ────────────────────────────────────────
-  const { byStatus, byType, byEngineer, summary } = useReports(filteredTasks);
+  const { byStatus, byType, byEngineer, summary } = useReports(filteredTasks, filteredSurveys);
+
+  /**
+   * How many surveys are parked at each approval stage right now.
+   *
+   * Counted off filteredSurveys, so every other filter (vendor, city, date…)
+   * narrows these too, and their sum always equals the survey share of the
+   * Pending Approval tile.
+   *
+   * An out-of-range currentStageIndex is ignored rather than clamped: a fully
+   * approved survey carries index === stage count, and bucketing that into
+   * "Final Approver" would report work as waiting when it is finished.
+   */
+  const byStage = useMemo(() => {
+    const counts = SURVEY_APPROVAL_STAGES.map(() => 0);
+    filteredSurveys.forEach((sv) => {
+      if (sv.status !== 'pending_approval') return;
+      const i = sv.currentStageIndex;
+      if (i >= 0 && i < counts.length) counts[i] += 1;
+    });
+    return counts;
+  }, [filteredSurveys]);
+
+  /** Surveys that have cleared every stage — same statuses as Completed. */
+  const approvedSurveyCount = useMemo(
+    () => filteredSurveys.filter((sv) => sv.status === 'approved' || sv.status === 'closed').length,
+    [filteredSurveys],
+  );
 
   // ── Submission history — filtered tasks that have been submitted ──────────
   const submittedTasks = useMemo(() => {
@@ -266,7 +411,7 @@ export function ReportsPage() {
   // ── Sites by City chart — filtered from siteStore ─────────────────────────
   const citySiteData = useMemo(() => {
     const filtered = activeSites.filter((s) => {
-      if (filterCity    && s.city      !== filterCity)    return false;
+      if (filterCity && s.city !== filterCity) return false;
       if (filterProject && s.projectId !== filterProject) return false;
       return true;
     });
@@ -283,16 +428,16 @@ export function ReportsPage() {
   // ── Completion Rate by Site — top 10 ──────────────────────────────────────
   const siteCompletionData = useMemo(() => {
     const filtered = activeSites.filter((s) => {
-      if (filterCity    && s.city      !== filterCity)    return false;
+      if (filterCity && s.city !== filterCity) return false;
       if (filterProject && s.projectId !== filterProject) return false;
       return s.taskCount > 0;
     });
     return filtered
       .map((s) => ({
-        siteCode:  s.siteCode,
-        rate:      Math.round((s.completedTaskCount / s.taskCount) * 100),
+        siteCode: s.siteCode,
+        rate: Math.round((s.completedTaskCount / s.taskCount) * 100),
         completed: s.completedTaskCount,
-        total:     s.taskCount,
+        total: s.taskCount,
       }))
       .sort((a, b) => b.rate - a.rate)
       .slice(0, 10);
@@ -301,22 +446,86 @@ export function ReportsPage() {
   // ── CSV export ────────────────────────────────────────────────────────────
   function handleExport() {
     exportToCsv('fieldops-submissions', submittedTasks.map((t) => ({
-      'Date/Time':      fmt(t.submittedAt!),
-      'Task Key':       t.taskKey,
-      'Task Label':     t.taskLabel,
-      'Site Code':      t.siteCode,
-      'City':           t.city,
-      'Project':        t.projectName,
-      'Engineer':       t.assignedToName ?? '',
-      'Status':         t.status,
+      'Date/Time': fmt(t.submittedAt!),
+      'Task Key': t.taskKey,
+      'Task Label': t.taskLabel,
+      'Site Code': t.siteCode,
+      'City': t.city,
+      'Project': t.projectName,
+      'Engineer': t.assignedToName ?? '',
+      'Status': t.status,
       'Blocked Reason': t.blockedReason ?? '',
-      'Photos':         t.completionPhotos.length,
-      'Latitude':       t.location?.lat ?? '',
-      'Longitude':      t.location?.lng ?? '',
+      'Photos': t.completionPhotos.length,
+      'Latitude': t.location?.lat ?? '',
+      'Longitude': t.location?.lng ?? '',
     })));
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
+  /**
+   * Exports what is currently on screen.
+   *
+   * Passes the ALREADY FILTERED arrays, so the workbook can never disagree
+   * with the filter bar — and writes the active filters into the Summary
+   * sheet so the file still explains itself once it has been sent on.
+   */
+
+  async function handleExcelExport() {
+    setExporting(true);
+    try {
+      const userNameByUid = new Map(users.map((u) => [u.id, u.name]));
+      const vendorNameByUid = new Map(
+        users
+          .filter((u) => vendorIdOf(u))
+          .map((u) => [
+            u.id,
+            u.vendorName ?? vendors.find((v) => v.id === vendorIdOf(u))?.vendorName ?? '',
+          ]),
+      );
+      const siteMetaById = new Map(
+        sites.map((site) => [site.id, { city: site.city, projectName: site.projectName }]),
+      );
+
+      const kindLabel = { all: 'All', surveys: 'Surveys', tasks: 'Tasks Only' }[filterKind];
+      const activeFilters: { label: string; value: string }[] = [];
+      if (filterKind !== 'all') activeFilters.push({ label: 'Task Type', value: kindLabel });
+      if (filterCity) activeFilters.push({ label: 'City', value: filterCity });
+      if (filterProject) activeFilters.push({
+        label: 'Project',
+        value: uniqueProjects.find((p) => p.id === filterProject)?.name ?? filterProject,
+      });
+      if (filterVendor) activeFilters.push({
+        label: 'Vendor',
+        value: vendors.find((v) => v.id === filterVendor)?.vendorName ?? filterVendor,
+      });
+      if (filterEngineer) activeFilters.push({
+        label: 'Engineer',
+        value: userNameByUid.get(filterEngineer) ?? filterEngineer,
+      });
+      if (filterStatus) activeFilters.push({
+        label: 'Status',
+        value: STATUS_OPTIONS.find((o) => o.value === filterStatus)?.label ?? filterStatus,
+      });
+      if (filterFrom) activeFilters.push({ label: 'Updated from', value: filterFrom });
+      if (filterTo) activeFilters.push({ label: 'Updated to', value: filterTo });
+
+      await exportReportsExcel({
+        tasks: filteredTasks,
+        surveys: filteredSurveys,
+        userNameByUid,
+        vendorNameByUid,
+        siteMetaById,
+        activeFilters,
+      });
+      showToast('Excel export downloaded', 'success');
+    } catch (err) {
+      console.error('[ReportsPage] excel export failed:', err);
+      showToast('Export failed. Try again.', 'error');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="max-w-6xl mx-auto space-y-6">
 
@@ -326,6 +535,27 @@ export function ReportsPage() {
           <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-0.5">Reports</h2>
           <p className="text-sm text-gray-400">Live data — updates in real time</p>
         </div>
+
+        {/* Exports the filtered view, not the whole collection. Disabled when
+            there is nothing on screen, so it can never produce an empty file. */}
+        <button
+          type="button"
+          onClick={handleExcelExport}
+          disabled={exporting || (filteredTasks.length === 0 && filteredSurveys.length === 0)}
+          className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-blue px-3.5 py-2 text-sm font-medium text-white transition-colors hover:bg-brand-navy disabled:cursor-not-allowed disabled:bg-gray-300"
+        >
+          {exporting ? (
+            <>
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              Exporting…
+            </>
+          ) : (
+            <>
+              <Download className="h-4 w-4" />
+              Export Formatted Excel
+            </>
+          )}
+        </button>
       </div>
 
       {/* ── Global filter bar ─────────────────────────────────────────────── */}
@@ -341,6 +571,13 @@ export function ReportsPage() {
         </div>
 
         <div className="flex flex-wrap gap-3 items-end">
+          {/* Task Type — scopes the whole page to tasks, surveys or both. */}
+          <FilterSelect label="Task Type" value={filterKind} onChange={(v) => setFilterKind(v as typeof filterKind)}>
+            <option value="all">All</option>
+            <option value="surveys">Surveys</option>
+            <option value="tasks">Tasks Only</option>
+          </FilterSelect>
+
           {/* City */}
           {uniqueCities.length > 0 && (
             <FilterSelect label="City" value={filterCity} onChange={setFilterCity}>
@@ -373,13 +610,16 @@ export function ReportsPage() {
             </FilterSelect>
           )}
 
-          {/* Engineer */}
-          <FilterSelect label="Engineer" value={filterEngineer} onChange={setFilterEngineer}>
-            <option value="">All engineers</option>
-            {fieldUsers.map((u) => (
-              <option key={u.id} value={u.id}>{u.name}</option>
-            ))}
-          </FilterSelect>
+          {/* Engineer — appears only once a vendor is chosen, and lists that
+              vendor's engineers, so it reads as "drill into this vendor". */}
+          {filterVendor && (
+            <FilterSelect label="Engineer" value={filterEngineer} onChange={setFilterEngineer}>
+              <option value="">All engineers</option>
+              {fieldUsers.map((u) => (
+                <option key={u.id} value={u.id}>{u.name}</option>
+              ))}
+            </FilterSelect>
+          )}
 
           {/* Status */}
           <FilterSelect label="Status" value={filterStatus} onChange={setFilterStatus}>
@@ -436,20 +676,91 @@ export function ReportsPage() {
           {' '}of{' '}
           <span className="font-medium text-gray-600">{allTasks.length}</span>
           {' '}tasks
+          {filteredSurveys.length > 0 && (
+            <>
+              {' '}+{' '}
+              <span className="font-medium text-gray-600">{filteredSurveys.length}</span>
+              {' '}survey{filteredSurveys.length !== 1 ? 's' : ''}
+            </>
+          )}
           {hasFilters && ' matching current filters'}
         </p>
       </div>
 
       {/* Summary stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
-        <StatCard label="Total Tasks"        value={summary.total}            accent="#9CA3AF" />
-        <StatCard label="Completed"          value={summary.completed}        accent="#2A9D8F" />
-        <StatCard label="In Progress"        value={summary.inProgress}       accent="#F4A261" />
-        <StatCard label="Pending Approval"   value={summary.pendingApproval}  accent="#8B5CF6" />
-        <StatCard label="Changes Requested"  value={summary.changesRequested} accent="#F97316" />
-        <StatCard label="Blocked"            value={summary.blocked}          accent="#E63946" />
-        <StatCard label="Overdue"            value={summary.overdue}          accent="#7C3AED" />
+        <StatCard label="Total Tasks" value={summary.total} accent="#9CA3AF" />
+        <StatCard label="Completed" value={summary.completed} accent="#2A9D8F" />
+        <StatCard label="In Progress" value={summary.inProgress} accent="#F4A261" />
+        <StatCard label="Pending Approval" value={summary.pendingApproval} accent="#8B5CF6" />
+        <StatCard label="Changes Requested" value={summary.changesRequested} accent="#F97316" />
+        <StatCard label="Blocked" value={summary.blocked} accent="#E63946" />
+        <StatCard label="Overdue" value={summary.overdue} accent="#7C3AED" />
       </div>
+
+      {/* ── Approval stages ──
+          Surveys only, and said so in the caption rather than left to be
+          inferred: a site task has a single approver and no chain, so it can
+          never appear here. Hidden entirely when no survey is in review, so an
+          all-zero row never implies work that does not exist. */}
+      {(byStage.some((n) => n > 0) || approvedSurveyCount > 0) && (
+        <div>
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
+            Survey approvals, by stage
+          </p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {SURVEY_APPROVAL_STAGES.map((stage, i) => (
+              <button
+                key={stage.key}
+                type="button"
+                onClick={() => setFilterStatus(
+                  filterStatus === stageFilterValue(i) ? '' : stageFilterValue(i),
+                )}
+                aria-pressed={filterStatus === stageFilterValue(i)}
+                className={cn(
+                  'rounded-xl border bg-white px-4 py-3 text-left transition-colors',
+                  filterStatus === stageFilterValue(i)
+                    ? 'border-brand-blue ring-1 ring-brand-blue/20'
+                    : 'border-gray-100 hover:border-gray-300',
+                )}
+                style={{ borderTopColor: '#8B5CF6', borderTopWidth: 2 }}
+              >
+                <p className="text-2xl font-bold text-gray-900">{byStage[i]}</p>
+                <p className="text-xs text-gray-500">{stage.label}</p>
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setFilterStatus(
+                filterStatus === APPROVED_SURVEYS_FILTER ? '' : APPROVED_SURVEYS_FILTER,
+              )}
+              aria-pressed={filterStatus === APPROVED_SURVEYS_FILTER}
+              className={cn(
+                'rounded-xl border bg-white px-4 py-3 text-left transition-colors',
+                filterStatus === APPROVED_SURVEYS_FILTER
+                  ? 'border-brand-blue ring-1 ring-brand-blue/20'
+                  : 'border-gray-100 hover:border-gray-300',
+              )}
+              style={{ borderTopColor: '#2A9D8F', borderTopWidth: 2 }}
+            >
+              <p className="text-2xl font-bold text-gray-900">{approvedSurveyCount}</p>
+              <p className="text-xs text-gray-500">Approved</p>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* The tiles count surveys as well as tasks; the charts are task-only.
+          Left unsaid, the two disagree and the page reads as broken — and
+          under "Surveys" the charts empty out entirely, which looks worse. */}
+      {summary.surveyCount > 0 && (
+        <p className="-mt-1 text-xs text-gray-400">
+          Totals and Tasks by Status include {summary.surveyCount} survey
+          {summary.surveyCount !== 1 ? 's' : ''}. Tasks by Type and Engineer
+          Performance cover site tasks only
+          {filterKind === 'surveys' ? ', so they are empty here' : ''}.
+        </p>
+      )}
 
       {/* Charts — 3×2 grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
