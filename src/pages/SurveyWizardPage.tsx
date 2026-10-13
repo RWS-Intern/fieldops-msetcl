@@ -25,7 +25,6 @@ import {
   recordTouches, composeTouched, adoptWithTouches,
   type FieldSignatures, type TouchedInputs,
 } from '@/lib/surveyDelta';
-import { stripLocalPhotoRefs as stripLocalRefsForSync } from '@/lib/surveySubmitQueue';
 import { useDebouncedRemoteSave } from '@/hooks/useDebouncedRemoteSave';
 import { useFeatureFlags } from '@/hooks/useFeatureFlags';
 import { usePendingPhotos } from '@/hooks/usePendingPhotos';
@@ -448,7 +447,7 @@ export function SurveyWizardPage() {
       // operated on here laid over it. Anything not touched on this device is
       // the server's own value, so it can never be overwritten from here.
       const composed = composeTouched(survey, merged, touchedRef.current);
-      const payload = buildAutosavePayload(stripLocalRefsForSync(composed), token) as Record<string, unknown>;
+      const payload = buildAutosavePayload(stripLocalPhotoRefs(composed), token) as Record<string, unknown>;
 
       // ONLY changed fields, on every path — see planAutosave. A device that
       // has not typed anything writes nothing, so opening the survey on another
@@ -537,7 +536,7 @@ export function SurveyWizardPage() {
   // Per-field signatures of what this device believes is on the server — the
   // basis for both delta saves and per-field adopt.
   const sigsOf = (data: SurveyReport): FieldSignatures =>
-    signFields(buildAutosavePayload(stripLocalRefsForSync(data), '') as Record<string, unknown>);
+    signFields(buildAutosavePayload(stripLocalPhotoRefs(data), '') as Record<string, unknown>);
 
   // Runs on EVERY server snapshot (own echoes included), so the known-server
   // state never goes stale. Adopts only fields the other device changed that

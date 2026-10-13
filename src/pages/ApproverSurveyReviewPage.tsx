@@ -80,12 +80,43 @@ function stageDisplayState(
   return 'current';
 }
 
+/**
+ * Pill colours by stage state. The pill the user has CLICKED is always solid
+ * blue (the active tab); the live stage, when not the clicked one, is a light
+ * blue so it still stands out.
+ */
 const STAGE_PILL_CLASS: Record<StageDisplayState, string> = {
   approved: 'bg-green-50 text-green-700',
-  current: 'bg-brand-blue text-white',
+  current: 'bg-blue-50 text-brand-blue',
   sent_back: 'bg-orange-50 text-orange-700',
-  pending: 'bg-gray-100 text-gray-400',
+  // Readable, not faded out — later stages must be visible at a glance.
+  pending: 'bg-gray-100 text-gray-600',
 };
+const ACTIVE_PILL_CLASS = 'bg-brand-blue text-white';
+
+const STAGE_STATE_TEXT: Record<StageDisplayState, string> = {
+  approved: 'Approved',
+  current: 'Awaiting review',
+  sent_back: 'Changes requested',
+  pending: 'Not reached yet',
+};
+
+/**
+ * TEMPORARY display names, by position. Pills read "Approver Level N"; the
+ * designation shows in the line below once a pill is clicked.
+ *
+ * Display-only: the stored chain (3 stages, their keys and labels, and
+ * everything firestore.rules checks) is untouched — remove these constants
+ * to restore the originals.
+ */
+const TEMP_STAGE_DESIGNATIONS: readonly string[] = [
+  'Approver Level 1',
+  'EE PAC',
+  'SE PAC (CO)',
+  'CE-ACID',
+];
+const pillLabelAt = (i: number) => `Approver Level ${i + 1}`;
+const designationAt = (i: number) => TEMP_STAGE_DESIGNATIONS[i] ?? pillLabelAt(i);
 
 function StageIndicator({
   stages, currentStageIndex, docStatus,
@@ -94,36 +125,46 @@ function StageIndicator({
   currentStageIndex: number;
   docStatus: WorkOrderStatus;
 }) {
+  // The clicked pill. null = the live stage, so it opens on the stage at work.
+  const [selected, setSelected] = useState<number | null>(null);
   if (stages.length === 0) return null;
   const complete = currentStageIndex >= stages.length;
+  // Pills beyond the real chain (TEMPORARY): shown, but have no owner or action.
+  const pillCount = Math.max(stages.length, TEMP_STAGE_DESIGNATIONS.length);
+  const active = selected ?? (complete ? null : currentStageIndex);
+
+  const stateAt = (i: number): StageDisplayState => {
+    if (!stages[i]) return 'pending';
+    return complete ? 'approved' : stageDisplayState(i, currentStageIndex, docStatus, stages[i].status);
+  };
+
+  function details(): string {
+    if (active === null) return 'All approval stages cleared.';
+    const stage = stages[active];
+    if (!stage) return `${designationAt(active)} — not part of the approval chain yet`;
+    return `${designationAt(active)} — ${stage.ownerName ?? 'no owner assigned'} · ${STAGE_STATE_TEXT[stateAt(active)]}`;
+  }
 
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex flex-wrap gap-1.5">
-        {stages.map((stage, i) => {
-          const state = complete
-            ? 'approved'
-            : stageDisplayState(i, currentStageIndex, docStatus, stage.status);
-          return (
-            <span
-              key={stage.stageKey}
-              className={cn(
-                'text-[10px] px-2 py-0.5 rounded-full font-medium',
-                STAGE_PILL_CLASS[state],
-              )}
-              title={stage.ownerName ?? 'No owner assigned'}
-            >
-              {i + 1}. {stage.stageLabel}
-            </span>
-          );
-        })}
+        {Array.from({ length: pillCount }, (_, i) => (
+          <button
+            key={stages[i]?.stageKey ?? `extra_${i}`}
+            type="button"
+            onClick={() => setSelected(i)}
+            aria-pressed={active === i}
+            className={cn(
+              'text-[10px] px-2 py-0.5 rounded-full font-medium transition-colors',
+              active === i ? ACTIVE_PILL_CLASS : STAGE_PILL_CLASS[stateAt(i)],
+            )}
+            title={designationAt(i)}
+          >
+            {i + 1}. {pillLabelAt(i)}
+          </button>
+        ))}
       </div>
-      <p className="text-xs text-gray-500">
-        {complete
-          ? 'All approval stages cleared.'
-          : `${stages[currentStageIndex]?.stageLabel ?? 'Current stage'} — ${stages[currentStageIndex]?.ownerName ?? 'no owner assigned'
-          }`}
-      </p>
+      <p className="text-xs text-gray-500">{details()}</p>
     </div>
   );
 }

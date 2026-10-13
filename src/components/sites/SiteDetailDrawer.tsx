@@ -198,6 +198,17 @@ export function SiteDetailDrawer({
     return [...(project?.taskTemplates ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
   }, [projects, site.projectId]);
 
+  // Tasks in the PROJECT's order (its templates' sortOrder) — never alphabetical.
+  // useSiteTasks returns them sorted by taskKey, which put "Site Commissioning"
+  // ahead of "Site Installation". A task whose template has since been removed
+  // from the project goes last, in the order it was added.
+  const orderedSiteTasks = useMemo(() => {
+    const position = new Map(projectTemplates.map((t, i) => [t.taskKey, i]));
+    const rank = (key: string) => position.get(key) ?? projectTemplates.length;
+    return [...siteTasks].sort((a, b) =>
+      rank(a.taskKey) - rank(b.taskKey) || a.createdAt.getTime() - b.createdAt.getTime());
+  }, [siteTasks, projectTemplates]);
+
   // A template already on this site can never be added again — one Material
   // Delivery per site, not two. Keyed on taskKey, which is what addSiteTask
   // derives its document id from, so this mirrors the structural guard there.
@@ -567,7 +578,7 @@ export function SiteDetailDrawer({
               </p>
             ) : (
               <div className="flex flex-col gap-3">
-                {siteTasks.map((task) => (
+                {orderedSiteTasks.map((task) => (
                   <SiteTaskRow
                     key={task.id}
                     task={task}

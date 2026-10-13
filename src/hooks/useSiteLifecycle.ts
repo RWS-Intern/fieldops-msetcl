@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { doc, collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '@/firebase/config';
 import { mapWorkOrder } from '@/hooks/useAssignedWorkOrders';
+import { useProjectStore } from '@/store/projectStore';
 import type {
   Site, SiteStatus, TaskStatus, TaskTemplate, WorkOrderStage, WorkOrderStatus,
 } from '@/types';
@@ -233,12 +234,41 @@ export function useSiteLifecycle(siteId: string | undefined): SiteLifecycle {
     return () => unsubscribe?.();
   }, [siteId]);
 
-  // Newest first — one merged timeline.
-  const entries = [...workOrders, ...siteTasks].sort(
-    (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime(),
+  // Same order as the stage tiles: surveys first, then site tasks in the
+  // PROJECT's task order — see orderLifecycleEntries.
+  const { projects } = useProjectStore();
+  const templates = useMemo(
+    () => projects.find((p) => p.id === site?.projectId)?.taskTemplates ?? [],
+    [projects, site?.projectId],
+  );
+  const entries = useMemo(
+    () => orderLifecycleEntries([...workOrders, ...siteTasks], templates),
+    [workOrders, siteTasks, templates],
   );
 
   return { site, entries, loading, error };
+}
+
+/**
+ * Lifecycle order, matching the stage tiles (summariseLifecycle):
+ *   1. work orders (the Survey),
+ *   2. site tasks in the project's template sortOrder,
+ *   3. a task whose template was removed from the project, last.
+ * Within one group — several surveys, or two instances of one task type —
+ * newest first, so [0] of a group is still its latest item; the tiles read
+ * their status from exactly that.
+ */
+export function orderLifecycleEntries(
+  entries: readonly LifecycleEntry[],
+  taskTemplates: readonly TaskTemplate[],
+): LifecycleEntry[] {
+  const sorted = [...taskTemplates].sort((a, b) => a.sortOrder - b.sortOrder);
+  const position = new Map(sorted.map((t, i) => [t.taskKey, i]));
+  const rank = (e: LifecycleEntry) => e.kind === 'workOrder'
+    ? -1
+    : position.get(e.taskKey ?? '') ?? sorted.length;
+  return [...entries].sort((a, b) =>
+    rank(a) - rank(b) || b.updatedAt.getTime() - a.updatedAt.getTime());
 }
 
 // ─── Stage helpers ────────────────────────────────────────────────────────────

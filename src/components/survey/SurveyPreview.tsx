@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, FileText, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import {
   LEGACY_COMBINED_VOLTAGE_LABEL,
 } from '@/lib/surveyLabels';
 import { SurveyPhotoThumb } from './SurveyPhotoThumb';
+import { PhotoLightbox } from './PhotoLightbox';
 import { SignaturePad } from './SignaturePad';
 import { DrawingTitleBlock } from './DrawingTitleBlock';
 import {
@@ -120,20 +121,32 @@ function PdfCard({ reference }: { reference: string }) {
 }
 
 function PhotoGrid({ refs }: { refs: string[] }) {
+  // Clicking a photo opens it full size; the viewer steps through this grid's
+  // photos only (PDFs keep opening in a new tab, as before).
+  const [viewing, setViewing] = useState<number | null>(null);
+  const photos = refs.filter((ref) => !isPdfRef(ref));
+
   if (refs.length === 0) {
     return <p className="text-xs text-gray-400 italic">No photos.</p>;
   }
   return (
     <div className="flex flex-wrap gap-2">
+      <PhotoLightbox refs={photos} index={viewing} onIndexChange={setViewing} />
       {refs.map((ref) => (
         // Only the signed-page field can hold a PDF; every other caller passes
         // photos alone, so this branch is inert for them.
         isPdfRef(ref) ? (
           <PdfCard key={ref} reference={ref} />
         ) : (
-          <div key={ref} className="h-20 w-20 rounded-lg overflow-hidden border border-gray-200 shrink-0 break-inside-avoid">
+          <button
+            key={ref}
+            type="button"
+            onClick={() => setViewing(photos.indexOf(ref))}
+            aria-label="View photo full size"
+            className="h-20 w-20 rounded-lg overflow-hidden border border-gray-200 shrink-0 break-inside-avoid cursor-zoom-in hover:border-brand-blue focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue"
+          >
             <SurveyPhotoThumb reference={ref} className="h-full w-full" />
-          </div>
+          </button>
         )
       ))}
     </div>

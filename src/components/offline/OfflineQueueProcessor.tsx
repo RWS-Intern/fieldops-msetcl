@@ -1,8 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
-import { getAllQueued, dequeueUpdate } from '@/hooks/useOfflineQueue';
+import { getAllQueued, dequeueUpdate, useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTaskActions } from '@/hooks/useTaskActions';
-import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { _emitToast } from '@/components/ui/toast';
 
 /**

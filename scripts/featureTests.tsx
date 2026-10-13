@@ -27,7 +27,7 @@ import { backoffDelay, claimPhoto, releasePhoto, _resetUploaderForTests } from '
 import { mergePhotoFields, removedRefs } from '@/lib/surveyPhotoMerge';
 import { signFields, changedFields, adoptRemoteFields, shieldFilledAnswers } from '@/lib/surveyDelta';
 
-import { summariseLifecycle, WORK_ORDER_STAGE_LABEL } from '@/hooks/useSiteLifecycle';
+import { summariseLifecycle, orderLifecycleEntries, WORK_ORDER_STAGE_LABEL } from '@/hooks/useSiteLifecycle';
 import { SURVEY_APPROVAL_STAGES, SURVEY_APPROVAL_STAGE_COUNT } from '@/lib/approvalStages';
 import type { LifecycleEntry } from '@/hooks/useSiteLifecycle';
 import { SUPPLY_BOQ_MASTER, BOQ_DERIVED_ITEMS, createEmptySurveyReport } from '@/lib/boqMaster';
@@ -207,6 +207,35 @@ function testProjectCreation(): void {
   eq('lifecycle tiles follow template sortOrder',
     ordered.filter((t) => t.kind === 'siteTask').map((t) => t.label),
     ['First', 'Second', 'Third']);
+
+  // Lifecycle list + timeline use the SAME order as the tiles — not newest
+  // first. Data from G462: Commissioning was updated most recently, Material
+  // Delivery least, yet the list must read Survey > MD > Installation > Commissioning.
+  const at = (d: string) => new Date(d);
+  const g462 = [
+    template({ taskKey: 'matdel',  label: 'Material Delivery',   sortOrder: 0 }),
+    template({ taskKey: 'sitinst', label: 'Site Installation',   sortOrder: 1 }),
+    template({ taskKey: 'siteco',  label: 'Site Commissioning',  sortOrder: 2 }),
+  ];
+  const listed = orderLifecycleEntries([
+    entry({ id: 'co', kind: 'siteTask', taskKey: 'siteco',  label: 'Site Commissioning', updatedAt: at('2026-10-13T14:33Z') }),
+    entry({ id: 'in', kind: 'siteTask', taskKey: 'sitinst', label: 'Site Installation',  updatedAt: at('2026-10-13T14:32Z') }),
+    entry({ id: 'sv', kind: 'workOrder', taskKey: null, stage: 'survey', label: 'Survey', updatedAt: at('2026-10-03T13:01Z') }),
+    entry({ id: 'md', kind: 'siteTask', taskKey: 'matdel',  label: 'Material Delivery',  updatedAt: at('2026-09-28T22:57Z') }),
+  ], g462);
+  eq('lifecycle list follows the tile order, not update time', listed.map((e) => e.label),
+    ['Survey', 'Material Delivery', 'Site Installation', 'Site Commissioning']);
+  eq('tiles and list agree', summariseLifecycle(listed, g462).map((t) => t.label),
+    ['Survey', 'Material Delivery', 'Site Installation', 'Site Commissioning']);
+  const twoSurveys = orderLifecycleEntries([
+    entry({ id: 'old', kind: 'workOrder', taskKey: null, updatedAt: at('2026-01-01T00:00Z') }),
+    entry({ id: 'new', kind: 'workOrder', taskKey: null, updatedAt: at('2026-06-01T00:00Z') }),
+  ], g462);
+  eq('within one group the newest stays first (tiles read [0])', twoSurveys.map((e) => e.id), ['new', 'old']);
+  eq('a task whose template was removed goes last', orderLifecycleEntries([
+    entry({ id: 'gone', kind: 'siteTask', taskKey: 'removed', updatedAt: at('2026-12-01T00:00Z') }),
+    entry({ id: 'md2',  kind: 'siteTask', taskKey: 'matdel',  updatedAt: at('2026-01-01T00:00Z') }),
+  ], g462).map((e) => e.id), ['md2', 'gone']);
 }
 
 // ─── 3. Reporting ─────────────────────────────────────────────────────────────
