@@ -20,7 +20,8 @@
     "fix:users": "npx ts-node --esm scripts/fixUsers.ts",
     "init:v3-counters": "npx ts-node --esm scripts/initV3Counters.ts",
     "migrate:engineer-codes": "npx ts-node --esm scripts/migrateEngineerCodes.ts",
-    "test:features": "node scripts/runFeatureTests.mjs"
+    "test:features": "node scripts/runFeatureTests.mjs",
+    "test:rules:ci": "firebase emulators:exec --only firestore --project demo-rules-test \"npm --prefix tests/rules test\""
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
