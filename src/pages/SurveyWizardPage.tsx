@@ -200,6 +200,19 @@ export function SurveyWizardPage() {
    */
   const [noDraftFound, setNoDraftFound] = useState(false);
   const [noDraftNoticeDismissed, setNoDraftNoticeDismissed] = useState(false);
+  /**
+   * A draft DOES exist on this device, but chooseDraftSource picked the
+   * server's copy because another device pushed more recently.
+   *
+   * Tracked separately from `noDraftFound` because the two are opposite facts
+   * that used to share one branch: the restore effect's `else` set
+   * `noDraftFound` for both, so an engineer whose work had been superseded was
+   * told "No draft found on this device" when there was one. That reads as
+   * "your work is gone" at exactly the moment it has not been — the cloud copy
+   * is newer, and the local one was simply not needed.
+   */
+  const [cloudCopyUsed, setCloudCopyUsed] = useState(false);
+  const [cloudCopyNoticeDismissed, setCloudCopyNoticeDismissed] = useState(false);
   const [discardConfirm, setDiscardConfirm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showValidationSummary, setShowValidationSummary] = useState(false);
@@ -289,7 +302,13 @@ export function SurveyWizardPage() {
           setDraftInfo({ updatedAt: draft.updatedAt });
         } else {
           setSurveyData(survey);
-          setNoDraftFound(true);
+          // Two different facts, two different notices. `noDraftFound` means
+          // this device genuinely holds nothing; a draft that exists but lost
+          // to a newer cloud copy is the opposite situation and gets its own
+          // message. Deciding on `draft` alone — never on `source` — keeps
+          // this correct whichever way chooseDraftSource is extended later.
+          if (draft) setCloudCopyUsed(true);
+          else setNoDraftFound(true);
         }
       } catch (err) {
         console.error('[SurveyWizardPage] draft load failed:', err);
@@ -374,6 +393,224 @@ export function SurveyWizardPage() {
       }
     })();
   }, [survey, currentUser]);
+
+  // ── Debounced REMOTE autosave — makes the work survive the device ─────────
+  //
+  // The local draft below is the crash buffer; this is the slower push that
+  // lets an engineer resume on another device. Behind a kill switch, and OFF
+  // unless an admin turns it on — see AppConfig.surveyRemoteAutosaveEnabled.
+  //
+  // Only the assigned engineer writes. An admin or approver opening a survey
+  // to look at it must never mutate it by observation, which is the same rule
+  // ensureInProgress above is built around.
+  const remoteAutosaveEnabled =
+    featureFlags.surveyRemoteAutosaveEnabled
+    && !!survey
+    && !!currentUser
+    && survey.assignedTo === currentUser.uid
+    && (survey.status === 'open'
+      || survey.status === 'in_progress'
+      || survey.status === 'changes_requested');
+
+  // Derived from the content, so a new edit path added later cannot forget to
+  // mark the survey dirty. useMemo keys it on the survey object, so the walk
+  // runs once per edit rather than once per render.
+  const dataSignature = useMemo(
+    () => (surveyData ? surveySignature(surveyData) : ''),
+    [surveyData],
+  );
+
+  const remoteSave = useDebouncedRemoteSave({
+    enabled: remoteAutosaveEnabled && localReady && !!surveyData,
+    signature: dataSignature,
+    // Near-real-time: ~2s after typing stops, never more than 8s while typing.
+    // Affordable because each save is now a small delta, not the whole survey.
+    debounceMs: 2_000,
+    maxWaitMs: 8_000,
+    save: async () => {
+      if (!survey || !surveyData) return;
+      // uuid, not crypto.randomUUID: the latter is undefined outside a secure
+      // context — including a phone reaching the dev server over plain http.
+      const token = uuidv4();
+      lastPushedTokenRef.current = token;
+      // Photos are merged, not replaced: the server may hold photos another
+      // device added since this one last adopted. local:// refs are stripped —
+      // they are blobs on this device only and would reach others as broken.
+      // SHIELD: never blank an answer this device has never seen filled.
+      const base = serverBaseRef.current ?? survey;
+      const shielded = shieldFilledAnswers(surveyData, survey, base);
+      if (shielded !== surveyData) {
+        // Show the protected answers here too, so the screen matches the server.
+        setSurveyData((prev) => (prev ? shieldFilledAnswers(prev, survey, base) : prev));
+      }
+      const merged = mergePhotoFields(shielded, survey);
+      // PER-INPUT: the latest server copy with ONLY the inputs the user
+      // operated on here laid over it. Anything not touched on this device is
+      // the server's own value, so it can never be overwritten from here.
+      const composed = composeTouched(survey, merged, touchedRef.current);
+      const payload = buildAutosavePayload(stripLocalRefsForSync(composed), token) as Record<string, unknown>;
+
+      // ONLY changed fields, on every path — see planAutosave. A device that
+      // has not typed anything writes nothing, so opening the survey on another
+      // device (even from a stale offline copy) can never overwrite it.
+      const plan = planAutosave(payload, serverSigsRef.current, survey.status, new Set(touchedRef.current.keys()));
+      // Touched inputs are now either sent or already equal to the server, so
+      // they leave the set — except a field still holding an un-uploaded photo,
+      // which stays protected until the upload lands. An edit made while this
+      // save is in the air re-records itself; a failed save puts these back.
+      const released: TouchedInputs = new Map();
+      for (const [k, paths] of touchedRef.current) {
+        if (holdsLocalPhoto((merged as unknown as Record<string, unknown>)[k])) continue;
+        released.set(k, paths);
+        touchedRef.current.delete(k);
+      }
+      const restoreTouches = () => {
+        for (const [k, paths] of released) {
+          const m = touchedRef.current.get(k) ?? new Map();
+          for (const [id, path] of paths) m.set(id, path);
+          touchedRef.current.set(k, m);
+        }
+      };
+      if (plan.kind === 'skip') {
+        lastPushedTokenRef.current = survey.draftSyncToken ?? null;
+        return;
+      }
+      const sentKeys = Object.keys(plan.fields).filter((k) => k !== 'draftSyncToken');
+      try {
+        if (plan.kind === 'fields') {
+          await writeSurveyFields(survey.id, plan.fields);
+        } else {
+          // open / changes_requested: saveProgress also performs the status
+          // transition the rules require — but with the delta, never the full survey.
+          await saveProgress(survey.id, {
+            workOrderId: survey.workOrderId,
+            data: plan.fields,
+            previousStatus: survey.status,
+          });
+        }
+      } catch (err) {
+        restoreTouches();
+        throw err;
+      }
+      // The server now holds what was SENT — untouched fields keep whatever
+      // the server had, so only the sent ones are recorded as changed.
+      serverSigsRef.current = new Map([...serverSigsRef.current, ...signFields(plan.fields)]);
+      const nextBase = { ...(serverBaseRef.current ?? survey) } as Record<string, unknown>;
+      for (const k of sentKeys) nextBase[k] = (composed as unknown as Record<string, unknown>)[k];
+      serverBaseRef.current = nextBase as unknown as SurveyReport;
+      // Show this device the photos it just merged in. Our own echo is skipped
+      // by the live effect below, so without this they would not appear here.
+      // Only when the merge actually changed the photo set: replacing the form
+      // state on every save re-rendered every input and felt like a refresh.
+      setSurveyData((prev) => {
+        if (!prev) return prev;
+        const next = mergePhotoFields(prev, merged);
+        const same =
+          JSON.stringify(photoRefsIn(next)) === JSON.stringify(photoRefsIn(prev))
+          && JSON.stringify(next.removedPhotoRefs ?? []) === JSON.stringify(prev.removedPhotoRefs ?? []);
+        return same ? prev : next;
+      });
+      // Written ONLY after a confirmed push — chooseDraftSource treats this
+      // marker as proof the server has this device's work, and setting it
+      // optimistically would let a genuinely newer remote copy be discarded.
+      if (workOrderId) await markDraftSynced(workOrderId, token);
+    },
+  });
+
+  // ── Live A↔B: adopt another device's save while this survey is open ──
+  // Latest save wins. Skipped while this device has unsent edits: those go out
+  // on the next save and the OTHER device adopts them instead, so neither
+  // side's newest typing is thrown away mid-keystroke.
+  const lastPushedTokenRef = useRef<string | null>(null);
+  // True once a save from ANOTHER device lands while this form is open — the
+  // exact situation that risks losing data. Cancel hides it for this visit.
+  const [otherDeviceActive, setOtherDeviceActive] = useState(false);
+  const [otherDeviceDismissed, setOtherDeviceDismissed] = useState(false);
+  // The exact inputs the user operated on HERE that have not reached the
+  // server yet. Only these are ever sent, and only these are kept over the
+  // server's values — see composeTouched / adoptWithTouches.
+  const touchedRef = useRef<TouchedInputs>(new Map());
+  // Per-field signatures of the last server version this device knows.
+  const serverSigsRef = useRef<FieldSignatures>(new Map());
+  // The server copy the form is built on — the shield's "what this device saw".
+  const serverBaseRef = useRef<SurveyReport | null>(null);
+  // Per-field signatures of what this device believes is on the server — the
+  // basis for both delta saves and per-field adopt.
+  const sigsOf = (data: SurveyReport): FieldSignatures =>
+    signFields(buildAutosavePayload(stripLocalRefsForSync(data), '') as Record<string, unknown>);
+
+  // Runs on EVERY server snapshot (own echoes included), so the known-server
+  // state never goes stale. Adopts only fields the other device changed that
+  // this device has not touched — typed answers are never overwritten.
+  useEffect(() => {
+    if (!remoteAutosaveEnabled || !localReady || !survey) return;
+
+    const known = serverSigsRef.current;
+    const serverSigs = sigsOf(survey);
+
+    // First snapshot after load: just record the baseline.
+    if (known.size === 0) {
+      serverSigsRef.current = serverSigs;
+      lastPushedTokenRef.current = survey.draftSyncToken ?? null;
+      return;
+    }
+
+    // A save from ANOTHER device (not our own echo) — for the warning only.
+    const tok = survey.draftSyncToken ?? null;
+    if (tok && tok !== lastPushedTokenRef.current) {
+      setOtherDeviceActive(true);
+      lastPushedTokenRef.current = tok;
+    }
+
+    setSurveyData((prev) => {
+      if (!prev) return prev;
+      const keys = [...serverSigs.keys()].filter((k) => k !== 'draftSyncToken');
+      const adopted = adoptWithTouches(prev, survey, keys, touchedRef.current);
+      const merged = mergePhotoFields(adopted, survey);
+      const photosSame =
+        JSON.stringify(photoRefsIn(merged)) === JSON.stringify(photoRefsIn(adopted))
+        && JSON.stringify(merged.removedPhotoRefs ?? []) === JSON.stringify(adopted.removedPhotoRefs ?? []);
+      // Untouched state is returned as-is so the form does not re-render.
+      if (adopted === prev && photosSame) return prev;
+      return photosSame ? adopted : merged;
+    });
+
+    serverSigsRef.current = serverSigs;
+    serverBaseRef.current = survey;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [survey]);
+
+  // A step change is a natural checkpoint and worth far more than any timer.
+  const lastFlushedStepRef = useRef(stepIndex);
+  useEffect(() => {
+    if (lastFlushedStepRef.current === stepIndex) return;
+    lastFlushedStepRef.current = stepIndex;
+    remoteSave.flush();
+  }, [stepIndex, remoteSave]);
+
+  // ── Background photo uploads land here while the wizard is open ──
+  // Applied to live state so the in-memory survey (the source of truth while
+  // open) never lags the uploader. Only claimed once the survey has loaded:
+  // claiming earlier would let the uploader treat an unapplied swap as done.
+  // Inert when the uploader switch is off — nothing dispatches the event.
+  useEffect(() => {
+    if (!workOrderId || !localReady) return;
+    const onUploaded = (e: Event) => {
+      const d = (e as CustomEvent<PhotoUploadedDetail>).detail;
+      if (d.workOrderId !== workOrderId) return;
+      setSurveyData((prev) => {
+        if (!prev) return prev;
+        const next = replaceLocalPhotoRef(prev, d.oldRef, d.newRef);
+        recordTouches(touchedRef.current, prev, next, PHOTO_FIELDS);
+        return next;
+      });
+      d.handled = true;
+    };
+    window.addEventListener(PHOTO_UPLOADED_EVENT, onUploaded);
+    return () => window.removeEventListener(PHOTO_UPLOADED_EVENT, onUploaded);
+  }, [workOrderId, localReady]);
+
+  const pendingPhotos = usePendingPhotos(workOrderId);
 
   // ── Debounced local draft autosave — every field change and every step change ──
   useEffect(() => {
@@ -595,6 +832,22 @@ export function SurveyWizardPage() {
     && !noDraftNoticeDismissed
     && neverSubmitted
     && survey.status === 'in_progress';
+
+  /**
+   * The cloud copy was opened in preference to this device's older draft.
+   *
+   * Same audience gate as the notice above — the assigned engineer, on a
+   * survey they can still edit. An admin, approver or viewer never filled
+   * this form on another device, so for them it would be noise about a draft
+   * that is not theirs. Deliberately NOT gated on neverSubmitted or on a
+   * particular status: unlike the no-draft case there is nothing ambiguous
+   * here, it is simply a fact about which copy is on screen.
+   */
+  const showCloudCopyNotice =
+    isAssignedEngineer
+    && !isReadOnly
+    && cloudCopyUsed
+    && !cloudCopyNoticeDismissed;
   // Stays visible while the engineer reworks and after status moves on to
   // in_progress — gating on the literal 'changes_requested' status would hide
   // the notes the moment ensureInProgress() flips it, which is the whole
@@ -665,8 +918,8 @@ export function SurveyWizardPage() {
       {remoteAutosaveEnabled && (remoteSave.error || (!isOnline && remoteSave.dirty)) && (
         <div
           className={`rounded-lg border px-3 py-2 text-xs ${remoteSave.error
-              ? 'border-amber-200 bg-amber-50 text-amber-800'
-              : 'border-blue-200 bg-blue-50 text-brand-blue'
+            ? 'border-amber-200 bg-amber-50 text-amber-800'
+            : 'border-blue-200 bg-blue-50 text-brand-blue'
             }`}
         >
           {!isOnline
@@ -676,6 +929,27 @@ export function SurveyWizardPage() {
       )}
 
       {/* Draft restored banner */}
+      {/* A newer copy from another device was opened instead of this one's
+          older draft. Blue, not amber: nothing is wrong and nothing needs
+          acting on — it only explains why the form may not look like the
+          engineer left it here. */}
+      {showCloudCopyNotice && (
+        <div className="flex items-start justify-between gap-2 rounded-lg bg-blue-50 border border-blue-200 px-3 py-2">
+          <p className="text-xs text-brand-blue">
+            Opened the latest version saved from another device. The older copy on this device was
+            not used.
+          </p>
+          <button
+            type="button"
+            onClick={() => setCloudCopyNoticeDismissed(true)}
+            aria-label="Dismiss"
+            className="shrink-0 rounded p-0.5 text-brand-blue hover:bg-blue-100"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* No draft on this device for a survey that was already started. */}
       {showNoDraftNotice && (
         <div className="flex items-start justify-between gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
@@ -695,7 +969,7 @@ export function SurveyWizardPage() {
         </div>
       )}
 
-      {draftInfo && !discardConfirm && (
+      {draftInfo && !discardConfirm && !featureFlags.surveyRemoteAutosaveEnabled && (
         <div className="flex items-center justify-between gap-2 rounded-lg bg-blue-50 border border-blue-200 px-3 py-2">
           <span className="text-xs text-brand-blue">
             Draft restored — last saved {formatTime(draftInfo.updatedAt)}
