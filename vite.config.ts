@@ -21,6 +21,13 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MB
         // Pre-cache all built assets
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // ...except the Excel writer. It is ~940 KB, dynamically imported by
+        // the Reports export, and Reports is admin/viewer only — precaching it
+        // would make every field engineer download it on service-worker
+        // install for a screen they cannot open. It is fetched on demand
+        // instead, which means the export needs a connection; exporting a
+        // report offline is not a workflow anyone has.
+        globIgnores: ['**/exceljs*.js'],
         runtimeCaching: [
           {
             // Firestore REST calls — network-first with fallback

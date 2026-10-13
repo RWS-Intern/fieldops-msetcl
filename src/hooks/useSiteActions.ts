@@ -7,7 +7,8 @@ import {
   getDocs,
   query,
   where,
-  writeBatch,
+  increment,
+  runTransaction,
   serverTimestamp,
   GeoPoint,
 } from 'firebase/firestore';
@@ -165,111 +166,146 @@ export function useSiteActions() {
       console.warn('[createSite] auditLog write failed:', auditErr);
     }
 
-    // ── Auto-create site tasks from project templates ─────────────────────
-    // Always read fresh from Firestore — avoids the React closure staleness
-    // trap where `projects` captured by this function might pre-date the
-    // store update, or the project might pre-date Phase B (no taskTemplates
-    // written to Firestore yet).  Falls back to the store on read failure.
-    let templates: TaskTemplate[] = [];
-    let defaultApproverUid: string | null = null;
-    let defaultApproverName: string | null = null;
-    try {
-      const projectSnap = await getDoc(doc(db, 'projects', data.projectId));
-      const projectData = projectSnap.data();
-      templates = (projectData?.['taskTemplates'] as TaskTemplate[] | undefined) ?? [];
-      defaultApproverUid  = (projectData?.['defaultApproverUid']  as string | undefined) ?? null;
-      defaultApproverName = (projectData?.['defaultApproverName'] as string | undefined) ?? null;
-    } catch (projErr) {
-      console.error('[createSite] getDoc project failed, falling back to store:', projErr);
-      const storeProject = projects.find((p) => p.id === data.projectId);
-      templates = storeProject?.taskTemplates ?? [];
-      defaultApproverUid  = storeProject?.defaultApproverUid  ?? null;
-      defaultApproverName = storeProject?.defaultApproverName ?? null;
-    }
-
-    if (templates.length === 0) {
-      console.warn(
-        '[createSite] No task templates on project', data.projectId,
-        '— site tasks not created. Add templates via Edit Project.'
-      );
-    } else {
-      try {
-        const batch = writeBatch(db);
-
-        for (const template of templates) {
-          const taskCode = `${siteCode}/${data.projectCode}/${template.taskKey.toUpperCase()}-01`;
-          const taskRef  = doc(collection(db, 'siteTasks'));
-          batch.set(taskRef, {
-            taskCode,
-            siteId,
-            siteCode,
-            siteName,
-            city,
-            projectId:          data.projectId,
-            projectName:        data.projectName,
-            projectCode:        data.projectCode,
-            taskKey:            template.taskKey,
-            taskLabel:          template.label,
-            taskColour:         template.colour,
-            subtasks:           template.subtasks,  // snapshot — immune to future edits
-            assignedTo:         null,
-            assignedToName:     null,
-            assignedToCode:     null,
-            status:             'pending',
-            startDate:          null,
-            dueDate:            null,
-            subtaskAnswers:     {},
-            subtaskPhotos:      {},
-            completionPhotos:   [],
-            blockedReason:      null,
-            location:           null,
-            submittedBy:        null,
-            submittedAt:        null,
-            createdAt:          serverTimestamp(),
-            updatedAt:          serverTimestamp(),
-            archived:           false,
-            approverUid:        defaultApproverUid,
-            approverName:       defaultApproverName,
-            approverCode:       null,
-            reviewNotes:        null,
-            reviewedBy:         null,
-            reviewedByName:     null,
-            reviewedAt:         null,
-          });
-        }
-
-        await batch.commit();
-
-        // Update site's taskCount now that tasks exist
-        await updateDoc(doc(db, 'sites', siteId), {
-          taskCount:                templates.length,
-          completedTaskCount:       0,
-          inProgressTaskCount:      0,
-          blockedTaskCount:         0,
-          pendingApprovalTaskCount: 0,
-        });
-
-        // Audit log for auto-create — non-critical
-        try {
-          await addDoc(collection(db, 'auditLog'), {
-            timestamp:   serverTimestamp(),
-            uid:         currentUser.uid,
-            userName:    currentUser.name,
-            action:      'AUTO_CREATE_SITE_TASKS',
-            detail:      `${templates.length} tasks auto-created for site ${siteCode}`,
-            siteId,
-          });
-        } catch (auditErr) {
-          console.warn('[createSite] auto-tasks auditLog write failed:', auditErr);
-        }
-      } catch (batchErr) {
-        console.error('[createSite] batch write FAILED:', batchErr);
-        throw batchErr;
-      }
-    }
+    // ── Site tasks are NOT auto-created ───────────────────────────────────
+    // Every project template used to be spawned as a SiteTask the moment a
+    // site was created, which gave each site the full template list whether
+    // or not that work was actually planned for it. Tasks are now added one
+    // at a time from the site drawer's "Add Task" picker (addSiteTask below),
+    // so a site only carries work someone chose for it.
+    //
+    // taskCount therefore starts at 0 and is incremented per addSiteTask.
 
     return { id: siteId, siteCode };
   }
 
-  return { createSite };
+  /**
+   * Adds ONE task to a site, from one of its project's templates.
+   *
+   * Replaces the old spawn-everything-on-site-creation behaviour: a site now
+   * carries only the work someone deliberately picked for it.
+   *
+   * ONE TASK PER TEMPLATE PER SITE, enforced structurally rather than by
+   * checking first: the document id is derived from siteId + taskKey, and the
+   * transaction refuses outright if that id already exists. A plain
+   * "query, then create" would leave a window in which a double-click, or two
+   * admins on the same site, could produce two "Material Delivery" rows —
+   * and the second would silently reset the first one's progress.
+   *
+   * `subtasks` is SNAPSHOT from the template, matching what createSite used
+   * to do: a task is immune to later edits of the project template it came
+   * from, so work already answered cannot have its questions changed
+   * underneath it.
+   *
+   * Returns false when the task already exists; the caller has already
+   * disabled that option, so this is the race guard, not the primary UX.
+   *
+   * Reports nothing itself — like createSite above, it throws or returns and
+   * the calling component owns the toast.
+   */
+  async function addSiteTask(
+    site: {
+      id: string; siteCode: string; siteName: string; city: string;
+      projectId: string; projectName: string; projectCode: string;
+    },
+    template: TaskTemplate,
+  ): Promise<boolean> {
+    if (!currentUser) throw new Error('Not signed in');
+
+    // Project-level approver default, same source createSite used. Read fresh
+    // rather than from the store, which may pre-date a recent edit.
+    let defaultApproverUid:  string | null = null;
+    let defaultApproverName: string | null = null;
+    try {
+      const projectSnap = await getDoc(doc(db, 'projects', site.projectId));
+      const projectData = projectSnap.data();
+      defaultApproverUid  = (projectData?.['defaultApproverUid']  as string | undefined) ?? null;
+      defaultApproverName = (projectData?.['defaultApproverName'] as string | undefined) ?? null;
+    } catch (projErr) {
+      console.error('[addSiteTask] project read failed, falling back to store:', projErr);
+      const storeProject = projects.find((p) => p.id === site.projectId);
+      defaultApproverUid  = storeProject?.defaultApproverUid  ?? null;
+      defaultApproverName = storeProject?.defaultApproverName ?? null;
+    }
+
+    // '/' is the only character Firestore forbids in a document id, and a
+    // taskKey is author-supplied, so it is the one thing worth neutralising.
+    const safeKey  = template.taskKey.split('/').join('_');
+    const taskRef  = doc(db, 'siteTasks', `${site.id}_${safeKey}`);
+    const siteRef  = doc(db, 'sites', site.id);
+    // -01 stays accurate precisely because a template can only be added once.
+    const taskCode = `${site.siteCode}/${site.projectCode}/${template.taskKey.toUpperCase()}-01`;
+
+    try {
+      const created = await runTransaction(db, async (tx) => {
+        const existing = await tx.get(taskRef);
+        if (existing.exists()) return false;
+
+        tx.set(taskRef, {
+          taskCode,
+          siteId:      site.id,
+          siteCode:    site.siteCode,
+          siteName:    site.siteName,
+          city:        site.city,
+          projectId:   site.projectId,
+          projectName: site.projectName,
+          projectCode: site.projectCode,
+          taskKey:     template.taskKey,
+          taskLabel:   template.label,
+          taskColour:  template.colour,
+          subtasks:    template.subtasks,
+          assignedTo:       null,
+          assignedToName:   null,
+          assignedToCode:   null,
+          status:           'pending',
+          startDate:        null,
+          dueDate:          null,
+          subtaskAnswers:   {},
+          subtaskPhotos:    {},
+          completionPhotos: [],
+          blockedReason:    null,
+          location:         null,
+          submittedBy:      null,
+          submittedAt:      null,
+          createdAt:        serverTimestamp(),
+          updatedAt:        serverTimestamp(),
+          archived:         false,
+          approverUid:      defaultApproverUid,
+          approverName:     defaultApproverName,
+          approverCode:     null,
+          reviewNotes:      null,
+          reviewedBy:       null,
+          reviewedByName:   null,
+          reviewedAt:       null,
+        });
+
+        // Atomic bump — two tasks added at once must not lose a count.
+        tx.update(siteRef, { taskCount: increment(1), updatedAt: serverTimestamp() });
+        return true;
+      });
+
+      if (!created) return false;
+    } catch (err) {
+      console.error('[addSiteTask] failed:', err);
+      throw err;
+    }
+
+    // Audit log — non-critical, never blocks the success toast.
+    try {
+      await addDoc(collection(db, 'auditLog'), {
+        timestamp: serverTimestamp(),
+        uid:       currentUser.uid,
+        userName:  currentUser.name,
+        action:    'ADD_SITE_TASK',
+        detail:    `Added task "${template.label}" to site ${site.siteCode}`,
+        siteId:    site.id,
+        projectId: site.projectId,
+      });
+    } catch (auditErr) {
+      console.warn('[addSiteTask] auditLog write failed:', auditErr);
+    }
+
+    return true;
+  }
+
+  return { createSite, addSiteTask };
 }

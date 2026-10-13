@@ -169,8 +169,8 @@ export function BulkUploadSitesModal({
         {step === 'upload' && (
           <div className="flex flex-col gap-5 pt-1">
             <p className="text-sm text-gray-500">
-              Upload a CSV file to create multiple sites at once. Each site's tasks
-              will be auto-created from the project's task templates.
+              Upload a CSV file to create multiple sites at once. Add tasks to each site
+              afterwards from its “Add Task” button.
             </p>
 
             {/* Download template */}
@@ -408,7 +408,7 @@ export function BulkUploadSitesModal({
                 {successCount} site{successCount !== 1 ? 's' : ''} created successfully!
               </p>
               <p className="text-sm text-gray-500 mt-1 max-w-xs">
-                Each site's tasks have been auto-created and are ready for assignment.
+                Add tasks to each site from its “Add Task” button.
               </p>
             </div>
 

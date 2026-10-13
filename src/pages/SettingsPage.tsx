@@ -15,6 +15,7 @@ import { Label }    from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import type { Vendor } from '@/types';
+import { FeatureSwitches } from '@/components/settings/FeatureSwitches';
 
 // ─── Vendor row ───────────────────────────────────────────────────────────────
 
@@ -228,6 +229,8 @@ export function SettingsPage() {
       </div>
 
       {/* ── Vendors ── */}
+      <div className="mb-5"><FeatureSwitches /></div>
+
       <section className="rounded-xl border border-gray-200 bg-white p-4">
         <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
           <div>

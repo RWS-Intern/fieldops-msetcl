@@ -39,10 +39,9 @@ const VALID_VOLTAGE_CLASSES: readonly string[] = SITE_VOLTAGE_CLASSES;
 const MAX_ROWS = 1000;
 
 /**
- * Sites per batch.
- * Each site = 1 site doc + N siteTask docs.
- * With up to ~10 task templates, that's up to 11 ops per site.
- * 40 sites × 11 ops = 440 — safely under the 500-op batch limit.
+ * Sites per batch — one site doc each, so well under the 500-op batch limit.
+ * Tasks are NOT created here: like a single site, a bulk-uploaded site starts
+ * with no tasks, and they are added from the site's "Add Task" popup.
  */
 const SITES_PER_BATCH = 40;
 
@@ -262,15 +261,12 @@ export function useBulkSiteUpload() {
 
         // ── Site document ───────────────────────────────────────────────────
         const siteRef  = doc(collection(db, 'sites'));
-        const siteId   = siteRef.id;
         const siteCode = row.siteCode.trim().toUpperCase();
         const siteName = row.siteName.trim();
         const city     = row.city.trim();
 
         const hasGps =
           row.latitude?.trim() !== '' && row.longitude?.trim() !== '';
-
-        const templates = project.taskTemplates ?? [];
 
         batch.set(siteRef, {
           siteCode,
@@ -287,7 +283,8 @@ export function useBulkSiteUpload() {
             ? new GeoPoint(parseFloat(row.latitude!), parseFloat(row.longitude!))
             : null,
           status:              'active',
-          taskCount:           templates.length,
+          // Starts at 0 like createSite; each Add Task increments it.
+          taskCount:           0,
           completedTaskCount:  0,
           inProgressTaskCount: 0,
           blockedTaskCount:    0,
@@ -302,50 +299,6 @@ export function useBulkSiteUpload() {
           totalBays:           row.totalBays?.trim()            ? Number(row.totalBays)            : null,
           numPowerTransformers: row.numPowerTransformers?.trim() ? Number(row.numPowerTransformers) : null,
         });
-
-        // ── SiteTask documents — one per task template ─────────────────────
-        for (const template of templates) {
-          const taskRef  = doc(collection(db, 'siteTasks'));
-          const taskCode = `${siteCode}/${project.projectCode ?? projCode}/${template.taskKey.toUpperCase()}-01`;
-
-          batch.set(taskRef, {
-            taskCode,
-            siteId,
-            siteCode,
-            siteName,
-            city,
-            projectId:          project.id,
-            projectName:        project.title,
-            projectCode:        project.projectCode ?? projCode,
-            taskKey:            template.taskKey,
-            taskLabel:          template.label,
-            taskColour:         template.colour ?? '#6B7280',
-            subtasks:           template.subtasks ?? [],   // snapshot — immune to future edits
-            assignedTo:         null,
-            assignedToName:     null,
-            assignedToCode:     null,
-            status:             'pending',
-            startDate:          null,
-            dueDate:            null,
-            subtaskAnswers:     {},
-            subtaskPhotos:      {},
-            completionPhotos:   [],
-            blockedReason:      null,
-            location:           null,
-            submittedBy:        null,
-            submittedAt:        null,
-            createdAt:          serverTimestamp(),
-            updatedAt:          serverTimestamp(),
-            archived:           false,
-            approverUid:        project.defaultApproverUid  ?? null,
-            approverName:       project.defaultApproverName ?? null,
-            approverCode:       null,
-            reviewNotes:        null,
-            reviewedBy:         null,
-            reviewedByName:     null,
-            reviewedAt:         null,
-          });
-        }
 
         successCount++;
       }

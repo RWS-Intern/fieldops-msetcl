@@ -489,6 +489,8 @@ function mapCableRun(raw: Record<string, any>): SurveyCableRun {
 export function mapSurveyReport(id: string, data: Record<string, any>): SurveyReport {
   return {
     id,
+    draftSyncToken: data['draftSyncToken'] ?? null,
+    removedPhotoRefs: data['removedPhotoRefs'] ?? [],
     workOrderId:    data['workOrderId']    ?? '',
     workOrderCode:  data['workOrderCode']  ?? '',
     siteId:         data['siteId']         ?? '',

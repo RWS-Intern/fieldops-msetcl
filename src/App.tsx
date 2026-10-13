@@ -19,6 +19,7 @@ import { SurveysPage } from '@/pages/SurveysPage';
 import { SurveyWizardPage } from '@/pages/SurveyWizardPage';
 import { AdminSurveyOversightPage } from '@/pages/AdminSurveyOversightPage';
 import { SubstationLifecyclePage } from '@/pages/SubstationLifecyclePage';
+import { SiteLifecycleDetailPage } from '@/pages/SiteLifecycleDetailPage';
 import { MyReviewHistoryPage } from '@/pages/MyReviewHistoryPage';
 import type { UserRole } from '@/types';
 
@@ -219,6 +220,18 @@ export default function App() {
               element={
                 <ProtectedRoute allowRoles={['admin', 'viewer']}>
                   <SubstationLifecyclePage />
+                </ProtectedRoute>
+              }
+            />
+            {/* Full lifecycle detail — every task and work order at one
+                substation as an expandable list. Same roles as the overview
+                it is reached from; read-only like that page. A separate path
+                segment, so it never shadows "/sites/:siteId". */}
+            <Route
+              path="/sites/:siteId/lifecycle"
+              element={
+                <ProtectedRoute allowRoles={['admin', 'viewer']}>
+                  <SiteLifecycleDetailPage />
                 </ProtectedRoute>
               }
             />

@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { compressImage, ImageCompressionError } from '@/utils/imageCompression';
 import { uploadToCloudinary } from '@/utils/uploadToCloudinary';
 import { savePhoto, getPhoto, deletePhoto } from '@/lib/surveyPhotoStore';
+import { claimPhoto, releasePhoto } from '@/lib/surveyPhotoUploader';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { SurveyPhotoThumb } from './SurveyPhotoThumb';
 
@@ -63,6 +64,9 @@ export function PhotoCapture({
   async function tryUploadAndReplace(localRef: string, file: File) {
     const photoId = localRef.slice(LOCAL_PREFIX.length);
     if (uploadingPhotoIdsRef.current.has(photoId)) return;
+    // Shared with the background uploader, which can hold the same photo.
+    // Without it both could upload one photo and create a duplicate asset.
+    if (!claimPhoto(photoId)) return;
     uploadingPhotoIdsRef.current.add(photoId);
 
     setUploadingIds((prev) => new Set(prev).add(photoId));
@@ -82,6 +86,7 @@ export function PhotoCapture({
       console.error('[PhotoCapture] upload failed, kept locally:', err);
     } finally {
       uploadingPhotoIdsRef.current.delete(photoId);
+      releasePhoto(photoId);
       setUploadingIds((prev) => {
         const next = new Set(prev);
         next.delete(photoId);

@@ -23,7 +23,7 @@ import {
 import { Button }        from '@/components/ui/button';
 import { Input }         from '@/components/ui/input';
 import { Skeleton }      from '@/components/ui/skeleton';
-import { archiveSite, updateSiteLocation } from '@/hooks/useSiteActions';
+import { archiveSite, updateSiteLocation, useSiteActions } from '@/hooks/useSiteActions';
 import { useSiteTasks }             from '@/hooks/useSiteTasks';
 import { useToast }                 from '@/components/ui/toast';
 import { useAuthStore }             from '@/store/authStore';
@@ -31,9 +31,11 @@ import { useFieldEngineers }        from '@/hooks/useFieldEngineers';
 import { useApprovers, approverLabel } from '@/hooks/useApprovers';
 import { useWorkOrderActions }      from '@/hooks/useWorkOrderActions';
 import { SiteTaskDetailDrawer }     from '@/components/siteTasks/SiteTaskDetailDrawer';
+import { useProjectStore }           from '@/store/projectStore';
 import { SiteWorkOrdersSection }    from '@/components/sites/SiteWorkOrdersSection';
 import { SURVEY_APPROVAL_STAGES } from '@/lib/approvalStages';
 import { parseCoordinatesInput, isValidLatLng } from '@/lib/coordinates';
+import { cn } from '@/lib/utils';
 import type { Site, SiteStatus, SiteTask, TaskStatus } from '@/types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -172,11 +174,114 @@ export function SiteDetailDrawer({
   const { engineers, loading: engLoading }   = useFieldEngineers();
   const { approvers, loading: apprLoading }  = useApprovers();
   const { createWorkOrder }                  = useWorkOrderActions();
+  const { addSiteTask }                      = useSiteActions();
+  const { projects }                         = useProjectStore();
   const isAdmin = currentUser?.role === 'admin';
 
   // Task detail drawer
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+
   const selectedTask = siteTasks.find((t) => t.id === selectedTaskId) ?? null;
+
+  // ── Add Task ──────────────────────────────────────────────────────────────
+  const [showAddTask,  setShowAddTask]  = useState(false);
+  const [pickedKeys,   setPickedKeys]   = useState<Set<string>>(new Set());
+  const [taskQuery,    setTaskQuery]    = useState('');
+  const [assigning,    setAssigning]    = useState(false);
+
+  // Templates come from the site's PROJECT — the catalogue of work this
+  // project defines, with their subtasks already authored on it. Ordered by
+  // sortOrder so the list reads as the sequence the project intends rather
+  // than however the array happens to sit.
+  const projectTemplates = useMemo(() => {
+    const project = projects.find((p) => p.id === site.projectId);
+    return [...(project?.taskTemplates ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
+  }, [projects, site.projectId]);
+
+  // A template already on this site can never be added again — one Material
+  // Delivery per site, not two. Keyed on taskKey, which is what addSiteTask
+  // derives its document id from, so this mirrors the structural guard there.
+  const usedTaskKeys = useMemo(
+    () => new Set(siteTasks.map((t) => t.taskKey)),
+    [siteTasks],
+  );
+
+  const availableCount = projectTemplates.filter((t) => !usedTaskKeys.has(t.taskKey)).length;
+
+  const visibleTemplates = useMemo(() => {
+    const q = taskQuery.trim().toLowerCase();
+    if (!q) return projectTemplates;
+    return projectTemplates.filter((t) => t.label.toLowerCase().includes(q));
+  }, [projectTemplates, taskQuery]);
+
+  function openAddTask() {
+    setPickedKeys(new Set());
+    setTaskQuery('');
+    setShowAddTask(true);
+  }
+
+  function closeAddTask() {
+    if (assigning) return;
+    setShowAddTask(false);
+    setPickedKeys(new Set());
+    setTaskQuery('');
+  }
+
+  function togglePicked(taskKey: string) {
+    setPickedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskKey)) next.delete(taskKey); else next.add(taskKey);
+      return next;
+    });
+  }
+
+  /**
+   * Creates every picked task, then closes.
+   *
+   * One addSiteTask call per template rather than a single batch: each needs
+   * its own transaction to hold the "this template is on this site exactly
+   * once" guarantee. A failure part-way leaves the successful ones in place —
+   * they are independent tasks, so that is a partial success worth keeping
+   * rather than something to roll back.
+   */
+  async function handleCompleteAssignment() {
+    const picked = projectTemplates.filter((t) => pickedKeys.has(t.taskKey));
+    if (picked.length === 0) { closeAddTask(); return; }
+
+    setAssigning(true);
+    let added = 0;
+    let failed = 0;
+
+    for (const template of picked) {
+      try {
+        if (await addSiteTask(
+          {
+            id: site.id, siteCode: site.siteCode, siteName: site.siteName,
+            city: site.city, projectId: site.projectId,
+            projectName: site.projectName, projectCode: site.projectCode,
+          },
+          template,
+        )) added++;
+        else failed++;   // already present — the race guard caught it
+      } catch {
+        failed++;
+      }
+    }
+
+    setAssigning(false);
+    setShowAddTask(false);
+    setPickedKeys(new Set());
+    setTaskQuery('');
+
+    if (added > 0) {
+      showToast(
+        `${added} task${added !== 1 ? 's' : ''} added${failed > 0 ? `, ${failed} failed` : ''}`,
+        failed > 0 ? 'warning' : 'success',
+      );
+    } else {
+      showToast('No tasks were added. Try again.', 'error');
+    }
+  }
 
   const progressPct =
     site.taskCount > 0
@@ -458,7 +563,7 @@ export function SiteDetailDrawer({
               </div>
             ) : siteTasks.length === 0 ? (
               <p className="text-xs text-gray-400 text-center py-4">
-                No tasks created yet. Tasks will be created automatically in the next phase.
+                No tasks added yet.{isAdmin ? ' Use Add Task to pick one from this project.' : ''}
               </p>
             ) : (
               <div className="flex flex-col gap-3">
@@ -470,6 +575,28 @@ export function SiteDetailDrawer({
                     onClick={() => setSelectedTaskId(task.id)}
                   />
                 ))}
+              </div>
+            )}
+
+            {/* Add Task — admin only; a viewer never creates work. Tasks are no
+                longer spawned wholesale at site creation, so this is the only
+                way one gets onto a site. */}
+            {isAdmin && !tasksLoading && (
+              <div className="mt-3">
+                {projectTemplates.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-gray-200 px-3 py-2 text-center text-xs text-gray-400">
+                    This project defines no task types yet — add them under Projects.
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={openAddTask}
+                    disabled={availableCount === 0}
+                    className="w-full rounded-lg border border-dashed border-gray-300 px-3 py-2 text-xs font-medium text-brand-blue transition-colors hover:border-brand-blue hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-gray-400 disabled:hover:border-gray-300 disabled:hover:bg-transparent"
+                  >
+                    {availableCount === 0 ? 'All task types added' : '+ Add Task'}
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -518,6 +645,118 @@ export function SiteDetailDrawer({
         </div>
       </SheetContent>
     </Sheet>
+
+      {/* ── Add Task popup ──────────────────────────────────────────────────
+          Multi-select: tick every task this site needs, then commit them in
+          one go. Scrolls and filters so a project with many task types stays
+          usable rather than turning into an unbounded list. */}
+      <Dialog open={showAddTask} onOpenChange={(o) => { if (!o) closeAddTask(); }}>
+        <DialogContent className="flex max-h-[85vh] flex-col sm:max-w-lg" aria-describedby={undefined}>
+          <DialogHeader>
+            <DialogTitle>Add Tasks</DialogTitle>
+          </DialogHeader>
+
+          <p className="-mt-1 text-xs text-gray-500">
+            Pick the tasks for <span className="font-medium text-gray-700">{site.siteName}</span>.
+            They are listed in the order this project defines them.
+          </p>
+
+          {/* Filter appears only once the list is long enough to need it. */}
+          {projectTemplates.length > 8 && (
+            <Input
+              value={taskQuery}
+              onChange={(e) => setTaskQuery(e.target.value)}
+              placeholder="Filter tasks…"
+              autoComplete="off"
+            />
+          )}
+
+          {/* The scroll region — the dialog itself never grows past 85vh. */}
+          <div className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
+            {visibleTemplates.length === 0 ? (
+              <p className="py-8 text-center text-xs text-gray-400">
+                No task types match that filter.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {visibleTemplates.map((t) => {
+                  // Numbered by position in the PROJECT order, not in the
+                  // filtered view, so the step number means the same thing
+                  // whether or not a filter is active.
+                  const step   = projectTemplates.findIndex((p) => p.taskKey === t.taskKey) + 1;
+                  const used   = usedTaskKeys.has(t.taskKey);
+                  const picked = pickedKeys.has(t.taskKey);
+                  return (
+                    <button
+                      key={t.taskKey}
+                      type="button"
+                      disabled={used || assigning}
+                      onClick={() => togglePicked(t.taskKey)}
+                      className={cn(
+                        'flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors',
+                        used
+                          ? 'border-gray-200 bg-gray-50 opacity-60'
+                          : picked
+                            ? 'border-brand-blue bg-blue-50'
+                            : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] font-bold text-white',
+                          picked ? 'border-brand-blue bg-brand-blue' : 'border-gray-300 bg-white',
+                        )}
+                      >
+                        {picked ? '✓' : ''}
+                      </span>
+                      <span className="w-4 shrink-0 text-[10px] font-semibold text-gray-400">
+                        {step}
+                      </span>
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: t.colour }}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-800">
+                        {t.label}
+                      </span>
+                      <span className="shrink-0 text-[10px] text-gray-400">
+                        {used
+                          ? 'Added'
+                          : `${t.subtasks.length} subtask${t.subtasks.length !== 1 ? 's' : ''}`}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="flex shrink-0 gap-2 border-t border-gray-100 pt-3">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={closeAddTask}
+              disabled={assigning}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={handleCompleteAssignment}
+              disabled={assigning || pickedKeys.size === 0}
+            >
+              {assigning ? (
+                <span className="flex items-center gap-2">
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  Assigning…
+                </span>
+              ) : (
+                `Complete Task Assignment${pickedKeys.size > 0 ? ` (${pickedKeys.size})` : ''}`
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
     {/* Task detail drawer — stacks on top of this sheet.
         readOnly for a viewer: hides the assignment form, the approver form,

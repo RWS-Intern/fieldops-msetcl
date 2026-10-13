@@ -5,7 +5,7 @@ import { useSiteLifecycle, summariseLifecycle } from '@/hooks/useSiteLifecycle';
 import { useSiteTasks } from '@/hooks/useSiteTasks';
 import { useProjectStore } from '@/store/projectStore';
 import { SiteTaskDetailDrawer } from '@/components/siteTasks/SiteTaskDetailDrawer';
-import { Button }   from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import type { LifecycleEntry } from '@/hooks/useSiteLifecycle';
@@ -17,39 +17,39 @@ import type { Site, TaskStatus, WorkOrderStatus } from '@/types';
 // status unions don't overlap fully, so a timeline row picks its map by `kind`.
 
 const WORK_ORDER_STATUS_BADGE: Record<WorkOrderStatus, string> = {
-  open:              'bg-gray-100 text-gray-600',
-  in_progress:       'bg-amber-50 text-amber-700',
-  pending_approval:  'bg-violet-50 text-violet-700',
+  open: 'bg-gray-100 text-gray-600',
+  in_progress: 'bg-amber-50 text-amber-700',
+  pending_approval: 'bg-violet-50 text-violet-700',
   changes_requested: 'bg-orange-50 text-orange-700',
-  approved:          'bg-green-50 text-green-700',
-  closed:            'bg-gray-200 text-gray-600',
+  approved: 'bg-green-50 text-green-700',
+  closed: 'bg-gray-200 text-gray-600',
 };
 
 const WORK_ORDER_STATUS_LABEL: Record<WorkOrderStatus, string> = {
-  open:              'Open',
-  in_progress:       'In Progress',
-  pending_approval:  'Pending Approval',
+  open: 'Open',
+  in_progress: 'In Progress',
+  pending_approval: 'Pending Approval',
   changes_requested: 'Changes Requested',
-  approved:          'Approved',
-  closed:            'Closed',
+  approved: 'Approved',
+  closed: 'Closed',
 };
 
 const TASK_STATUS_BADGE: Record<TaskStatus, string> = {
-  pending:           'bg-gray-100 text-gray-600',
-  in_progress:       'bg-amber-50 text-amber-700',
-  pending_approval:  'bg-violet-50 text-violet-700',
+  pending: 'bg-gray-100 text-gray-600',
+  in_progress: 'bg-amber-50 text-amber-700',
+  pending_approval: 'bg-violet-50 text-violet-700',
   changes_requested: 'bg-orange-50 text-orange-700',
-  completed:         'bg-green-50 text-green-700',
-  blocked:           'bg-red-50 text-red-700',
+  completed: 'bg-green-50 text-green-700',
+  blocked: 'bg-red-50 text-red-700',
 };
 
 const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
-  pending:           'Pending',
-  in_progress:       'In Progress',
-  pending_approval:  'Pending Approval',
+  pending: 'Pending',
+  in_progress: 'In Progress',
+  pending_approval: 'Pending Approval',
   changes_requested: 'Changes Requested',
-  completed:         'Completed',
-  blocked:           'Blocked',
+  completed: 'Completed',
+  blocked: 'Blocked',
 };
 
 function statusBadgeClass(entry: LifecycleEntry): string {
@@ -116,7 +116,7 @@ function SiteHeader({ site }: { site: Site }) {
 
       <div className="grid grid-cols-2 gap-3 border-t border-gray-100 pt-3 sm:grid-cols-4">
         <InfoCell label="SAP Code" value={site.sapCode || '—'} />
-        <InfoCell label="Zone"     value={site.zone || '—'} />
+        <InfoCell label="Zone" value={site.zone || '—'} />
         <InfoCell
           label="Voltage Class"
           value={site.voltageClass ? `${site.voltageClass} kV` : '—'}
@@ -174,13 +174,13 @@ function StageSummaryGrid({ entries, projectId }: { entries: LifecycleEntry[]; p
           const badge = t.status === null
             ? ''
             : t.kind === 'workOrder'
-            ? WORK_ORDER_STATUS_BADGE[t.status as WorkOrderStatus] ?? 'bg-gray-100 text-gray-600'
-            : TASK_STATUS_BADGE[t.status as TaskStatus] ?? 'bg-gray-100 text-gray-600';
+              ? WORK_ORDER_STATUS_BADGE[t.status as WorkOrderStatus] ?? 'bg-gray-100 text-gray-600'
+              : TASK_STATUS_BADGE[t.status as TaskStatus] ?? 'bg-gray-100 text-gray-600';
           const statusLabel = t.status === null
             ? ''
             : t.kind === 'workOrder'
-            ? WORK_ORDER_STATUS_LABEL[t.status as WorkOrderStatus] ?? t.status
-            : TASK_STATUS_LABEL[t.status as TaskStatus] ?? t.status;
+              ? WORK_ORDER_STATUS_LABEL[t.status as WorkOrderStatus] ?? t.status
+              : TASK_STATUS_LABEL[t.status as TaskStatus] ?? t.status;
           const noun = t.kind === 'workOrder' ? 'work order' : 'task';
 
           return (
@@ -234,7 +234,7 @@ function TimelineRow({ entry, onOpen }: { entry: LifecycleEntry; onOpen: () => v
       )}>
         {isWorkOrder
           ? <ClipboardCheck className="h-3.5 w-3.5" />
-          : <ClipboardList  className="h-3.5 w-3.5" />}
+          : <ClipboardList className="h-3.5 w-3.5" />}
       </div>
 
       <div className="min-w-0 flex-1">
@@ -331,24 +331,53 @@ export function SubstationLifecyclePage() {
   return (
     <>
       <div className="mx-auto flex max-w-3xl flex-col gap-4 pb-24">
-        <div className="flex items-start gap-2">
-          <Button
-            type="button" variant="outline" size="sm"
-            onClick={() => navigate('/sites')}
-            aria-label="Back to sites"
-            className="shrink-0"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div className="min-w-0">
-            <p className="text-xs uppercase tracking-wide text-gray-400">Substation Lifecycle</p>
-            <p className="text-xs text-gray-500">Read-only overview</p>
+        <div className="flex justify-between">
+          <div className="flex  items-start gap-2">
+            <Button
+              type="button" variant="outline" size="sm"
+              onClick={() => navigate('/sites')}
+              aria-label="Back to sites"
+              className="shrink-0"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <div className="min-w-0">
+              <p className="text-xs uppercase tracking-wide text-gray-400">Substation Lifecycle</p>
+              <p className="text-xs text-gray-500">Read-only overview</p>
+            </div>
           </div>
+          <div><button
+            type="button"
+            onClick={() => navigate(`/sites/${siteId}/lifecycle`)}
+            className="flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 px-4 py-2.5 bg-blue-400 text-sm font-small text-white transition-colors hover:border-brand-blue hover:text-blue-500 hover:bg-white"
+          >
+            View Full life Cycle in Detail
+            <ChevronRight className="h-4 w-4" />
+          </button></div>
         </div>
+        {/* <button
+          type="button"
+          onClick={() => navigate(`/sites/${siteId}/lifecycle`)}
+          className="flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-brand-blue transition-colors hover:border-brand-blue hover:bg-blue-50"
+        >
+          View Full life Cycle in Detail
+          <ChevronRight className="h-4 w-4" />
+        </button> */}
 
         <SiteHeader site={site} />
 
         <StageSummaryGrid entries={entries} projectId={site.projectId} />
+
+        {/* Link through to the expandable per-item view. Additive — the
+            timeline below is untouched. */}
+        {/* <button
+          type="button"
+          onClick={() => navigate(`/sites/${siteId}/lifecycle`)}
+          className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-brand-blue transition-colors hover:border-brand-blue hover:bg-blue-50"
+        >
+          View Full life Cycle in Detail
+          <ChevronRight className="h-4 w-4" />
+        </button> */}
 
         <div>
           <div className="mb-2 flex items-center gap-2">
