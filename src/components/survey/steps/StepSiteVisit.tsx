@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { TriStateToggle } from '@/components/survey/TriStateToggle';
 import { LegacyVoltageValueNote, LegacyOfficeNote } from '@/components/survey/LegacyVoltageNote';
 import {
-  VOLTAGE_LEVEL_LABELS, ASSET_COUNT_ROWS, ASSET_COUNT_ROW_LABELS,
+  VOLTAGE_LEVEL_LABELS, ASSET_COUNT_ROWS, ASSET_COUNT_ROW_LABELS, sumAnsweredLevels,
 } from '@/lib/surveyLabels';
 import type { AssetCountRowKey } from '@/lib/surveyLabels';
 import { SURVEY_VOLTAGE_LEVELS, LEGACY_COMBINED_VOLTAGE_LEVEL } from '@/types';
@@ -61,10 +61,42 @@ const OFFICE_GRID_COLS =
  * `record` genuinely arrives undefined rather than empty. Object.values()
  * throws on undefined, which is what crashed the wizard in production.
  */
-function sumAnswered(record: Record<string, number | null> | undefined | null): number | null {
-  if (!record) return null;
-  const answered = Object.values(record).filter((n): n is number => n != null);
-  return answered.length > 0 ? answered.reduce((sum, n) => sum + n, 0) : null;
+/** Re-exported name kept local so the existing call sites below read unchanged. */
+const sumAnswered = sumAnsweredLevels;
+
+/**
+ * One asset row of seven level inputs — used by BOTH the installed grid and
+ * the Spare / WIP grid, so their labels, order and layout cannot drift.
+ *
+ * `values` is optional: the Spare / WIP record is absent on every survey and
+ * draft written before it existed, and a row within it can be missing too.
+ */
+function AssetCountRow({
+  row, values, readOnly, ariaSuffix, onCell,
+}: {
+  row:        AssetCountRowKey;
+  values:     Record<string, number | null> | undefined;
+  readOnly:   boolean;
+  ariaSuffix: string;
+  onCell:     (level: SurveyVoltageLevel, value: number | null) => void;
+}) {
+  return (
+    <div className={ASSET_GRID_COLS}>
+      <span className="text-xs font-medium text-gray-600">{ASSET_COUNT_ROW_LABELS[row]}</span>
+      {SURVEY_VOLTAGE_LEVELS.map((level) => (
+        <Input
+          key={level}
+          className="h-9 text-center"
+          type="number"
+          inputMode="numeric"
+          disabled={readOnly}
+          aria-label={`${ASSET_COUNT_ROW_LABELS[row]} at ${VOLTAGE_LEVEL_LABELS[level]}${ariaSuffix}`}
+          value={values?.[level] ?? ''}
+          onChange={(e) => onCell(level, toCount(e.target.value))}
+        />
+      ))}
+    </div>
+  );
 }
 
 /**
@@ -198,6 +230,20 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
     // yields an object holding only this one level — quietly discarding every
     // other level's answer. A stale draft can make counts[row] undefined.
     updateAssetCounts({ [row]: { ...(counts[row] ?? {}), [level]: value } } as Partial<SurveyAssetCounts>);
+  }
+
+  /**
+   * Same shape as updateCountCell, one level deeper. Both `?? {}` guards
+   * matter: an older draft has no spareWip at all, and spreading undefined
+   * would silently yield an object holding only the cell just typed.
+   */
+  function updateSpareWipCell(row: AssetCountRowKey, level: SurveyVoltageLevel, value: number | null) {
+    updateAssetCounts({
+      spareWip: {
+        ...(counts.spareWip ?? {}),
+        [row]: { ...(counts.spareWip?.[row] ?? {}), [level]: value },
+      },
+    } as Partial<SurveyAssetCounts>);
   }
 
   const contact     = survey.contactDetails;
@@ -582,24 +628,56 @@ export function StepSiteVisit({ survey, onChange, readOnly, siteName, siteMaster
             </div>
 
             {ASSET_COUNT_ROWS.map((row) => (
-              <div key={row} className={ASSET_GRID_COLS}>
-                <span className="text-xs font-medium text-gray-600">
-                  {ASSET_COUNT_ROW_LABELS[row]}
+              <AssetCountRow
+                key={row}
+                row={row}
+                values={counts[row]}
+                readOnly={readOnly}
+                ariaSuffix=""
+                onCell={(level, value) => updateCountCell(row, level, value)}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* ── Spare / WIP ───────────────────────────────────────────────────
+            The SAME rows and columns, a separate record. Rendered through the
+            same AssetCountRow component so the two grids cannot drift apart in
+            layout, labels or ordering. No totals here: the step shows none for
+            the installed grid either, and Preview is where totals belong. */}
+        <div className="flex flex-col gap-1.5 pt-2">
+          <h4 className="text-sm font-semibold text-gray-700">Spare / WIP (Work in Progress)</h4>
+          <p className="text-xs text-gray-500">
+            Assets that are spare or work in progress and not yet installed.
+          </p>
+          <div className="overflow-x-auto">
+            <div className="min-w-[40rem] flex flex-col gap-1.5 rounded-lg border border-gray-100 p-2">
+              <div className={ASSET_GRID_COLS}>
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                  Asset
                 </span>
                 {SURVEY_VOLTAGE_LEVELS.map((level) => (
-                  <Input
+                  <span
                     key={level}
-                    className="h-9 text-center"
-                    type="number"
-                    inputMode="numeric"
-                    disabled={readOnly}
-                    aria-label={`${ASSET_COUNT_ROW_LABELS[row]} at ${VOLTAGE_LEVEL_LABELS[level]}`}
-                    value={counts[row]?.[level] ?? ''}
-                    onChange={(e) => updateCountCell(row, level, toCount(e.target.value))}
-                  />
+                    className="text-center text-[10px] font-semibold uppercase tracking-wide text-gray-400"
+                  >
+                    {VOLTAGE_LEVEL_LABELS[level]}
+                  </span>
                 ))}
               </div>
-            ))}
+              {ASSET_COUNT_ROWS.map((row) => (
+                <AssetCountRow
+                  key={row}
+                  row={row}
+                  // `?.` twice: spareWip is absent on every document and draft
+                  // written before this existed.
+                  values={counts.spareWip?.[row]}
+                  readOnly={readOnly}
+                  ariaSuffix=" (spare or work in progress)"
+                  onCell={(level, value) => updateSpareWipCell(row, level, value)}
+                />
+              ))}
+            </div>
           </div>
         </div>
 

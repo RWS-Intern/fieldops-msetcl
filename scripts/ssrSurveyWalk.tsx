@@ -82,6 +82,12 @@ export function buildPopulatedSurvey(): SurveyReport {
   survey.assetCounts.baysByVoltage['33']            = 6;
   survey.assetCounts.busesByVoltage['132']          = 2;
   survey.assetCounts.busCouplerBusSectionByVoltage['132'] = 1;
+  // Spare / WIP — populated so both grids render with real data.
+  survey.assetCounts.spareWip.baysByVoltage['132']                 = 2;
+  survey.assetCounts.spareWip.busesByVoltage['33']                 = 1;
+  survey.assetCounts.spareWip.busCouplerBusSectionByVoltage['132'] = 1;
+  survey.assetCounts.spareWip.capacitorBanksByVoltage['33']        = 3;
+  survey.assetCounts.spareWip.transformersByVoltage['132']         = 1;
   survey.assetCounts.busCouplerBusSectionByVoltage['33']  = 2;
   survey.assetCounts.capacitorBanksByVoltage['33']  = 1;
   survey.assetCounts.transformersByVoltage['132']   = 2;
@@ -92,7 +98,9 @@ export function buildPopulatedSurvey(): SurveyReport {
     panelSpaceAvailable: true,
     existingMfmAvailable: true, existingMfmWorking: false,
     existingMfmAvailableWorking: null,
-    existingMfmRs485Available: true, existingMfmRs485Working: false,
+    // Superseded RS485 pair — null on the CLEAN fixture so it stays unflagged.
+    existingMfmRs485Available: null, existingMfmRs485Working: null,
+    existingMfmAvailableToIntegrate: true,
     mfmModbusCompatible: true,
     frtuSpaceAvailable: true, cat6LengthFrtuToBaySwitchM: 45,
     cmrSpaceAvailable: false, biAiTbSpaceAvailable: true,
@@ -121,6 +129,7 @@ export function buildPopulatedSurvey(): SurveyReport {
     uid: 't', transformerNumber: 'TR', voltageLevel: '132' as const,
     mvaRating: '50/63 MVA', rtccHighStep: '+9', rtccLowStep: '-9',
     tapPositionConnectionType: 'resistance' as const, rtccPanelWorking: true,
+    resistancePerTapOhm: 2.5,
     existingTptWorking: null, modbusAvailable: null,
     // Superseded trio — null on the CLEAN fixture so it stays unflagged.
     existingTpi4to20mAAvailable: null, tptRequired: null, requiredTptCount: null,
@@ -129,11 +138,13 @@ export function buildPopulatedSurvey(): SurveyReport {
   // (a) no working TPT           -> needs a new one      -> COUNTS
   survey.transformers.push(tx({ uid: 't1', transformerNumber: 'TR-1', existingTptWorking: false }));
   // (b) working + Modbus         -> integrate existing   -> does NOT count
-  survey.transformers.push(tx({ uid: 't2', transformerNumber: 'TR-2', existingTptWorking: true, modbusAvailable: true }));
+  // resistancePerTapOhm: 0 here on purpose — a TYPED ZERO must render "0 Ω",
+  // not "—", and only a fixture that holds one can prove it.
+  survey.transformers.push(tx({ uid: 't2', transformerNumber: 'TR-2', existingTptWorking: true, modbusAvailable: true, resistancePerTapOhm: 0 }));
   // (c) working, no Modbus       -> cannot integrate     -> COUNTS
   survey.transformers.push(tx({ uid: 't3', transformerNumber: 'TR-3', existingTptWorking: true, modbusAvailable: false }));
   // (d) unanswered               -> contributes nothing  -> neither counted nor zeroed
-  survey.transformers.push(tx({ uid: 't4', transformerNumber: 'TR-4' }));
+  survey.transformers.push(tx({ uid: 't4', transformerNumber: 'TR-4', resistancePerTapOhm: null }));
   // Both cable types — each is now a REQUIRED group, and each renders in its
   // own list on the step and in the preview.
   survey.cableRuns.push({
@@ -199,6 +210,12 @@ export function buildPopulatedSurvey(): SurveyReport {
   survey.sitePhotos.push({
     url: 'https://example.test/b.jpg', caption: 'Existing SLD (photo)',
     remark: null,
+  });
+  // The second mandatory slot. Without this the clean fixture cannot reach
+  // Submit, which is the whole point of it being clean.
+  survey.sitePhotos.push({
+    url: 'https://example.test/rtu.jpg', caption: 'Proposed RTU Location',
+    remark: 'North wall of control room, beside the existing panel.',
   });
   // Drawing title block — Prepared By filled in, plus a real document number,
   // so the table renders with data rather than as an empty grid.
@@ -301,6 +318,11 @@ function buildLegacySurvey(): SurveyReport {
   // count towards the re-enter total.
   survey.relays[0].protocol  = 'iec_61850';
   survey.relays[0].ipAddress = '192.168.1.10';
+  // The superseded RS485 pair on one feeder, so the reference path is
+  // exercised. A `false` is included deliberately: these default to null, so a
+  // recorded "No" is a real answer and must surface.
+  survey.feeders[0].existingMfmRs485Available = true;
+  survey.feeders[0].existingMfmRs485Working   = false;
   // The combined MFM answer the two toggles replaced. Left set ALONGSIDE the
   // two new fields being unanswered, which is exactly how a stored document
   // written before the split looks.
@@ -316,6 +338,14 @@ function buildLegacySurvey(): SurveyReport {
     { poleType: null, ratingA: null },
     { poleType: 'double', ratingA: '10 A' },
   ];
+  // A photograph taken against the retired relay/control-panel slot. Its
+  // caption matches nothing in SURVEY_PHOTO_SLOTS now, so it must surface
+  // under "Earlier photos (no longer requested)" in the step AND the preview
+  // — and must NOT satisfy the mandatory RTU slot.
+  survey.sitePhotos.push({
+    url: 'https://example.test/relay-old.jpg', caption: 'Each relay / control panel',
+    remark: 'Panel 3, overcurrent relay.',
+  });
   return survey;
 }
 
@@ -333,6 +363,9 @@ function buildStaleDraftSurvey(): SurveyReport {
   const survey = buildPopulatedSurvey();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const counts = survey.assetCounts as any;
+  // The whole Spare / WIP object absent, exactly as every pre-change document
+  // and IndexedDB draft has it.
+  delete counts.spareWip;
   delete counts.busesByVoltage;
   delete counts.capacitorBanksByVoltage;
   delete counts.transformersByVoltage;
@@ -346,6 +379,17 @@ function buildStaleDraftSurvey(): SurveyReport {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const signOff = survey.signOff as any;
   delete signOff.titleBlock;
+  // The new MFM field absent from EVERY feeder entry, exactly as a draft saved
+  // before this change has it.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  survey.feeders.forEach((f) => { delete (f as any).existingMfmAvailableToIntegrate; });
+  // The new transformer field absent from EVERY entry, as a draft saved
+  // before this change has it.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  survey.transformers.forEach((t) => { delete (t as any).resistancePerTapOhm; });
+  // A draft saved before the RTU slot existed has no photo under that caption
+  // — nothing to delete a key from, the entry simply is not there.
+  survey.sitePhotos = survey.sitePhotos.filter((p) => p.caption !== 'Proposed RTU Location');
   return survey;
 }
 
@@ -525,9 +569,9 @@ export function runSurveyWalk(): number {
     const reenter   = legacyHits.filter((h) => h.kind !== 'reference');
     const reference = legacyHits.filter((h) => h.kind === 'reference');
     const legacyOk = surveyHasLegacyVoltageData(legacy) === true
-      && legacyHits.length === 38 && reenter.length === 12 && reference.length === 26;
+      && legacyHits.length === 40 && reenter.length === 12 && reference.length === 28;
     console.log(`  ${legacyOk ? 'ok  ' : 'FAIL'} legacy survey: flagged, ${legacyHits.length} hits`
-      + ` — ${reenter.length} to re-enter (expected 12), ${reference.length} reference (expected 26)`);
+      + ` — ${reenter.length} to re-enter (expected 12), ${reference.length} reference (expected 28)`);
     if (!legacyOk) failures++;
     legacyHits.forEach((h) => console.log(
       `         - [${h.kind ?? 're-enter'}] ${h.section}: ${h.label}${h.value ? ` (was ${h.value})` : ''}`));

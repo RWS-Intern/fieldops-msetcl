@@ -25,6 +25,7 @@ function createTransformer(): SurveyTransformerEntry {
     rtccHighStep:                null,
     rtccLowStep:                 null,
     tapPositionConnectionType:   null,
+    resistancePerTapOhm:         null,
     rtccPanelWorking:            null,
     existingTptWorking:          null,
     modbusAvailable:             null,
@@ -161,6 +162,21 @@ export function StepTransformerDetails({ survey, onChange, readOnly }: SurveySte
               ))}
             </SelectContent>
           </Select>
+        </div>
+
+        {/* Asked whether the connection type is Resistance or Lamp — see the
+            field's note in types/index.ts. The empty-string guard runs BEFORE
+            Number(), because Number('') is 0: without it, clearing the box
+            would silently record a measured zero ohms. */}
+        <div className="flex flex-col gap-1.5">
+          <Label>Resistance per Tap (Ω)</Label>
+          <Input
+            type="number" inputMode="decimal" disabled={readOnly}
+            value={tx.resistancePerTapOhm ?? ''}
+            onChange={(e) => update({
+              resistancePerTapOhm: e.target.value === '' ? null : Math.max(0, Number(e.target.value)),
+            })}
+          />
         </div>
 
         <TriStateToggle

@@ -107,3 +107,33 @@ export function LegacyOfficeNote({ label, value }: { label: string; value: strin
     </p>
   );
 }
+
+/**
+ * A feeder's superseded RS485 answers, shown on the entry that holds them.
+ *
+ * Worded as a prompt to re-check rather than a request to re-enter: the RS485
+ * fields no longer exist, so there is nothing to type them back into. What
+ * changed is the MEANING of the two questions above — "available" now means
+ * "available with RS485" — which is exactly the thing a surveyor who answered
+ * the old wording needs told. Renders nothing for a feeder with neither, which
+ * is every feeder answered since the change.
+ */
+export function LegacyMfmRs485Note({
+  available, working,
+}: {
+  available: boolean | null;
+  working:   boolean | null;
+}) {
+  const recorded = [
+    available != null ? `RS485 available — ${available ? 'Yes' : 'No'}` : null,
+    working   != null ? `RS485 working — ${working ? 'Yes' : 'No'}`     : null,
+  ].filter(Boolean) as string[];
+  if (recorded.length === 0) return null;
+
+  return (
+    <p className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+      Previously recorded: <strong>{recorded.join(', ')}</strong>. The questions above now ask
+      about an MFM <strong>with RS485</strong>, so check your answers.
+    </p>
+  );
+}

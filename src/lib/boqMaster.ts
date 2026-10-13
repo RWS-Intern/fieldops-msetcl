@@ -254,6 +254,15 @@ function createEmptyAssetCounts(): SurveyAssetCounts {
       emptyByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS),
     capacitorBanksByVoltage: emptyByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS),
     transformersByVoltage:   emptyByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS),
+    // Seeded null-filled, same as the installed records — never left undefined,
+    // so a brand-new survey already has the shape every read site expects.
+    spareWip: {
+      baysByVoltage:                 emptyByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS),
+      busesByVoltage:                emptyByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS),
+      busCouplerBusSectionByVoltage: emptyByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS),
+      capacitorBanksByVoltage:       emptyByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS),
+      transformersByVoltage:         emptyByVoltage<SurveyVoltageLevel, number>(SURVEY_VOLTAGE_LEVELS),
+    },
     // Superseded flat totals — seeded null so the stored shape stays total.
     transformerCount:   null,
     busCount:           null,

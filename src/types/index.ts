@@ -704,12 +704,29 @@ export interface SurveyFeederEntry {
   existingMfmAvailableWorking: boolean | null;
 
   /**
-   * RS485 port. `existingMfmRs485Available` keeps its exact name AND meaning
-   * from before — the document simply adds a second question beside it, so
-   * this pair is purely additive and needs no migration.
+   * @deprecated Removed from the form — the RS485 questions are not required.
+   *
+   * Dead but deliberately present: both were live, editable inputs, so they may
+   * hold answers on submitted surveys AND on in-progress drafts sitting on
+   * field phones, which are the only copy of those surveys. The factory and
+   * mapper keep their entries so every document and draft round-trips.
+   *
+   * NEVER copied into the relabelled questions above. A feeder recorded as
+   * available = Yes with RS485 = No reads differently now that "available"
+   * means "available WITH RS485"; only a person can re-decide that. Surfaced
+   * as REFERENCE, never re-enter — the old field can no longer be edited, so a
+   * re-enter item could not be cleared even by re-confirming the answer.
    */
   existingMfmRs485Available: boolean | null;
+  /** @deprecated See the note on `existingMfmRs485Available` above. */
   existingMfmRs485Working: boolean | null;
+  /**
+   * "Is existing MFM available to integrate?"
+   *
+   * Informational in this pass: it feeds no BOQ line, no validation rule and
+   * nothing derived. Sits with the other questions about a meter that exists.
+   */
+  existingMfmAvailableToIntegrate: boolean | null;
   /**
    * Whether the existing MFM speaks MODBUS.
    *
@@ -848,6 +865,18 @@ export interface SurveyTransformerEntry {
   rtccLowStep: string | null;
   /** "(Resistance/Lamp)" per the source document — no third option exists. */
   tapPositionConnectionType: TapPositionConnectionType | null;
+  /**
+   * Resistance of ONE tap step, in ohms. Informational — nothing derives from
+   * it and nothing validates it, so `null` (unanswered) is a normal state all
+   * the way through Submit.
+   *
+   * Asked regardless of `tapPositionConnectionType`: a Lamp-type connection
+   * does not make the per-tap resistance meaningless, and hiding the box on a
+   * dropdown the surveyor may set afterwards would lose an already-typed
+   * answer. Number, not text, because `0` and "not measured" must stay
+   * distinguishable — which a string field cannot do.
+   */
+  resistancePerTapOhm: number | null;
   rtccPanelWorking: boolean | null;
   /**
    * The document calls this TPT throughout; it was built as "TPI". Same
@@ -1044,6 +1073,23 @@ export interface SurveyControlRoom {
  * place, never rebuilt, and it keeps the legacy combined key exactly as the
  * 66/33kV split left it.
  */
+/**
+ * The Spare / WIP half of the asset grid — one per-level record per asset row.
+ *
+ * Written as explicit fields rather than Record<AssetCountRowKey, …> because
+ * AssetCountRowKey lives in surveyLabels.ts, and src/types must not import
+ * from lib (the mapper, the factory and the rules tests all pull this file).
+ * The two lists are kept in step by the grid, which indexes this object with
+ * ASSET_COUNT_ROWS — a missing key would fail to compile there.
+ */
+export interface SurveySpareWipCounts {
+  baysByVoltage:                 Record<SurveyVoltageLevel, number | null>;
+  busesByVoltage:                Record<SurveyVoltageLevel, number | null>;
+  busCouplerBusSectionByVoltage: Record<SurveyVoltageLevel, number | null>;
+  capacitorBanksByVoltage:       Record<SurveyVoltageLevel, number | null>;
+  transformersByVoltage:         Record<SurveyVoltageLevel, number | null>;
+}
+
 export interface SurveyAssetCounts {
   /**
    * All seven levels PLUS the legacy combined key, which is only ever read (to
@@ -1069,6 +1115,24 @@ export interface SurveyAssetCounts {
   busCouplerBusSectionByVoltage: Record<SurveyVoltageLevel, number | null>;
   capacitorBanksByVoltage: Record<SurveyVoltageLevel, number | null>;
   transformersByVoltage:   Record<SurveyVoltageLevel, number | null>;
+
+  /**
+   * Assets that are spare or work in progress — present at the site but not
+   * yet installed.
+   *
+   * Keyed by the SAME row keys as the installed records above, so one grid
+   * component renders either by switching source. Nested rather than five more
+   * top-level `spare*ByVoltage` fields: it keeps the installed set readable,
+   * and makes "is any spare value answered?" one object to walk.
+   *
+   * No legacy 66/33 key anywhere in here — this data did not exist before the
+   * split, so there is no pre-split answer to recover.
+   *
+   * Optional throughout: null means not answered, 0 means a typed zero. No
+   * validation rule gates Submit on it, and it never feeds the site-master
+   * cross-checks or the BOQ, both of which stay on installed counts only.
+   */
+  spareWip: SurveySpareWipCounts;
 
   /**
    * @deprecated FLAT TOTALS, superseded by the three per-level records above.

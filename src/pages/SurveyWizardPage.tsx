@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
-import { AlertTriangle, Clock } from 'lucide-react';
+import { AlertTriangle, Clock, X } from 'lucide-react';
 import { db } from '@/firebase/config';
-import { useAuthStore }         from '@/store/authStore';
+import { useAuthStore } from '@/store/authStore';
 import { useSurveyReport, normaliseRestoredDraft } from '@/hooks/useSurveyReport';
-import { useSurveyActions }     from '@/hooks/useSurveyActions';
+import { useSurveyActions } from '@/hooks/useSurveyActions';
 import {
   useSurveySubmitQueue,
   toSurveyPayload,
@@ -14,8 +14,8 @@ import {
   replaceLocalPhotoRef,
 } from '@/lib/surveySubmitQueue';
 import type { PendingSurveyPhoto } from '@/lib/surveySubmitQueue';
-import { useNetworkStatus }     from '@/hooks/useNetworkStatus';
-import { useToast }             from '@/components/ui/toast';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { useToast } from '@/components/ui/toast';
 import { saveDraft, loadDraft, deleteDraft, markDraftSynced } from '@/lib/surveyDraftStore';
 import { chooseDraftSource, surveySignature, buildAutosavePayload } from '@/lib/surveyDraftSync';
 import { v4 as uuidv4 } from 'uuid';
@@ -34,18 +34,18 @@ import { getPhoto, deletePhoto, blobToDataUrl, deletePhotosForWorkOrder } from '
 import { uploadToCloudinary } from '@/utils/uploadToCloudinary';
 import { validateSurvey, getStepStatuses } from '@/lib/surveyValidation';
 import { Button } from '@/components/ui/button';
-import { cn }      from '@/lib/utils';
-import { StepSiteVisit }      from '@/components/survey/steps/StepSiteVisit';
-import { StepFeederList }     from '@/components/survey/steps/StepFeederList';
+import { cn } from '@/lib/utils';
+import { StepSiteVisit } from '@/components/survey/steps/StepSiteVisit';
+import { StepFeederList } from '@/components/survey/steps/StepFeederList';
 import { StepCapacitorBanks } from '@/components/survey/steps/StepCapacitorBanks';
 import { StepTransformerDetails } from '@/components/survey/steps/StepTransformerDetails';
 import { StepInfrastructure } from '@/components/survey/steps/StepInfrastructure';
-import { StepAcdcDetails }    from '@/components/survey/steps/StepAcdcDetails';
+import { StepAcdcDetails } from '@/components/survey/steps/StepAcdcDetails';
 import { LegacyVoltageBanner } from '@/components/survey/LegacyVoltageBanner';
-import { StepCableRuns }      from '@/components/survey/steps/StepCableRuns';
-import { StepPhotos }         from '@/components/survey/steps/StepPhotos';
-import { StepBoq }            from '@/components/survey/steps/StepBoq';
-import { StepSignOff }        from '@/components/survey/steps/StepSignOff';
+import { StepCableRuns } from '@/components/survey/steps/StepCableRuns';
+import { StepPhotos } from '@/components/survey/steps/StepPhotos';
+import { StepBoq } from '@/components/survey/steps/StepBoq';
+import { StepSignOff } from '@/components/survey/steps/StepSignOff';
 import type { StepStatus } from '@/lib/surveyValidation';
 import type { SurveyStepProps } from '@/components/survey/steps/StepProps';
 import type { SurveyReport } from '@/types';
@@ -53,7 +53,7 @@ import type { SurveyReport } from '@/types';
 // ─── Steps ────────────────────────────────────────────────────────────────────
 
 interface WizardStep {
-  key:   string;
+  key: string;
   label: string;
   Component: React.ComponentType<SurveyStepProps>;
   /**
@@ -87,19 +87,19 @@ interface WizardStep {
  * there any more.
  */
 const STEPS: WizardStep[] = [
-  { key: 'site_visit',      label: 'Site & Visit',                    Component: StepSiteVisit,                             validationIndex: 0 },
-  { key: 'feeders',         label: 'Feeder List',                     Component: StepFeederList,                            validationIndex: 1 },
-  { key: 'capacitor_banks', label: 'Capacitor Banks',                 Component: StepCapacitorBanks,                        validationIndex: null },
-  { key: 'transformers',    label: 'Transformer Details',             Component: StepTransformerDetails,                    validationIndex: null },
-  { key: 'infrastructure',  label: 'Site Infrastructure & Checklist', Component: StepInfrastructure,                        validationIndex: 3 },
+  { key: 'site_visit', label: 'Site & Visit', Component: StepSiteVisit, validationIndex: 0 },
+  { key: 'feeders', label: 'Feeder List', Component: StepFeederList, validationIndex: 1 },
+  { key: 'capacitor_banks', label: 'Capacitor Banks', Component: StepCapacitorBanks, validationIndex: null },
+  { key: 'transformers', label: 'Transformer Details', Component: StepTransformerDetails, validationIndex: null },
+  { key: 'infrastructure', label: 'Site Infrastructure & Checklist', Component: StepInfrastructure, validationIndex: 3 },
   // New step, no validation rules yet — same treatment Capacitor Banks and
   // Transformer Details got when they first landed. validationIndex: null
   // means it reads 'untouched' and can never nag.
-  { key: 'acdc_details',    label: 'ACDB & DCDB Details',             Component: StepAcdcDetails,                           validationIndex: null },
-  { key: 'cable_runs',      label: 'Cable Runs',                      Component: StepCableRuns,                             validationIndex: 4 },
-  { key: 'photos',          label: 'Photos',                          Component: StepPhotos,                                validationIndex: 5 },
-  { key: 'boq',             label: 'BOQ',                             Component: StepBoq,                                   validationIndex: 6 },
-  { key: 'sign_off',        label: 'Sign-Off',                        Component: StepSignOff,                               validationIndex: 7 },
+  { key: 'acdc_details', label: 'ACDB & DCDB Details', Component: StepAcdcDetails, validationIndex: null },
+  { key: 'cable_runs', label: 'Cable Runs', Component: StepCableRuns, validationIndex: 4 },
+  { key: 'photos', label: 'Photos', Component: StepPhotos, validationIndex: 5 },
+  { key: 'boq', label: 'BOQ', Component: StepBoq, validationIndex: 6 },
+  { key: 'sign_off', label: 'Sign-Off', Component: StepSignOff, validationIndex: 7 },
 ];
 
 /** A step the validator doesn't cover yet — never 'incomplete', so it can't nag. */
@@ -155,7 +155,7 @@ async function resolveOnlinePhotoUploads(
       const file = new File([stored.blob], `${photoId}.jpg`, { type: stored.mimeType });
       const result = await uploadToCloudinary(file, { taskNum: siteCode, photoType: 'completion', index: 0 });
       resolved = replaceLocalPhotoRef(resolved, `local://${photoId}`, result.url);
-      await deletePhoto(photoId).catch(() => {});
+      await deletePhoto(photoId).catch(() => { });
     } catch (err) {
       console.error('[SurveyWizardPage] submit-time photo upload failed:', err);
       allUploaded = false;
@@ -181,7 +181,7 @@ export function SurveyWizardPage() {
   const { currentUser } = useAuthStore();
   const { survey, loading, error } = useSurveyReport(workOrderId);
   const { submitSurvey, saveProgress } = useSurveyActions();
-  const featureFlags                   = useFeatureFlags();
+  const featureFlags = useFeatureFlags();
   const { enqueue } = useSurveySubmitQueue();
   const isOnline = useNetworkStatus();
   const { showToast } = useToast();
@@ -190,17 +190,24 @@ export function SurveyWizardPage() {
   const [workOrderMetaError, setWorkOrderMetaError] = useState<string | null>(null);
   const [siteMaster, setSiteMaster] = useState<{ totalBays: number | null; numPowerTransformers: number | null } | null>(null);
   const [surveyData, setSurveyData] = useState<SurveyReport | null>(null);
-  const [stepIndex, setStepIndex]   = useState(0);
+  const [stepIndex, setStepIndex] = useState(0);
   const [localReady, setLocalReady] = useState(false);
-  const [draftInfo, setDraftInfo]   = useState<{ updatedAt: number } | null>(null);
+  const [draftInfo, setDraftInfo] = useState<{ updatedAt: number } | null>(null);
+  /**
+   * True once the restore pass has looked and found nothing on this device.
+   * Distinct from `draftInfo === null`, which is also the state before the
+   * lookup has run — and the notice must not flash during load.
+   */
+  const [noDraftFound, setNoDraftFound] = useState(false);
+  const [noDraftNoticeDismissed, setNoDraftNoticeDismissed] = useState(false);
   const [discardConfirm, setDiscardConfirm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showValidationSummary, setShowValidationSummary] = useState(false);
 
-  const initializedRef        = useRef(false);
-  const startedTransitionRef  = useRef(false);
+  const initializedRef = useRef(false);
+  const startedTransitionRef = useRef(false);
   /** Single-flight lock for Submit — see handleSubmit for why state won't do. */
-  const submitLockRef         = useRef(false);
+  const submitLockRef = useRef(false);
 
   // ── One-time WorkOrder meta fetch — workOrderCode/siteName for the header ──
   // A plain getDoc (not a listener): these two fields never change after
@@ -214,7 +221,7 @@ export function SurveyWizardPage() {
           const data = snap.data();
           setWorkOrderMeta({
             workOrderCode: data['workOrderCode'] ?? '',
-            siteName:      data['siteName']      ?? '',
+            siteName: data['siteName'] ?? '',
           });
         }
       })
@@ -236,7 +243,7 @@ export function SurveyWizardPage() {
         if (snap.exists()) {
           const data = snap.data();
           setSiteMaster({
-            totalBays:            data['totalBays']            ?? null,
+            totalBays: data['totalBays'] ?? null,
             numPowerTransformers: data['numPowerTransformers'] ?? null,
           });
         }
@@ -266,10 +273,10 @@ export function SurveyWizardPage() {
         // otherwise — exactly what this effect did before. The conflict branch
         // is unreachable until the feature is switched on.
         const source = chooseDraftSource({
-          localUpdatedAt:    draft?.updatedAt ?? null,
+          localUpdatedAt: draft?.updatedAt ?? null,
           localLastSyncedAt: draft?.lastSyncedAt ?? null,
-          localSyncToken:    draft?.lastSyncedToken ?? null,
-          remoteSyncToken:   survey.draftSyncToken ?? null,
+          localSyncToken: draft?.lastSyncedToken ?? null,
+          remoteSyncToken: survey.draftSyncToken ?? null,
         });
 
         if (draft && source === 'local') {
@@ -282,10 +289,15 @@ export function SurveyWizardPage() {
           setDraftInfo({ updatedAt: draft.updatedAt });
         } else {
           setSurveyData(survey);
+          setNoDraftFound(true);
         }
       } catch (err) {
         console.error('[SurveyWizardPage] draft load failed:', err);
         setSurveyData(survey);
+        // A failed lookup is indistinguishable from an absent draft as far as
+        // the engineer is concerned: either way this device has nothing to
+        // continue from, and saying so is what matters.
+        setNoDraftFound(true);
       }
       // "What the server holds" = the EXACT snapshot the form was built from.
       // This first snapshot can come from Firestore's offline cache and be
@@ -293,8 +305,8 @@ export function SurveyWizardPage() {
       // instead made the stale values on screen look like local edits, and
       // the new device pushed them over the other device's work. With the
       // baseline here, a fresher snapshot is simply adopted field by field.
-      serverSigsRef.current      = sigsOf(survey);
-      serverBaseRef.current      = survey;
+      serverSigsRef.current = sigsOf(survey);
+      serverBaseRef.current = survey;
       // A restored local draft (this device's own, or the only copy) may hold
       // edits that never reached the server — mark exactly those as touched so
       // they still go out. A form loaded from the server starts untouched.
@@ -325,8 +337,8 @@ export function SurveyWizardPage() {
     startedTransitionRef.current = true;
     try {
       await saveProgress(survey.id, {
-        workOrderId:    survey.workOrderId,
-        data:           {},
+        workOrderId: survey.workOrderId,
+        data: {},
         previousStatus: survey.status,
       });
     } catch (err) {
@@ -335,223 +347,33 @@ export function SurveyWizardPage() {
     }
   }
 
-  // ── Debounced REMOTE autosave — makes the work survive the device ─────────
-  //
-  // The local draft below is the crash buffer; this is the slower push that
-  // lets an engineer resume on another device. Behind a kill switch, and OFF
-  // unless an admin turns it on — see AppConfig.surveyRemoteAutosaveEnabled.
-  //
-  // Only the assigned engineer writes. An admin or approver opening a survey
-  // to look at it must never mutate it by observation, which is the same rule
-  // ensureInProgress above is built around.
-  const remoteAutosaveEnabled =
-    featureFlags.surveyRemoteAutosaveEnabled
-    && !!survey
-    && !!currentUser
-    && survey.assignedTo === currentUser.uid
-    && (survey.status === 'open'
-        || survey.status === 'in_progress'
-        || survey.status === 'changes_requested');
+  /**
+   * Ask the browser to keep this origin's storage.
+   *
+   * An in-progress survey exists ONLY in IndexedDB until Submit, and without
+   * this the browser may evict it under storage pressure — which loses 30-45
+   * minutes of field work with no server copy to fall back on. Best-effort by
+   * design: Chrome may grant it silently, Safari may decline, and a refusal is
+   * not an error worth showing anyone. Logged so a future loss report can be
+   * checked against whether storage was actually persisted.
+   */
+  const persistAskedRef = useRef(false);
+  useEffect(() => {
+    if (persistAskedRef.current) return;
+    if (!survey || !currentUser || survey.assignedTo !== currentUser.uid) return;
+    if (!navigator.storage?.persist) return;
+    persistAskedRef.current = true;
 
-  // Derived from the content, so a new edit path added later cannot forget to
-  // mark the survey dirty. useMemo keys it on the survey object, so the walk
-  // runs once per edit rather than once per render.
-  const dataSignature = useMemo(
-    () => (surveyData ? surveySignature(surveyData) : ''),
-    [surveyData],
-  );
-
-  const remoteSave = useDebouncedRemoteSave({
-    enabled:   remoteAutosaveEnabled && localReady && !!surveyData,
-    signature: dataSignature,
-    // Near-real-time: ~2s after typing stops, never more than 8s while typing.
-    // Affordable because each save is now a small delta, not the whole survey.
-    debounceMs: 2_000,
-    maxWaitMs:  8_000,
-    save: async () => {
-      if (!survey || !surveyData) return;
-      // uuid, not crypto.randomUUID: the latter is undefined outside a secure
-      // context — including a phone reaching the dev server over plain http.
-      const token = uuidv4();
-      lastPushedTokenRef.current = token;
-      // Photos are merged, not replaced: the server may hold photos another
-      // device added since this one last adopted. local:// refs are stripped —
-      // they are blobs on this device only and would reach others as broken.
-      // SHIELD: never blank an answer this device has never seen filled.
-      const base     = serverBaseRef.current ?? survey;
-      const shielded = shieldFilledAnswers(surveyData, survey, base);
-      if (shielded !== surveyData) {
-        // Show the protected answers here too, so the screen matches the server.
-        setSurveyData((prev) => (prev ? shieldFilledAnswers(prev, survey, base) : prev));
-      }
-      const merged  = mergePhotoFields(shielded, survey);
-      // PER-INPUT: the latest server copy with ONLY the inputs the user
-      // operated on here laid over it. Anything not touched on this device is
-      // the server's own value, so it can never be overwritten from here.
-      const composed = composeTouched(survey, merged, touchedRef.current);
-      const payload  = buildAutosavePayload(stripLocalRefsForSync(composed), token) as Record<string, unknown>;
-
-      // ONLY changed fields, on every path — see planAutosave. A device that
-      // has not typed anything writes nothing, so opening the survey on another
-      // device (even from a stale offline copy) can never overwrite it.
-      const plan = planAutosave(payload, serverSigsRef.current, survey.status, new Set(touchedRef.current.keys()));
-      // Touched inputs are now either sent or already equal to the server, so
-      // they leave the set — except a field still holding an un-uploaded photo,
-      // which stays protected until the upload lands. An edit made while this
-      // save is in the air re-records itself; a failed save puts these back.
-      const released: TouchedInputs = new Map();
-      for (const [k, paths] of touchedRef.current) {
-        if (holdsLocalPhoto((merged as unknown as Record<string, unknown>)[k])) continue;
-        released.set(k, paths);
-        touchedRef.current.delete(k);
-      }
-      const restoreTouches = () => {
-        for (const [k, paths] of released) {
-          const m = touchedRef.current.get(k) ?? new Map();
-          for (const [id, path] of paths) m.set(id, path);
-          touchedRef.current.set(k, m);
-        }
-      };
-      if (plan.kind === 'skip') {
-        lastPushedTokenRef.current = survey.draftSyncToken ?? null;
-        return;
-      }
-      const sentKeys = Object.keys(plan.fields).filter((k) => k !== 'draftSyncToken');
+    void (async () => {
       try {
-      if (plan.kind === 'fields') {
-        await writeSurveyFields(survey.id, plan.fields);
-      } else {
-        // open / changes_requested: saveProgress also performs the status
-        // transition the rules require — but with the delta, never the full survey.
-        await saveProgress(survey.id, {
-          workOrderId:    survey.workOrderId,
-          data:           plan.fields,
-          previousStatus: survey.status,
-        });
-      }
+        const persisted = await navigator.storage.persist();
+        const estimate = await navigator.storage.estimate?.();
+        console.info('[SurveyWizardPage] storage persisted:', persisted, estimate ?? '(no estimate)');
       } catch (err) {
-        restoreTouches();
-        throw err;
+        console.warn('[SurveyWizardPage] storage.persist() failed:', err);
       }
-      // The server now holds what was SENT — untouched fields keep whatever
-      // the server had, so only the sent ones are recorded as changed.
-      serverSigsRef.current = new Map([...serverSigsRef.current, ...signFields(plan.fields)]);
-      const nextBase = { ...(serverBaseRef.current ?? survey) } as Record<string, unknown>;
-      for (const k of sentKeys) nextBase[k] = (composed as unknown as Record<string, unknown>)[k];
-      serverBaseRef.current = nextBase as unknown as SurveyReport;
-      // Show this device the photos it just merged in. Our own echo is skipped
-      // by the live effect below, so without this they would not appear here.
-      // Only when the merge actually changed the photo set: replacing the form
-      // state on every save re-rendered every input and felt like a refresh.
-      setSurveyData((prev) => {
-        if (!prev) return prev;
-        const next = mergePhotoFields(prev, merged);
-        const same =
-          JSON.stringify(photoRefsIn(next)) === JSON.stringify(photoRefsIn(prev))
-          && JSON.stringify(next.removedPhotoRefs ?? []) === JSON.stringify(prev.removedPhotoRefs ?? []);
-        return same ? prev : next;
-      });
-      // Written ONLY after a confirmed push — chooseDraftSource treats this
-      // marker as proof the server has this device's work, and setting it
-      // optimistically would let a genuinely newer remote copy be discarded.
-      if (workOrderId) await markDraftSynced(workOrderId, token);
-    },
-  });
-
-  // ── Live A↔B: adopt another device's save while this survey is open ──
-  // Latest save wins. Skipped while this device has unsent edits: those go out
-  // on the next save and the OTHER device adopts them instead, so neither
-  // side's newest typing is thrown away mid-keystroke.
-  const lastPushedTokenRef = useRef<string | null>(null);
-  // True once a save from ANOTHER device lands while this form is open — the
-  // exact situation that risks losing data. Cancel hides it for this visit.
-  const [otherDeviceActive, setOtherDeviceActive] = useState(false);
-  const [otherDeviceDismissed, setOtherDeviceDismissed] = useState(false);
-  // The exact inputs the user operated on HERE that have not reached the
-  // server yet. Only these are ever sent, and only these are kept over the
-  // server's values — see composeTouched / adoptWithTouches.
-  const touchedRef = useRef<TouchedInputs>(new Map());
-  // Per-field signatures of the last server version this device knows.
-  const serverSigsRef = useRef<FieldSignatures>(new Map());
-  // The server copy the form is built on — the shield's "what this device saw".
-  const serverBaseRef = useRef<SurveyReport | null>(null);
-  // Per-field signatures of what this device believes is on the server — the
-  // basis for both delta saves and per-field adopt.
-  const sigsOf = (data: SurveyReport): FieldSignatures =>
-    signFields(buildAutosavePayload(stripLocalRefsForSync(data), '') as Record<string, unknown>);
-
-  // Runs on EVERY server snapshot (own echoes included), so the known-server
-  // state never goes stale. Adopts only fields the other device changed that
-  // this device has not touched — typed answers are never overwritten.
-  useEffect(() => {
-    if (!remoteAutosaveEnabled || !localReady || !survey) return;
-
-    const known      = serverSigsRef.current;
-    const serverSigs = sigsOf(survey);
-
-    // First snapshot after load: just record the baseline.
-    if (known.size === 0) {
-      serverSigsRef.current = serverSigs;
-      lastPushedTokenRef.current = survey.draftSyncToken ?? null;
-      return;
-    }
-
-    // A save from ANOTHER device (not our own echo) — for the warning only.
-    const tok = survey.draftSyncToken ?? null;
-    if (tok && tok !== lastPushedTokenRef.current) {
-      setOtherDeviceActive(true);
-      lastPushedTokenRef.current = tok;
-    }
-
-    setSurveyData((prev) => {
-      if (!prev) return prev;
-      const keys = [...serverSigs.keys()].filter((k) => k !== 'draftSyncToken');
-      const adopted = adoptWithTouches(prev, survey, keys, touchedRef.current);
-      const merged  = mergePhotoFields(adopted, survey);
-      const photosSame =
-        JSON.stringify(photoRefsIn(merged)) === JSON.stringify(photoRefsIn(adopted))
-        && JSON.stringify(merged.removedPhotoRefs ?? []) === JSON.stringify(adopted.removedPhotoRefs ?? []);
-      // Untouched state is returned as-is so the form does not re-render.
-      if (adopted === prev && photosSame) return prev;
-      return photosSame ? adopted : merged;
-    });
-
-    serverSigsRef.current = serverSigs;
-    serverBaseRef.current = survey;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [survey]);
-
-  // A step change is a natural checkpoint and worth far more than any timer.
-  const lastFlushedStepRef = useRef(stepIndex);
-  useEffect(() => {
-    if (lastFlushedStepRef.current === stepIndex) return;
-    lastFlushedStepRef.current = stepIndex;
-    remoteSave.flush();
-  }, [stepIndex, remoteSave]);
-
-  // ── Background photo uploads land here while the wizard is open ──
-  // Applied to live state so the in-memory survey (the source of truth while
-  // open) never lags the uploader. Only claimed once the survey has loaded:
-  // claiming earlier would let the uploader treat an unapplied swap as done.
-  // Inert when the uploader switch is off — nothing dispatches the event.
-  useEffect(() => {
-    if (!workOrderId || !localReady) return;
-    const onUploaded = (e: Event) => {
-      const d = (e as CustomEvent<PhotoUploadedDetail>).detail;
-      if (d.workOrderId !== workOrderId) return;
-      setSurveyData((prev) => {
-        if (!prev) return prev;
-        const next = replaceLocalPhotoRef(prev, d.oldRef, d.newRef);
-        recordTouches(touchedRef.current, prev, next, PHOTO_FIELDS);
-        return next;
-      });
-      d.handled = true;
-    };
-    window.addEventListener(PHOTO_UPLOADED_EVENT, onUploaded);
-    return () => window.removeEventListener(PHOTO_UPLOADED_EVENT, onUploaded);
-  }, [workOrderId, localReady]);
-
-  const pendingPhotos = usePendingPhotos(workOrderId);
+    })();
+  }, [survey, currentUser]);
 
   // ── Debounced local draft autosave — every field change and every step change ──
   useEffect(() => {
@@ -602,12 +424,12 @@ export function SurveyWizardPage() {
     // reference (those are stripped before any Firestore write), so any
     // blobs still in surveyPhotoStore for this work order are orphaned the
     // moment we revert — safe to clear, same as the draft itself.
-    await deletePhotosForWorkOrder(workOrderId).catch(() => {});
+    await deletePhotosForWorkOrder(workOrderId).catch(() => { });
     setSurveyData(survey);
     setStepIndex(0);
     setDraftInfo(null);
     setDiscardConfirm(false);
-    showToast('Draft discarded — reverted to last saved version', 'success');
+    showToast('Local changes discarded — showing the last submitted version', 'success');
   }
 
   async function handleSubmit() {
@@ -634,11 +456,11 @@ export function SurveyWizardPage() {
     // TypeScript's narrowing surviving into a hoisted function declaration —
     // it doesn't, since a declaration is technically callable from anywhere
     // in this scope.
-    const woId            = workOrderId;
-    const surveyId         = survey.id;
-    const siteCode         = survey.siteCode;
-    const submittedBy      = currentUser.uid;
-    const submittedByName  = currentUser.name;
+    const woId = workOrderId;
+    const surveyId = survey.id;
+    const siteCode = survey.siteCode;
+    const submittedBy = currentUser.uid;
+    const submittedByName = currentUser.name;
 
     // Builds the pendingPhotos envelope from every local:// reference still
     // in `data`, reading each blob and converting it to the base64 data: URI
@@ -656,12 +478,12 @@ export function SurveyWizardPage() {
       }
 
       await enqueue({
-        workOrderId:     woId,
-        surveyReportId:  surveyId,
+        workOrderId: woId,
+        surveyReportId: surveyId,
         siteCode,
         submittedBy,
         submittedByName,
-        data:            toSurveyPayload(stripLocalPhotoRefs(data)),
+        data: toSurveyPayload(stripLocalPhotoRefs(data)),
         pendingPhotos,
         queuedAt: Date.now(),
         attempts: 0,
@@ -703,11 +525,11 @@ export function SurveyWizardPage() {
       await submitSurvey(survey.id, {
         workOrderId,
         data: dataToSubmit,
-        submittedBy:     currentUser.uid,
+        submittedBy: currentUser.uid,
         submittedByName: currentUser.name,
       });
       await deleteDraft(workOrderId);
-      await deletePhotosForWorkOrder(workOrderId).catch(() => {});
+      await deletePhotosForWorkOrder(workOrderId).catch(() => { });
       showToast('Survey submitted for approval', 'success');
       navigate('/surveys');
     } catch (err) {
@@ -741,6 +563,38 @@ export function SurveyWizardPage() {
   }
 
   const isReadOnly = survey.status === 'pending_approval' || survey.status === 'approved';
+
+  /**
+   * Never submitted. `submittedAt` is seeded null by createEmptySurveyReport
+   * and written ONLY by submitSurvey, and nothing ever clears it — so a null
+   * here means no version of this survey has ever reached the server with
+   * content in it.
+   */
+  const neverSubmitted = survey.submittedAt == null;
+  const isAssignedEngineer = !!currentUser && survey.assignedTo === currentUser.uid;
+
+  /**
+   * Discarding reverts to the SERVER copy — which, for a survey that has never
+   * been submitted, is an empty shell. Offering "revert" there is offering to
+   * delete everything with nothing to revert to, so the control is hidden
+   * entirely. It stays for a sent-back survey, where the submitted version is
+   * a real thing to go back to.
+   */
+  const canDiscardDraft = !!draftInfo && !neverSubmitted;
+
+  /**
+   * This device has no draft for a survey someone has already started working
+   * on. Shown only to the assigned engineer, and only where it is genuinely
+   * ambiguous: 'open' means nothing was started, and 'changes_requested' means
+   * the server copy holds the submitted data, so neither is a mystery.
+   */
+  const showNoDraftNotice =
+    isAssignedEngineer
+    && !isReadOnly
+    && noDraftFound
+    && !noDraftNoticeDismissed
+    && neverSubmitted
+    && survey.status === 'in_progress';
   // Stays visible while the engineer reworks and after status moves on to
   // in_progress — gating on the literal 'changes_requested' status would hide
   // the notes the moment ensureInProgress() flips it, which is the whole
@@ -754,10 +608,10 @@ export function SurveyWizardPage() {
   // gate) share the same pure implementation — recomputed on every render,
   // which is cheap for a document this size and keeps both always in sync
   // with the live edit, no memoisation needed.
-  const stepStatuses     = getStepStatuses(surveyData);
+  const stepStatuses = getStepStatuses(surveyData);
   const validationIssues = validateSurvey(surveyData);
   const currentStepStatus = statusForStep(stepStatuses, STEPS[stepIndex]);
-  const validationErrorCount   = validationIssues.filter((i) => i.severity === 'error').length;
+  const validationErrorCount = validationIssues.filter((i) => i.severity === 'error').length;
   const validationWarningCount = validationIssues.length - validationErrorCount;
 
   return (
@@ -810,11 +664,10 @@ export function SurveyWizardPage() {
           on each one. Only states the engineer must act on are shown. */}
       {remoteAutosaveEnabled && (remoteSave.error || (!isOnline && remoteSave.dirty)) && (
         <div
-          className={`rounded-lg border px-3 py-2 text-xs ${
-            remoteSave.error
+          className={`rounded-lg border px-3 py-2 text-xs ${remoteSave.error
               ? 'border-amber-200 bg-amber-50 text-amber-800'
               : 'border-blue-200 bg-blue-50 text-brand-blue'
-          }`}
+            }`}
         >
           {!isOnline
             ? 'Offline — saved on this device. Will sync when signal returns.'
@@ -823,24 +676,46 @@ export function SurveyWizardPage() {
       )}
 
       {/* Draft restored banner */}
-      {draftInfo && !discardConfirm && !featureFlags.surveyRemoteAutosaveEnabled && (
+      {/* No draft on this device for a survey that was already started. */}
+      {showNoDraftNotice && (
+        <div className="flex items-start justify-between gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+          <p className="text-xs text-amber-800">
+            No draft found on this device. If you started this survey on another phone, browser or
+            the installed app, open it there to continue. Anything you enter here starts a blank
+            form.
+          </p>
+          <button
+            type="button"
+            onClick={() => setNoDraftNoticeDismissed(true)}
+            aria-label="Dismiss"
+            className="shrink-0 rounded p-0.5 text-amber-700 hover:bg-amber-100"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {draftInfo && !discardConfirm && (
         <div className="flex items-center justify-between gap-2 rounded-lg bg-blue-50 border border-blue-200 px-3 py-2">
           <span className="text-xs text-brand-blue">
             Draft restored — last saved {formatTime(draftInfo.updatedAt)}
           </span>
-          <button
-            type="button"
-            onClick={() => setDiscardConfirm(true)}
-            className="text-xs font-medium text-brand-red hover:underline shrink-0"
-          >
-            Discard draft
-          </button>
+          {canDiscardDraft && (
+            <button
+              type="button"
+              onClick={() => setDiscardConfirm(true)}
+              className="text-xs font-medium text-brand-red hover:underline shrink-0"
+            >
+              Discard draft
+            </button>
+          )}
         </div>
       )}
       {discardConfirm && (
         <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 flex flex-col gap-2">
           <p className="text-xs text-red-700">
-            Discard your local draft and revert to the last saved server version?
+            This deletes the changes you made on this device since the last submitted version,
+            including photos not yet uploaded. It cannot be undone.
           </p>
           <div className="flex gap-2 justify-end">
             <Button type="button" variant="outline" size="sm" className="text-xs" onClick={() => setDiscardConfirm(false)}>
@@ -916,10 +791,10 @@ export function SurveyWizardPage() {
                   isCurrent
                     ? 'bg-brand-blue text-white'
                     : status.state === 'complete'
-                    ? 'bg-green-50 text-green-700'
-                    : status.state === 'incomplete'
-                    ? 'bg-amber-50 text-amber-700'
-                    : 'bg-gray-100 text-gray-400',
+                      ? 'bg-green-50 text-green-700'
+                      : status.state === 'incomplete'
+                        ? 'bg-amber-50 text-amber-700'
+                        : 'bg-gray-100 text-gray-400',
                 )}
               >
                 {s.label}

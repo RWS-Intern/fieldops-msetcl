@@ -78,6 +78,26 @@ export const ASSET_COUNT_ROWS: readonly AssetCountRowKey[] = [
   'capacitorBanksByVoltage', 'transformersByVoltage',
 ];
 
+/**
+ * Sum of the levels actually ANSWERED in one asset row, or null when none is.
+ *
+ * null rather than 0 is the whole point: a row nobody has filled in must read
+ * "—", not "0 bays", and a half-filled row must not flag a misleadingly large
+ * discrepancy against the site master.
+ *
+ * Lives here, beside the rows it sums, because the step and the Preview each
+ * had their own copy — two definitions of the same arithmetic on a document
+ * an MSETCL engineer signs. Undefined-safe on the record itself: a draft
+ * restored from IndexedDB can predate a row existing.
+ */
+export function sumAnsweredLevels(
+  record: Record<string, number | null> | undefined | null,
+): number | null {
+  if (!record) return null;
+  const answered = Object.values(record).filter((n): n is number => n != null);
+  return answered.length > 0 ? answered.reduce((sum, n) => sum + n, 0) : null;
+}
+
 // ─── CRP Relay Details ──────────────────────────────────────────────────────────
 //
 // BAY_TYPE_LABELS and DEVICE_TYPE_LABELS are GONE, along with the BayType and

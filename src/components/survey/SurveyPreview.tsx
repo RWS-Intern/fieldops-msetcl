@@ -4,12 +4,12 @@ import { AlertTriangle, FileText, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { SUPPLY_BOQ_MASTER } from '@/lib/boqMaster';
-import { SURVEY_PHOTO_SLOTS, validateSurvey } from '@/lib/surveyValidation';
+import { SURVEY_PHOTO_SLOTS, isRetiredPhoto, validateSurvey } from '@/lib/surveyValidation';
 import { formatMetresAsKm } from '@/lib/units';
 import { transformerNeedsNewTpt } from '@/lib/boqDerivation';
 import { isPdfRef, pdfPreviewUrl } from '@/lib/signedDocs';
 import {
-  VOLTAGE_LEVEL_LABELS, ASSET_COUNT_ROWS, ASSET_COUNT_ROW_LABELS,
+  VOLTAGE_LEVEL_LABELS, ASSET_COUNT_ROWS, ASSET_COUNT_ROW_LABELS, sumAnsweredLevels,
   RELAY_TYPE_LABELS, PROTOCOL_LABELS,
   CAPACITOR_CONTROL_TYPE_LABELS, TRAYS_LABELS,
   DC_VOLTAGE_LABELS, MCB_POLE_TYPE_LABELS, BOQ_CHECK_LABELS, storedVoltageLabel,
@@ -292,18 +292,11 @@ function AssetCountsBlock({
   counts: SurveyAssetCounts;
   siteMaster?: { totalBays: number | null; numPowerTransformers: number | null } | null;
 }) {
-  // Sum of the levels actually answered — null until at least one is, so a
-  // half-filled row never flags a misleadingly large discrepancy against the
-  // site master. Same rule as the Site & Visit step's own hint.
-  // Defensive on the record itself — see the note on the step's own copy.
-  const sumAnswered = (record: Record<string, number | null> | undefined | null): number | null => {
-    if (!record) return null;
-    const answered = Object.values(record).filter((n): n is number => n != null);
-    return answered.length > 0 ? answered.reduce((sum, n) => sum + n, 0) : null;
-  };
-
-  const totalBays = sumAnswered(counts.baysByVoltage);
-  const totalTransformers = sumAnswered(counts.transformersByVoltage);
+  // ONE helper for all ten totals — sumAnsweredLevels, shared with the step.
+  // The inline copy that used to live here was a second definition of the same
+  // arithmetic on a document an MSETCL engineer signs.
+  const totalBays = sumAnsweredLevels(counts.baysByVoltage);
+  const totalTransformers = sumAnsweredLevels(counts.transformersByVoltage);
 
   const bayFlag =
     siteMaster?.totalBays != null && totalBays != null && siteMaster.totalBays !== totalBays
@@ -348,9 +341,65 @@ function AssetCountsBlock({
         </div>
       </div>
 
+      {/* A total per asset row, not just bays and transformers. Each is the sum
+          of its ANSWERED levels, so a row nobody filled reads "—" rather than
+          a confident 0. The two site-master comparisons stay where they were. */}
       <div className="mt-1 grid grid-cols-2 gap-2">
-        <Field label="Total Bays (sum of answered levels)" value={dash(totalBays)} flag={bayFlag} />
-        <Field label="Total Transformers (sum of answered levels)" value={dash(totalTransformers)} flag={transformerFlag} />
+        {ASSET_COUNT_ROWS.map((row) => (
+          <Field
+            key={row}
+            label={`Total ${ASSET_COUNT_ROW_LABELS[row]} (sum of answered levels)`}
+            value={dash(sumAnsweredLevels(counts[row]))}
+            flag={row === 'baysByVoltage' ? bayFlag
+              : row === 'transformersByVoltage' ? transformerFlag
+              : null}
+          />
+        ))}
+      </div>
+
+      {/* ── Spare / WIP ─────────────────────────────────────────────────────
+          Not a new numbered section — it belongs to Asset Counts, so the
+          document's section numbering is unchanged. A survey written before
+          this existed has no spareWip at all and shows "—" throughout. */}
+      <div className="mt-2 flex flex-col gap-1">
+        <span className="text-xs font-semibold text-gray-600">Spare / WIP (Work in Progress)</span>
+        <span className="text-[10px] text-gray-400">
+          Assets that are spare or work in progress and not yet installed.
+        </span>
+        <div className="overflow-x-auto">
+          <div className="min-w-[34rem]">
+            <div className={ASSET_GRID_COLS}>
+              <span className="text-[10px] uppercase tracking-wide text-gray-400">Asset</span>
+              {SURVEY_VOLTAGE_LEVELS.map((level) => (
+                <span key={level} className="text-center text-[10px] uppercase tracking-wide text-gray-400">
+                  {VOLTAGE_LEVEL_LABELS[level]}
+                </span>
+              ))}
+            </div>
+            {ASSET_COUNT_ROWS.map((row) => (
+              <div key={row} className={`${ASSET_GRID_COLS} border-b border-gray-100 py-1`}>
+                <span className="text-xs font-medium text-gray-600">{ASSET_COUNT_ROW_LABELS[row]}</span>
+                {SURVEY_VOLTAGE_LEVELS.map((level) => (
+                  <span key={level} className="text-center text-xs text-gray-800">
+                    {dash(counts.spareWip?.[row]?.[level])}
+                  </span>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* The same five totals, with NO site-master comparison: the master
+            describes what is installed, so flagging spares against it would be
+            comparing two different things. */}
+        <div className="mt-1 grid grid-cols-2 gap-2">
+          {ASSET_COUNT_ROWS.map((row) => (
+            <Field
+              key={row}
+              label={`Spare / WIP ${ASSET_COUNT_ROW_LABELS[row]} (sum of answered levels)`}
+              value={dash(sumAnsweredLevels(counts.spareWip?.[row]))}
+            />
+          ))}
+        </div>
       </div>
 
       {/* Answers recorded before this section changed shape — shown so a
@@ -404,15 +453,18 @@ function FeederBlock({ feeder, index }: { feeder: SurveyFeederEntry; index: numb
         <Field label="No. of F-RTU / Remote-IO Modules Required" value={dash(feeder.frtuModulesRequired)} />
       </div>
       <TriField label="Panel space available" value={feeder.panelSpaceAvailable} />
-      <TriField label="Existing MFM available" value={feeder.existingMfmAvailable} />
-      <TriField label="Existing MFM working" value={feeder.existingMfmWorking} />
+      <TriField label="Existing MFM available? (With RS485)" value={feeder.existingMfmAvailable} />
+      <TriField label="Existing MFM working? (With RS485)" value={feeder.existingMfmWorking} />
       {feeder.existingMfmAvailable === true && (
         <>
-          <TriField label="Existing MFM RS485 available" value={feeder.existingMfmRs485Available} />
-          <TriField label="Existing MFM RS485 working" value={feeder.existingMfmRs485Working} />
+          <TriField label="Is existing MFM available to integrate?" value={feeder.existingMfmAvailableToIntegrate} />
           <TriField label="Existing MFM MODBUS protocol compatible" value={feeder.mfmModbusCompatible} />
         </>
       )}
+      {/* Superseded and no longer collected. The two questions above changed
+          meaning, so the old answers are shown rather than dropped. */}
+      <RemovedField label="Existing MFM RS485 available" value={feeder.existingMfmRs485Available} />
+      <RemovedField label="Existing MFM RS485 working" value={feeder.existingMfmRs485Working} />
       {/* The pre-split combined answer, flagged rather than silently dropped,
           so a reviewer can see this feeder still needs re-entering. */}
       {feeder.existingMfmAvailableWorking != null && (
@@ -492,6 +544,12 @@ function TransformerBlock({ tx, index }: { tx: SurveyTransformerEntry; index: nu
         <Field label="RTCC High Step" value={dash(tx.rtccHighStep)} />
         <Field label="RTCC Low Step" value={dash(tx.rtccLowStep)} />
         <Field label="Tap Position Connection Type" value={dash(tx.tapPositionConnectionType)} />
+        {/* != null, not a truthiness test: a measured 0 Ω is a real answer and
+            must read "0 Ω", not "—". Same rule as the metre fields above. */}
+        <Field
+          label="Resistance per Tap (Ω)"
+          value={tx.resistancePerTapOhm != null ? `${tx.resistancePerTapOhm} Ω` : '—'}
+        />
       </div>
       <TriField label="RTCC panel working" value={tx.rtccPanelWorking} />
       <TriField label="Existing TPT working" value={tx.existingTptWorking} />
@@ -994,6 +1052,9 @@ export function SurveyPreview({
 }: SurveyPreviewProps) {
   // One pass per render, shared by every heading below.
   const heading = sectionHeadings(survey);
+  // Photos whose caption matches no current slot — the slot-keyed render
+  // below would otherwise skip them entirely.
+  const retiredPhotos = survey.sitePhotos.filter(isRetiredPhoto);
   const issues = validateSurvey(survey);
   const errorCount = issues.filter((i) => i.severity === 'error').length;
   const canEditSignatures = !!onChange && !!workOrderId && !readOnly;
@@ -1161,6 +1222,29 @@ export function SurveyPreview({
               </div>
             );
           })}
+
+          {/* Photographs stored against a slot that no longer exists. Grouped
+              last and labelled, rather than dropped: the slot-keyed filter
+              above matches on caption, so without this block an older
+              survey's photos would silently disappear from the record a
+              reviewer signs. */}
+          {retiredPhotos.length > 0 && (
+            <div className="flex flex-col gap-1 break-inside-avoid">
+              <span className="text-xs font-medium text-gray-500">
+                Earlier photos (no longer requested)
+              </span>
+              <PhotoGrid refs={retiredPhotos.map((p) => p.url)} />
+              <ul className="mt-0.5 flex flex-col gap-0.5">
+                {retiredPhotos.map((p, i) => (
+                  <li key={p.url} className="text-xs text-gray-500">
+                    <span className="text-gray-400">Photo {i + 1}:</span>{' '}
+                    {p.caption || 'No label'}
+                    {!!p.remark?.trim() && <span className="italic"> — {p.remark}</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         {/* 10. BOQ */}
