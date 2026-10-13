@@ -24,8 +24,7 @@ export type DraftSource =
   | 'local'
   /** Open the server's copy — this device has nothing newer. */
   | 'remote'
-  /** Both moved independently. Ask; never guess. */
-  | 'conflict';
+;
 
 export interface DraftSourceInput {
   /** Device-clock ms of the local draft's last edit, or null when there is no local draft. */
@@ -61,23 +60,38 @@ export function chooseDraftSource({
   // Nothing on this device — whatever the server has is all there is.
   if (localUpdatedAt === null) return 'remote';
 
-  // Never pushed from here: the local copy is the only place this work lives.
-  // This is also every existing draft on the day the feature is switched on —
-  // treating that as a conflict would prompt every engineer in the field.
-  if (localSyncToken === null) return 'local';
+  // Never pushed from here.
+  //   - Server has cloud-saved work (a token): another device has been filling
+  //     this survey, and this draft is an OLD copy from before. Opening it
+  //     would push stale answers over that work — the second-device wipe.
+  //   - Server has never been cloud-saved: this draft is the only copy of the
+  //     work (every existing draft on switch-on day, or the feature is off),
+  //     so it must win.
+  if (localSyncToken === null) return remoteSyncToken === null ? 'local' : 'remote';
 
   // Server still holds this device's token: nobody else has pushed since.
   if (remoteSyncToken === localSyncToken) return 'local';
 
-  // Someone else pushed. Ask only if this device also has work it never sent.
-  const localHasUnsynced = localUpdatedAt > (localLastSyncedAt ?? 0);
-  return localHasUnsynced ? 'conflict' : 'remote';
+  // Another device pushed after this one: the latest save wins. Product
+  // decision — field staff prefer "newest version everywhere" to a prompt.
+  void localLastSyncedAt;
+  return 'remote';
 }
 
-/** Metadata owned by submission and review, never by an autosave. */
+/**
+ * Never written by an autosave:
+ *  - submission and review metadata, owned by those flows;
+ *  - identity, ownership and approval-chain fields, pinned by firestore.rules
+ *    and owned by admin/review actions — the same set saveProgress strips.
+ *    The delta fast path writes without saveProgress, so this list is the
+ *    only thing stopping a stale local copy of the chain reaching the server.
+ */
 const NON_ANSWER_KEYS = [
   'status', 'reviewNotes', 'reviewedBy', 'reviewedByName', 'reviewedAt',
   'submittedBy', 'submittedByName', 'submittedAt', 'draftSyncToken',
+  'id', 'workOrderId', 'siteId', 'assignedTo', 'assignedToName',
+  'approverUid', 'approverName', 'approvalStages', 'currentStageIndex',
+  'approvalStageOwnerUids', 'reviewDirection', 'createdAt', 'updatedAt',
 ] as const;
 
 /**

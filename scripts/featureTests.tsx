@@ -21,8 +21,11 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import { runSaverTests } from './saverTests';
+import { runAllInputsTests } from './allInputsTests';
 import { chooseDraftSource, toMillis, buildAutosavePayload, stripUndefinedDeep } from '@/lib/surveyDraftSync';
 import { backoffDelay, claimPhoto, releasePhoto, _resetUploaderForTests } from '@/lib/surveyPhotoUploader';
+import { mergePhotoFields, removedRefs } from '@/lib/surveyPhotoMerge';
+import { signFields, changedFields, adoptRemoteFields, shieldFilledAnswers } from '@/lib/surveyDelta';
 
 import { summariseLifecycle, WORK_ORDER_STAGE_LABEL } from '@/hooks/useSiteLifecycle';
 import { SURVEY_APPROVAL_STAGES, SURVEY_APPROVAL_STAGE_COUNT } from '@/lib/approvalStages';
@@ -473,11 +476,11 @@ function testDraftPrecedence(): void {
 
   // THE ROLLOUT CASE — every existing draft has no token on switch-on day.
   eq('a never-synced draft opens locally', choose(100, null, null, null), 'local');
-  eq('a never-synced draft opens locally even if the server has a token', choose(100, null, null, 'other'), 'local');
+  eq('SECOND-DEVICE WIPE: an old never-synced draft loses to cloud-saved work', choose(100, null, null, 'other'), 'remote');
 
   eq('server still holds this device token — local wins', choose(300, 200, 'a', 'a'), 'local');
   eq('another device pushed, nothing unsynced here — take server', choose(200, 200, 'a', 'b'), 'remote');
-  eq('another device pushed AND unsynced edits here — ask', choose(400, 200, 'a', 'b'), 'conflict');
+  eq('another device pushed — latest wins even with unsynced edits here', choose(400, 200, 'a', 'b'), 'remote');
 
   // The clock-skew bug this replaced: no timestamp from the server is read at
   // all, so a phone whose clock is wildly off still decides correctly.
@@ -535,6 +538,117 @@ function testPhotoUploader(): void {
 }
 
 
+// ─── 7. Cross-device photo merge ──────────────────────────────────────────────
+
+function testPhotoMerge(): void {
+  section('7. Cross-device photo merge');
+
+  const withPhotos = (site: string[], feederPhotos: string[] = [], removed: string[] = []) => {
+    const s = survey();
+    s.sitePhotos = site.map((url) => ({ url, caption: 'slot', remark: null }));
+    s.feeders = [{ ...(s.feeders[0] ?? {}), uid: 'f1', photos: feederPhotos } as SurveyReport['feeders'][number]];
+    s.removedPhotoRefs = removed;
+    return s;
+  };
+  const urls = (s: SurveyReport) => s.sitePhotos.map((x) => x.url);
+
+  // THE REPORTED BUG: phone adds A1+A2, laptop adds B1 — all three must survive.
+  const phone  = withPhotos(['https://x/a1', 'https://x/a2']);
+  const laptop = withPhotos(['https://x/b1']);
+  eq('photos from both devices are kept, not replaced',
+    urls(mergePhotoFields(laptop, phone)), ['https://x/b1', 'https://x/a1', 'https://x/a2']);
+  eq('merge order does not lose photos either way',
+    urls(mergePhotoFields(phone, laptop)).sort(), ['https://x/a1', 'https://x/a2', 'https://x/b1']);
+
+  // Feeder photos merge by feeder uid too.
+  eq('feeder photos merge across devices',
+    mergePhotoFields(withPhotos([], ['https://x/p']), withPhotos([], ['https://x/q'])).feeders[0].photos,
+    ['https://x/p', 'https://x/q']);
+
+  // A deletion on one device must not be resurrected by the other.
+  const deleter = withPhotos([], [], ['https://x/a1']);
+  const stale   = withPhotos(['https://x/a1', 'https://x/b1']);
+  eq('a deleted photo stays deleted after merging with a stale copy',
+    urls(mergePhotoFields(stale, deleter)), ['https://x/b1']);
+  eq('tombstones travel with the merge',
+    mergePhotoFields(stale, deleter).removedPhotoRefs, ['https://x/a1']);
+
+  // A pending local photo survives adopting another device's save.
+  const local = withPhotos(['local://pending']);
+  eq('this device\'s pending local photo survives adopting a remote save',
+    urls(mergePhotoFields(withPhotos(['https://x/b1']), local)), ['https://x/b1', 'local://pending']);
+
+  // Deletion detection ignores local:// swaps and keeps real removals.
+  eq('removedRefs records a deleted uploaded photo',
+    removedRefs(['https://x/a', 'https://x/b'], ['https://x/a']), ['https://x/b']);
+  eq('an upload swapping local:// for https is not treated as a deletion',
+    removedRefs(['local://p'], ['https://x/p']), []);
+
+  // Idempotent: merging twice changes nothing.
+  const once = mergePhotoFields(laptop, phone);
+  eq('merging is idempotent', urls(mergePhotoFields(once, phone)), urls(once));
+}
+
+
+// ─── 8. Delta autosave ────────────────────────────────────────────────────────
+
+function testDelta(): void {
+  section('8. Delta autosave');
+  const base = { surveyorName: 'K', feeders: [{ uid: 'f1', photos: [] }], draftSyncToken: 't1' };
+  const sigs = signFields(base);
+  eq('unchanged payload sends only the token', Object.keys(changedFields({ ...base, draftSyncToken: 't2' }, sigs, ['draftSyncToken'])), ['draftSyncToken']);
+  eq('one edited field sends just that field + token', Object.keys(changedFields({ ...base, surveyorName: 'R', draftSyncToken: 't2' }, sigs, ['draftSyncToken'])).sort(), ['draftSyncToken', 'surveyorName']);
+  eq('a nested change re-sends that whole top-level field', Object.keys(changedFields({ ...base, feeders: [{ uid: 'f1', photos: ['x'] }] }, sigs)), ['feeders']);
+  eq('first save after load sends everything', Object.keys(changedFields(base, new Map())).length, 3);
+  eq('a brand-new field is sent', Object.keys(changedFields({ ...base, zone: 'M' }, sigs)), ['zone']);
+  const chain = buildAutosavePayload({ surveyorName: 'K', id: 's1', assignedTo: 'u1', approverUid: 'a1', approvalStages: [], currentStageIndex: 0, createdAt: new Date(), updatedAt: new Date() } as Record<string, unknown>, 'tok');
+  ok('autosave never writes identity or approval-chain fields', ['id','assignedTo','approverUid','approvalStages','currentStageIndex','createdAt','updatedAt'].every((k) => !(k in chain)));
+  ok('answers still pass through', (chain as Record<string, unknown>)['surveyorName'] === 'K');
+
+  // ── Per-field adopt: THE DATA-WIPE BUG ──
+  type D = Record<string, unknown>;
+  const adopt = (local: D, server: D, known: D) =>
+    adoptRemoteFields(local, server, signFields(local), signFields(server), signFields(known));
+  const known0 = { feeders: [{ uid: 'f1', bayName: '' }], surveyorName: 'K', zone: null };
+
+  // User typed a feeder field; a snapshot arrives (another device changed zone).
+  const typed  = { ...known0, feeders: [{ uid: 'f1', bayName: 'Bay-01' }] };
+  const remote = { ...known0, zone: 'Mumbai' };
+  const out1 = adopt(typed, remote, known0);
+  eq('REGRESSION: typed feeder answer is NOT wiped by a remote save', (out1.feeders as D[])[0].bayName, 'Bay-01');
+  eq('the other device field untouched here IS adopted', out1.zone, 'Mumbai');
+
+  // Both devices changed the same field: this device's typing wins (it gets pushed).
+  const out2 = adopt({ ...known0, surveyorName: 'Mine' }, { ...known0, surveyorName: 'Theirs' }, known0);
+  eq('same field changed on both — local typing is kept', out2.surveyorName, 'Mine');
+
+  // Our own echo with typing done since the push: nothing is lost.
+  const pushed = { ...known0, surveyorName: 'R' };
+  const out3 = adopt({ ...pushed, surveyorName: 'Ra' }, pushed, known0);
+  eq('own echo never rolls back newer typing', out3.surveyorName, 'Ra');
+
+  // Nothing changed anywhere: same object back, so the form does not re-render.
+  ok('no change returns the same object (no re-render)', adopt(known0, known0, known0) === known0);
+
+  // ── Filled-answer shield ──
+  const srv  = { feeders: [{ uid: 'f1', diStatusPoints: 12, frtu: 1 }], zone: 'Mumbai', ok: false };
+  const old  = { feeders: [{ uid: 'f1', diStatusPoints: null, frtu: null }], zone: null, ok: null };
+  const sh = shieldFilledAnswers(old as D, srv as D, old as D);
+  eq('SHIELD: stale device cannot blank a filled feeder answer', (sh.feeders as D[])[0].diStatusPoints, 12);
+  eq('SHIELD: stale device cannot blank a filled top-level answer', sh.zone, 'Mumbai');
+  eq('SHIELD: "No" (false) counts as a filled answer and is protected', sh.ok, false);
+  // A deliberate clear by a user who SAW the value still goes through.
+  const cleared = shieldFilledAnswers({ ...srv, zone: null } as D, srv as D, srv as D);
+  eq('a deliberate clear (value was seen here) still goes through', cleared.zone, null);
+  // A feeder added on another device is kept; one deleted here stays deleted.
+  const added = shieldFilledAnswers({ feeders: [] } as D, { feeders: [{ uid: 'f9' }] } as D, { feeders: [] } as D);
+  eq('SHIELD: a feeder another device added is not dropped', (added.feeders as D[]).length, 1);
+  const deleted = shieldFilledAnswers({ feeders: [] } as D, { feeders: [{ uid: 'f9' }] } as D, { feeders: [{ uid: 'f9' }] } as D);
+  eq('a feeder deleted on this device stays deleted', (deleted.feeders as D[]).length, 0);
+  ok('shield returns the same object when nothing needs protecting', shieldFilledAnswers(srv as D, srv as D, srv as D) === srv);
+
+}
+
 export async function runFeatureTests(): Promise<number> {
   testLifecycle();
   testProjectCreation();
@@ -542,11 +656,14 @@ export async function runFeatureTests(): Promise<number> {
   testBoq();
   testDraftPrecedence();
   testPhotoUploader();
+  testPhotoMerge();
+  testDelta();
 
   // Awaited: the saver drives promises through a fake clock.
   const saverFailures = await runSaverTests();
+  const inputFailures = runAllInputsTests();
 
-  const totalFailed = failed + saverFailures;
+  const totalFailed = failed + saverFailures + inputFailures;
   console.log(
     `
 ${totalFailed === 0 ? 'ALL PASSED' : 'FAILURES'} ` +

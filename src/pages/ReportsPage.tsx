@@ -19,7 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { exportToCsv } from '@/utils/exportToCsv';
 import { getStatusColour, getStatusLabel } from '@/lib/taskUtils';
 import { cn } from '@/lib/utils';
-import type { TaskStatus } from '@/types';
+import { IN_HOUSE_VENDOR_ID, type TaskStatus, type User } from '@/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -155,6 +155,12 @@ const STAGE_FILTER_PREFIX = 'stage:';
 
 const stageFilterValue = (index: number) => `${STAGE_FILTER_PREFIX}${index}`;
 
+/**
+ * Fully approved surveys — the end of the chain, after the stage tiles.
+ * Survey-only like the stages: no task has this status, so it excludes tasks.
+ */
+const APPROVED_SURVEYS_FILTER = 'survey_approved';
+
 /** The stage index a filter value selects, or null when it is a plain status. */
 function stageIndexFromFilter(filterValue: string): number | null {
   if (!filterValue.startsWith(STAGE_FILTER_PREFIX)) return null;
@@ -176,7 +182,19 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
     value: stageFilterValue(i),
     label: `Awaiting ${stage.label}`,
   })),
+  { value: APPROVED_SURVEYS_FILTER, label: 'Approved Surveys' },
 ];
+
+/**
+ * The vendor an engineer reports under. Field engineers created before
+ * vendors existed have no vendorId saved; new ones default to the in-house
+ * vendor (see CreateUserModal), so a missing vendor means in-house too.
+ * Without this, their surveys and tasks matched NO vendor and vanished from
+ * every vendor filter while still counting under "All vendors".
+ */
+function vendorIdOf(u: User): string | null {
+  return u.vendorId ?? (u.role === 'field' ? IN_HOUSE_VENDOR_ID : null);
+}
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
@@ -210,14 +228,17 @@ export function ReportsPage() {
   // task's assignee is the only link a vendor-wise report needs.
   const vendorByUid = useMemo(() => {
     const map = new Map<string, string>();
-    users.forEach((u) => { if (u.vendorId) map.set(u.id, u.vendorId); });
+    users.forEach((u) => {
+      const vendorId = vendorIdOf(u);
+      if (vendorId) map.set(u.id, vendorId);
+    });
     return map;
   }, [users]);
 
   // With a vendor selected, the Engineer picker narrows to that vendor's
   // engineers — the two filters compose rather than contradicting each other.
   const fieldUsers = filterVendor
-    ? allFieldUsers.filter((u) => u.vendorId === filterVendor)
+    ? allFieldUsers.filter((u) => vendorIdOf(u) === filterVendor)
     : allFieldUsers;
 
   // Archived vendors stay listed: their engineers' past work is still in the
@@ -320,6 +341,7 @@ export function ReportsPage() {
       changes_requested: ['changes_requested'],
       completed: ['approved', 'closed'],
       blocked: [],
+      [APPROVED_SURVEYS_FILTER]: ['approved', 'closed'],
     };
 
     if (filterKind === 'tasks') return [];
@@ -372,6 +394,12 @@ export function ReportsPage() {
     });
     return counts;
   }, [filteredSurveys]);
+
+  /** Surveys that have cleared every stage — same statuses as Completed. */
+  const approvedSurveyCount = useMemo(
+    () => filteredSurveys.filter((sv) => sv.status === 'approved' || sv.status === 'closed').length,
+    [filteredSurveys],
+  );
 
   // ── Submission history — filtered tasks that have been submitted ──────────
   const submittedTasks = useMemo(() => {
@@ -448,10 +476,10 @@ export function ReportsPage() {
       const userNameByUid = new Map(users.map((u) => [u.id, u.name]));
       const vendorNameByUid = new Map(
         users
-          .filter((u) => u.vendorId)
+          .filter((u) => vendorIdOf(u))
           .map((u) => [
             u.id,
-            u.vendorName ?? vendors.find((v) => v.id === u.vendorId)?.vendorName ?? '',
+            u.vendorName ?? vendors.find((v) => v.id === vendorIdOf(u))?.vendorName ?? '',
           ]),
       );
       const siteMetaById = new Map(
@@ -675,12 +703,12 @@ export function ReportsPage() {
           inferred: a site task has a single approver and no chain, so it can
           never appear here. Hidden entirely when no survey is in review, so an
           all-zero row never implies work that does not exist. */}
-      {byStage.some((n) => n > 0) && (
+      {(byStage.some((n) => n > 0) || approvedSurveyCount > 0) && (
         <div>
           <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
-            Surveys awaiting approval, by stage
+            Survey approvals, by stage
           </p>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {SURVEY_APPROVAL_STAGES.map((stage, i) => (
               <button
                 key={stage.key}
@@ -701,6 +729,23 @@ export function ReportsPage() {
                 <p className="text-xs text-gray-500">{stage.label}</p>
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => setFilterStatus(
+                filterStatus === APPROVED_SURVEYS_FILTER ? '' : APPROVED_SURVEYS_FILTER,
+              )}
+              aria-pressed={filterStatus === APPROVED_SURVEYS_FILTER}
+              className={cn(
+                'rounded-xl border bg-white px-4 py-3 text-left transition-colors',
+                filterStatus === APPROVED_SURVEYS_FILTER
+                  ? 'border-brand-blue ring-1 ring-brand-blue/20'
+                  : 'border-gray-100 hover:border-gray-300',
+              )}
+              style={{ borderTopColor: '#2A9D8F', borderTopWidth: 2 }}
+            >
+              <p className="text-2xl font-bold text-gray-900">{approvedSurveyCount}</p>
+              <p className="text-xs text-gray-500">Approved</p>
+            </button>
           </div>
         </div>
       )}

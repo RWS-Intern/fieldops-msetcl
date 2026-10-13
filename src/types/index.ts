@@ -1611,6 +1611,12 @@ export interface SurveyReport {
    * documents never autosaved. Never shown.
    */
   draftSyncToken?: string | null;
+  /**
+   * Photo URLs deleted on any device — tombstones for the cross-device photo
+   * merge (see surveyPhotoMerge.ts), so a union cannot resurrect them. Only
+   * ever grows. Written only while cloud autosave is on.
+   */
+  removedPhotoRefs?: string[];
 
   surveyDate: Date | null;
   location: { lat: number; lng: number } | null;   // auto-captured, manual override allowed

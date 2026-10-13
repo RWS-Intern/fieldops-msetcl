@@ -84,7 +84,7 @@ function FieldTasksView() {
   }), [assignedSiteTasks]);
 
   return (
-    <div className="">
+    <div className="flex flex-col gap-4 max-w-2xl mx-auto pb-24">
       {/* Heading */}
       <div className="flex items-center gap-2">
         <h2 className="text-xl font-bold text-gray-900">My Tasks</h2>
