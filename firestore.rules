@@ -53,20 +53,26 @@ service cloud.firestore {
      * its pre-write value (Map == Map is deep equality — verified in the
      * emulator, not assumed).
      *
-     * FIXED AT THREE STAGES — see SURVEY_APPROVAL_STAGES in
-     * src/lib/approvalStages.ts. size() == 3 is required on both sides so a
+     * FIXED AT FOUR STAGES — see SURVEY_APPROVAL_STAGES in
+     * src/lib/approvalStages.ts. size() == 4 is required on both sides so a
      * document with an unexpected chain length is refused outright rather than
      * silently passing a check that skipped indices. If a stage is ever added or
      * removed, THIS FUNCTION MUST GAIN OR LOSE A LINE — the failure mode is a
      * loud refusal of all transitions, which is the safe direction.
+     *
+     * DEPLOY ORDER MATTERS. A document created under the three-stage chain has
+     * a 4-element array only after the backfill has run; until then this
+     * refuses every transition on it. Run scripts/migrateApprovalChainV4.ts
+     * FIRST, then deploy these rules.
      */
     function chainStagesUnchangedExceptLive(before, after, liveIndex) {
       let b = before.approvalStages;
       let a = after.approvalStages;
-      return b.size() == 3 && a.size() == 3
+      return b.size() == 4 && a.size() == 4
         && (liveIndex == 0 || b[0] == a[0])
         && (liveIndex == 1 || b[1] == a[1])
-        && (liveIndex == 2 || b[2] == a[2]);
+        && (liveIndex == 2 || b[2] == a[2])
+        && (liveIndex == 3 || b[3] == a[3]);
     }
 
     /**
@@ -90,16 +96,19 @@ service cloud.firestore {
      * writes its own entry AND resets liveIndex + 1 to 'pending'. Nothing else
      * may move, and liveIndex + 1 may only move in the reset shape above.
      *
-     * liveIndex is fenced to 0..1 because liveIndex + 1 must exist.
+     * liveIndex is fenced to 0..2 because liveIndex + 1 must exist. That
+     * ceiling is the chain length MINUS TWO, and moves with it: at four
+     * stages the deepest index that still has a next stage is 2.
      */
     function chainStagesUnchangedExceptLiveAndNext(before, after, liveIndex) {
       let b = before.approvalStages;
       let a = after.approvalStages;
-      return b.size() == 3 && a.size() == 3
-        && liveIndex >= 0 && liveIndex <= 1
+      return b.size() == 4 && a.size() == 4
+        && liveIndex >= 0 && liveIndex <= 2
         && (liveIndex == 0 || b[0] == a[0])
         && (liveIndex == 1 || liveIndex == 0 || b[1] == a[1])
         && (liveIndex == 2 || liveIndex == 1 || b[2] == a[2])
+        && (liveIndex == 3 || liveIndex == 2 || b[3] == a[3])
         && isResetToPending(b[liveIndex + 1], a[liveIndex + 1]);
     }
 

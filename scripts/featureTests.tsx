@@ -28,6 +28,9 @@ import { mergePhotoFields, removedRefs } from '@/lib/surveyPhotoMerge';
 import { signFields, changedFields, adoptRemoteFields, shieldFilledAnswers } from '@/lib/surveyDelta';
 
 import { summariseLifecycle, orderLifecycleEntries, WORK_ORDER_STAGE_LABEL } from '@/hooks/useSiteLifecycle';
+import { SURVEY_STEP_LABELS, RETIRED_STEP_INDICES, getStepStatuses } from '@/lib/surveyValidation';
+import { fromAuditLog, fromUpdate, fromUser, mergeEvents, toCsv } from '@/lib/activityLog';
+import { daysSince, surveyReason, regionOf, countBuckets, REGION_NOT_SET, cloudinaryUploadTime, photoUploadsIn, distanceKm, surveyContentCounts } from '@/lib/surveyTracker';
 import { SURVEY_APPROVAL_STAGES, SURVEY_APPROVAL_STAGE_COUNT } from '@/lib/approvalStages';
 import type { LifecycleEntry } from '@/hooks/useSiteLifecycle';
 import { SUPPLY_BOQ_MASTER, BOQ_DERIVED_ITEMS, createEmptySurveyReport } from '@/lib/boqMaster';
@@ -157,6 +160,148 @@ function testLifecycle(): void {
 }
 
 // ─── 2. Project creation ──────────────────────────────────────────────────────
+
+function testResubmitAfterChangesRequested(): void {
+  section('Resubmit after Changes Requested');
+
+  // ── What this covers, and what it does not ──────────────────────────────
+  // submitSurvey and forceSurveyState are Firestore-bound and cannot run
+  // here. What IS asserted is the CONTRACT between them: the exact field
+  // values each produces, and that the result satisfies every condition
+  // firestore.rules' isChainRestart imposes. If any of those three move
+  // apart, this fails — which is the regression that would silently strand a
+  // resubmitted survey outside the approval queue.
+
+  const OWNER_1 = { uid: 'uid-level-1', name: 'Prashant Patil' };
+  const OWNER_2 = { uid: 'uid-level-2', name: 'Sarvesh Veginwar' };
+
+  const chain = [
+    { stageKey: 'approver_level_1', stageLabel: 'Approver Level 1', status: 'pending',
+      ownerUid: OWNER_1.uid, ownerName: OWNER_1.name, reviewNotes: null, attachmentUrl: null, actedAt: null },
+    { stageKey: 'approver_level_2', stageLabel: 'Approver Level 2', status: 'pending',
+      ownerUid: OWNER_2.uid, ownerName: OWNER_2.name, reviewNotes: null, attachmentUrl: null, actedAt: null },
+  ];
+
+  // ── 1. The state a REAL rejection at Level 1 leaves behind ──────────────
+  // Mirrors `toField` + `ownStatus` in reviewSurvey.
+  const afterRejection = {
+    status:            'changes_requested',
+    currentStageIndex: 0,
+    approverUid:       chain[0].ownerUid,
+    approverName:      chain[0].ownerName,
+    reviewDirection:   'forward',
+    approvalStages:    chain.map((st, i) =>
+      i === 0 ? { ...st, status: 'changes_requested', reviewNotes: 'Resend for modification' } : st),
+  };
+
+  // ── 2. The state the admin Fix-state panel writes for Changes Requested ──
+  // Mirrors forceSurveyState's 'changes_requested' branch at stage 0.
+  const afterAdminFix = {
+    status:            'changes_requested',
+    currentStageIndex: 0,
+    approverUid:       chain[0].ownerUid,
+    approverName:      chain[0].ownerName,
+    reviewDirection:   'forward',
+    approvalStages:    chain.map((st, i) =>
+      i === 0 ? { ...st, status: 'changes_requested', reviewNotes: 'Resend for modification' } : st),
+  };
+
+  // THE load-bearing assertion. If an admin-corrected survey differs from a
+  // genuinely rejected one, resubmission behaves differently for the two —
+  // and only the corrected ones break, in production, silently.
+  eq('admin correction produces the same state as a real rejection',
+    afterAdminFix, afterRejection);
+
+  // ── 3. The engineer reopens it ──────────────────────────────────────────
+  // ensureInProgress flips changes_requested → in_progress via saveProgress.
+  const SAVE_PROGRESS_FLIPS = ['open', 'changes_requested'];
+  ok('reopening a sent-back survey moves it to in_progress',
+    SAVE_PROGRESS_FLIPS.includes(afterRejection.status));
+  const afterReopen = { ...afterRejection, status: 'in_progress' };
+
+  // ── 4. Submit must accept BOTH states ───────────────────────────────────
+  // submitSurvey's idempotency gate. 'changes_requested' matters for an
+  // OFFLINE submit, which never runs ensureInProgress and is drained from
+  // the sent-back state directly.
+  const SUBMITTABLE = ['open', 'in_progress', 'changes_requested'];
+  ok('a reopened survey is submittable', SUBMITTABLE.includes(afterReopen.status));
+  ok('a sent-back survey is submittable without reopening (offline path)',
+    SUBMITTABLE.includes(afterRejection.status));
+
+  // ── 5. The chain restart ────────────────────────────────────────────────
+  // Mirrors submitSurvey's chainRestart. approvalStages is passed through
+  // UNCHANGED — isChainRestart demands byte-identity, so resetting stage 0
+  // here would have the write refused as tampering.
+  const live = afterReopen;
+  const resubmitted = {
+    ...live,
+    approvalStages:    live.approvalStages,
+    currentStageIndex: 0,
+    approverUid:       live.approvalStages[0].ownerUid,
+    approverName:      live.approvalStages[0].ownerName,
+    reviewDirection:   'forward',
+    status:            'pending_approval',
+  };
+
+  eq('resubmission lands in pending_approval', resubmitted.status, 'pending_approval');
+  eq('it restarts at stage 0', resubmitted.currentStageIndex, 0);
+  eq('it is handed to the Level 1 owner', resubmitted.approverUid, OWNER_1.uid);
+  eq('the Level 1 owner is named on it', resubmitted.approverName, OWNER_1.name);
+  eq('direction is forward', resubmitted.reviewDirection, 'forward');
+
+  // The approvals queue is where the engineer's work actually becomes
+  // visible: approverUid == me AND status == 'pending_approval'.
+  const inLevel1Queue =
+    resubmitted.approverUid === OWNER_1.uid && resubmitted.status === 'pending_approval';
+  ok("it appears in Approver Level 1's queue", inLevel1Queue);
+  ok("it does NOT appear in Level 2's queue",
+    !(resubmitted.approverUid === OWNER_2.uid));
+
+  // ── 6. firestore.rules' isChainRestart must accept the write ────────────
+  const rulesAccept =
+    live.approvalStages.length > 0
+    && resubmitted.status === 'pending_approval'
+    && JSON.stringify(resubmitted.approvalStages) === JSON.stringify(live.approvalStages)
+    && resubmitted.currentStageIndex === 0
+    && resubmitted.approverUid === live.approvalStages[0].ownerUid
+    && resubmitted.reviewDirection === 'forward';
+  ok('firestore.rules isChainRestart accepts the resubmission', rulesAccept);
+
+  // Stage 0 keeps its 'changes_requested' entry — that is the historical
+  // record of the round that happened, and rewriting it is what the
+  // byte-identity rule forbids. The TOP-LEVEL status is what routes the
+  // survey, and that is now pending_approval.
+  eq('stage 0 keeps the rejection on record',
+    resubmitted.approvalStages[0].status, 'changes_requested');
+}
+
+function testRetiredSteps(): void {
+  section('Retired survey steps');
+
+  // CRP Relay Details was removed from the wizard once MSETCL confirmed it is
+  // not required, but its SURVEY_STEP_LABELS slot is KEPT so the indices after
+  // it do not shift. The wizard never notices — it matches validationIndex by
+  // value and simply never asks for 2.
+  //
+  // Anything that walks the array POSITIONALLY does notice: it renders a
+  // section nobody can fill and counts it toward a total. That is exactly what
+  // the survey tracker did, showing "CRP Relay Details — Not filled" forever
+  // and dividing its progress bar by 8 instead of 7.
+  eq('index 2 is still the retired CRP Relay Details slot', SURVEY_STEP_LABELS[2], 'CRP Relay Details');
+  ok('the retired index is declared for consumers to filter on', RETIRED_STEP_INDICES.has(2));
+
+  // Index and label must stay aligned for every positional consumer.
+  const statuses = getStepStatuses(survey());
+  eq('one status per label slot', statuses.length, SURVEY_STEP_LABELS.length);
+
+  const live = SURVEY_STEP_LABELS
+    .map((label, i) => ({ label, i }))
+    .filter(({ i }) => !RETIRED_STEP_INDICES.has(i));
+  ok('filtering drops CRP Relay Details', !live.some((l) => l.label === 'CRP Relay Details'));
+  eq('seven live sections remain', live.length, 7);
+  eq('live labels are exactly the wizard sections', live.map((l) => l.label),
+    ['Site & Visit', 'Feeder List', 'Infrastructure', 'Cable Runs', 'Photos', 'BOQ', 'Sign-Off']);
+}
 
 function testProjectCreation(): void {
   section('2. Project creation');
@@ -333,20 +478,33 @@ function testReporting(): void {
     survey({ id: 'b', status: 'pending_approval', currentStageIndex: 0 }),
     survey({ id: 'c', status: 'pending_approval', currentStageIndex: 2 }),
   ];
-  eq('stage tiles bucket surveys by their live stage', countByStage(inReview), [2, 0, 1]);
+  // Built from the live stage count: the point of the assertion is WHERE the
+  // surveys land, not how many stages happen to exist today.
+  const expectBuckets = (occupied: Record<number, number>) =>
+    Array.from({ length: SURVEY_APPROVAL_STAGE_COUNT }, (_, i) => occupied[i] ?? 0);
+
+  eq('stage tiles bucket surveys by their live stage',
+    countByStage(inReview), expectBuckets({ 0: 2, 2: 1 }));
   eq('stage tiles sum to the surveys in review',
     countByStage(inReview).reduce((a, b) => a + b, 0), 3);
 
   // A fully approved survey carries currentStageIndex === stage count. Clamping
   // it into the last stage would report finished work as still waiting.
   const done = [survey({ id: 'd', status: 'approved', currentStageIndex: SURVEY_APPROVAL_STAGE_COUNT })];
-  eq('a fully approved survey is in no stage bucket', countByStage(done), [0, 0, 0]);
+  eq('a fully approved survey is in no stage bucket', countByStage(done), expectBuckets({}));
 
   // Not in review means not awaiting a stage, whatever the index says.
   const sentBack = [survey({ id: 'e', status: 'changes_requested', currentStageIndex: 1 })];
-  eq('a sent-back survey is in no stage bucket', countByStage(sentBack), [0, 0, 0]);
+  eq('a sent-back survey is in no stage bucket', countByStage(sentBack), expectBuckets({}));
 
-  eq('there are exactly three stages to show', SURVEY_APPROVAL_STAGE_COUNT, 3);
+  // The chain length itself is a product decision, asserted against the
+  // defined stages rather than a number repeated here — the two can then
+  // never disagree.
+  eq('the stage count matches the defined stages',
+    SURVEY_APPROVAL_STAGE_COUNT, SURVEY_APPROVAL_STAGES.length);
+  eq('the chain is four stages, ending at Final Approver',
+    SURVEY_APPROVAL_STAGES.map((st) => st.key),
+    ['approver_level_1', 'approver_level_2', 'approver_level_3', 'final_approver']);
 }
 
 // ─── 4. BOQ ───────────────────────────────────────────────────────────────────
@@ -621,6 +779,85 @@ function testPhotoMerge(): void {
 
 // ─── 8. Delta autosave ────────────────────────────────────────────────────────
 
+function testActivityLog(): void {
+  section('Activity log — records become events');
+  const ts = (iso: string) => ({ toDate: () => new Date(iso) });
+  const audit = fromAuditLog('a1', { timestamp: ts('2026-10-01T10:00:00Z'), uid: 'u1', userName: 'Admin', action: 'CREATE_SITE', detail: 'Created site G462', siteId: 's1' });
+  eq('auditLog entry lands in Sites & Projects', audit?.section, 'sitesProjects');
+  eq('auditLog action reads as words', audit?.action, 'Create site');
+  const subject = (parent: string, id: string) => (parent === 'surveyReports' && id === 'wo1' ? 'WO-G462-SURVEY-01' : id);
+  const sub = fromUpdate('surveyReports/wo1/updates/x', { action: 'request_changes', actorName: 'Prashant Patil', createdAt: ts('2026-10-03T13:01:00Z'), stageIndex: 0, reviewNotes: 'Fix photos' }, subject);
+  eq('survey history names the survey by code', sub?.subject, 'WO-G462-SURVEY-01');
+  eq('survey send-back reads clearly', sub?.action, 'Survey sent back');
+  ok('note and stage carried into details', !!sub?.detail.includes('Stage 1') && !!sub?.detail.includes('"Fix photos"'));
+  const task = fromUpdate('siteTasks/t1/updates/y', { status: 'completed', submittedByName: 'FE One', submittedAt: ts('2026-10-04T09:00:00Z'), location: { lat: 21.1, lng: 79.9 } }, (_p, id) => id);
+  eq('site task history keeps the GPS it recorded', task?.gps, { lat: 21.1, lng: 79.9 });
+  eq('user doc gives account + app-usage events', fromUser('u9', { name: 'FE Nine', createdAt: ts('2026-01-01T00:00:00Z'), fcmTokenUpdatedAt: ts('2026-10-10T08:00:00Z') }).map((e) => e.section), ['usersVendors', 'appUsage']);
+  const dup = fromAuditLog('a2', { timestamp: ts('2026-10-03T13:01:20Z'), userName: 'Prashant Patil', action: 'REVIEW_SURVEY', detail: 'x' });
+  const merged = mergeEvents([audit!, sub!, dup!]);
+  eq('the auditLog copy of a survey review is not shown twice', merged.length, 2);
+  eq('newest first', merged[0].action, 'Survey sent back');
+  ok('CSV has a header and one row per event', toCsv(merged, (x) => x).split('\r\n').length === 3);
+  ok('a record with no time is skipped, not crashed on', fromAuditLog('a3', { action: 'CREATE_SITE' }) === null);
+}
+
+function testSurveyTracker(): void {
+  section('Survey Tracker — automatic reasons');
+  const now = new Date('2026-10-14T12:00:00Z');
+  const daysAgo = (n: number) => new Date(now.getTime() - n * 86_400_000);
+  const fe = { id: 'fe1', name: 'FE One', active: true } as unknown as User;
+  const ctx = { now, autosaveOn: false, engineer: fe };
+  const r = (o: Partial<SurveyReport>, c = ctx) => surveyReason(survey({ assignedTo: 'fe1', updatedAt: now, createdAt: now, ...o }), c);
+  const stage = (o: Partial<ApprovalStageResult>): ApprovalStageResult => ({
+    stageKey: 'approver_level_1', stageLabel: 'Approver Level 1', status: 'pending',
+    ownerUid: 'a1', ownerName: 'Prashant Patil', reviewNotes: null, attachmentUrl: null, actedAt: null,
+    ...o,
+  } as ApprovalStageResult);
+
+  ok('open: not started', r({ status: 'open', createdAt: daysAgo(1) }).text.startsWith('Not started'));
+  eq('open for 8 days is flagged red', r({ status: 'open', createdAt: daysAgo(8) }).tone, 'alert');
+  ok('in progress, nothing on server, autosave off: answers are on the phone',
+    r({ status: 'in_progress' }).text.includes("FE's phone"));
+  ok('in progress, silent 5 days: says so',
+    r({ status: 'in_progress', updatedAt: daysAgo(5) }).text.includes('No activity for 5 days'));
+  ok('in progress with answers: lists what is missing',
+    r({ status: 'in_progress', surveyorName: 'X', surveyDate: now }).text.startsWith('Incomplete'));
+  const sentBack = r({
+    status: 'changes_requested',
+    approvalStages: [stage({ status: 'changes_requested', reviewNotes: 'Send back for modification', actedAt: daysAgo(1) })],
+  });
+  ok('changes requested: names who sent it back', sentBack.text.includes('Approver Level 1 (Prashant Patil)'));
+  ok('changes requested: quotes the reviewer\'s note', sentBack.text.includes('"Send back for modification"'));
+  ok('submitted: says where it waits',
+    r({ status: 'pending_approval', submittedAt: daysAgo(2), currentStageIndex: 0, approvalStages: [stage({})] })
+      .text.includes('waiting at Approver Level 1 (Prashant Patil)'));
+  eq('approved is ok', r({ status: 'approved' }).tone, 'ok');
+  ok('no engineer assigned is flagged', r({ status: 'in_progress', assignedTo: null }).text.includes('No field engineer'));
+  ok('deactivated engineer is flagged',
+    r({ status: 'in_progress' }, { ...ctx, engineer: { ...fe, active: false } as User }).text.includes('deactivated'));
+
+  const site = { id: 's1', zone: '', circle: 'Nagpur Circle', division: null, city: 'Sakoli' } as unknown as Site;
+  eq('region from the site', regionOf(survey({}), site, 'circle'), 'Nagpur Circle');
+  eq('blank region reads Not set', regionOf(survey({}), site, 'division'), REGION_NOT_SET);
+  eq('zone falls back to the survey copy', regionOf(survey({ zone: 'East' }), site, 'zone'), 'East');
+  const counts = countBuckets([survey({ status: 'open' }), survey({ status: 'pending_approval' }), survey({ status: 'closed' })]);
+  // Calendar days, not 24-hour blocks: 15 Oct 18:30 seen on 16 Oct 10:00 is yesterday.
+  eq('submitted yesterday evening reads 1 day, not today', daysSince(new Date(2026, 9, 15, 18, 30), new Date(2026, 9, 16, 10, 0)), 1);
+  eq('earlier the same day reads 0 (today)', daysSince(new Date(2026, 9, 16, 0, 5), new Date(2026, 9, 16, 23, 55)), 0);
+  eq('two calendar days back reads 2', daysSince(new Date(2026, 9, 14, 23, 59), new Date(2026, 9, 16, 0, 1)), 2);
+  // Detail page helpers
+  const url = 'https://res.cloudinary.com/x/image/upload/v1790156181/fieldops-msetcl/a.jpg';
+  eq('photo upload time read from the Cloudinary URL', cloudinaryUploadTime(url)?.toISOString(), new Date(1790156181000).toISOString());
+  eq('URL without a version has no time', cloudinaryUploadTime('https://res.cloudinary.com/x/image/upload/a.jpg'), null);
+  const withPhotos = survey({ sitePhotos: [{ url, caption: 'c', remark: null }], removedPhotoRefs: ['https://res.cloudinary.com/x/image/upload/v1/old.jpg'] } as Partial<SurveyReport>);
+  const found = photoUploadsIn(withPhotos);
+  eq('photos found anywhere in the survey, deleted ones ignored', found.map((f) => f.section), ['sitePhotos']);
+  const km = distanceKm({ lat: 21.08, lng: 79.98 }, { lat: 21.09, lng: 79.98 });
+  ok('GPS distance is about 1.1 km for 0.01 deg latitude', km > 1.0 && km < 1.2, String(km));
+  ok('content counts cover the main sections', surveyContentCounts(survey({})).some((c) => c.label === 'Feeders'));
+  eq('buckets add up', [counts.total, counts.not_started, counts.submitted, counts.approved], [3, 1, 1, 1]);
+}
+
 function testDelta(): void {
   section('8. Delta autosave');
   const base = { surveyorName: 'K', feeders: [{ uid: 'f1', photos: [] }], draftSyncToken: 't1' };
@@ -680,6 +917,8 @@ function testDelta(): void {
 
 export async function runFeatureTests(): Promise<number> {
   testLifecycle();
+  testRetiredSteps();
+  testResubmitAfterChangesRequested();
   testProjectCreation();
   testReporting();
   testBoq();
@@ -687,6 +926,8 @@ export async function runFeatureTests(): Promise<number> {
   testPhotoUploader();
   testPhotoMerge();
   testDelta();
+  testSurveyTracker();
+  testActivityLog();
 
   // Awaited: the saver drives promises through a fake clock.
   const saverFailures = await runSaverTests();

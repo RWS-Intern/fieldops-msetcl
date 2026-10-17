@@ -81,6 +81,19 @@ export async function compressImage(file: File): Promise<File> {
         return;
       }
 
+      // WHITE BACKGROUND FIRST — this is not cosmetic.
+      //
+      // The output below is JPEG, which has NO alpha channel. A fresh canvas
+      // starts fully transparent, and every transparent pixel encodes as
+      // BLACK. A signature is a PNG with a transparent background and dark
+      // strokes, so without this it arrives as a solid black rectangle with
+      // the signature invisible inside it — which is exactly what the signed
+      // BOQ page was showing.
+      //
+      // Any transparent PNG hits this, not just signatures.
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, width, height);
+
       ctx.drawImage(img, 0, 0, width, height);
 
       canvas.toBlob(

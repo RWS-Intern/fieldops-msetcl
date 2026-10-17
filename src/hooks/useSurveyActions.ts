@@ -508,5 +508,108 @@ export function useSurveyActions() {
     }
   }
 
-  return { saveProgress, submitSurvey, reviewSurvey };
+  /**
+   * ADMIN CORRECTION. Forces a survey into a given lifecycle state.
+   *
+   * This exists because the survey and its parent work order are a PAIR that
+   * every normal code path writes in one batch, with the approval chain
+   * duplicated across both. Repairing one by hand in the Firestore console
+   * leaves them disagreeing — the oversight list reads surveyReports while the
+   * record screen reads the work order — and a chain array that differs
+   * between the two is refused by firestore.rules as tampering on the next
+   * real transition.
+   *
+   * So the repair belongs here, where both documents move together.
+   *
+   * NOT a review action. It records no approval and no rejection; it only
+   * restores the state a document should already have been in. The audit entry
+   * says exactly that, attributed to the admin who ran it — this is a document
+   * headed for government vetting, and a trail implying an approver acted when
+   * an administrator corrected data would be a false record.
+   *
+   * Admin-only, enforced here AND by firestore.rules' isAdmin() branch on both
+   * collections.
+   */
+  async function forceSurveyState(input: {
+    surveyReportId: string;
+    workOrderId:    string;
+    /** The state to restore. */
+    status:         Extract<WorkOrderStatus, 'pending_approval' | 'changes_requested' | 'in_progress'>;
+    /** Which stage becomes live. Ignored for 'in_progress', which has no live stage. */
+    stageIndex:     number;
+    /** The survey's CURRENT chain, straight from the caller's snapshot. */
+    stages:         ApprovalStageResult[];
+    /** Why the correction was made — required, and written to the audit trail. */
+    reason:         string;
+  }): Promise<void> {
+    if (!currentUser) throw new Error('Not authenticated');
+    if (currentUser.role !== 'admin') throw new Error('Only an admin can correct a survey state');
+
+    const reason = input.reason.trim();
+    if (!reason) throw new Error('A reason is required');
+
+    const stages = input.stages;
+    if (stages.length === 0) throw new Error('This survey has no approval chain to point at');
+
+    const liveIndex = Math.max(0, Math.min(input.stageIndex, stages.length - 1));
+    const live = stages[liveIndex];
+
+    // The chain array is rewritten only where the target state implies a
+    // different per-stage status. Everything else is copied through, so the
+    // two documents stay byte-identical and the rules' equality check holds.
+    const nextStages: ApprovalStageResult[] = stages.map((st, i) => {
+      if (input.status === 'in_progress') return st;
+      if (i !== liveIndex) return st;
+      return {
+        ...st,
+        status: input.status === 'changes_requested' ? 'changes_requested' : 'pending',
+      };
+    });
+
+    // in_progress has nobody waiting on it, so the live-owner pointers clear.
+    const chainFields = input.status === 'in_progress'
+      ? { approvalStages: nextStages, currentStageIndex: liveIndex, reviewDirection: 'forward' as ReviewDirection }
+      : {
+          approvalStages:    nextStages,
+          currentStageIndex: liveIndex,
+          approverUid:       live.ownerUid  ?? null,
+          approverName:      live.ownerName ?? null,
+          reviewDirection:   'forward' as ReviewDirection,
+        };
+
+    const batch = writeBatch(db);
+
+    batch.update(doc(db, 'surveyReports', input.surveyReportId), {
+      ...chainFields,
+      status:    input.status,
+      updatedAt: serverTimestamp(),
+    });
+
+    // The pair moves together or not at all — that invariant is the entire
+    // reason this function exists rather than two console edits.
+    batch.update(doc(db, 'workOrders', input.workOrderId), {
+      ...chainFields,
+      status:    input.status,
+      updatedAt: serverTimestamp(),
+    });
+
+    const updateRef = doc(collection(db, 'surveyReports', input.surveyReportId, 'updates'));
+    batch.set(updateRef, {
+      // 'submit' is the closest existing action for a survey re-entering the
+      // queue, but adminCorrection marks it so History never reads it as a
+      // field engineer having pressed Submit.
+      action:          input.status === 'changes_requested' ? 'request_changes' : 'submit',
+      actorUid:        currentUser.uid,
+      actorName:       currentUser.name,
+      createdAt:       serverTimestamp(),
+      stageKey:        live.stageKey ?? null,
+      stageIndex:      liveIndex,
+      adminCorrection: true,
+      reviewNotes:     `Status corrected to "${input.status}" by an administrator. ${reason}`,
+    });
+
+    await batch.commit();
+  }
+
+  return { saveProgress, submitSurvey, reviewSurvey, forceSurveyState };
 }

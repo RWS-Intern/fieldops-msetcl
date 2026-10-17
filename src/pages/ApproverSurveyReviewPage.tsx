@@ -13,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SurveyPreview } from '@/components/survey/SurveyPreview';
 import { BoqReviewPanel } from '@/components/survey/BoqReviewPanel';
+import { AdminStateFixPanel } from '@/components/survey/AdminStateFixPanel';
 import { LegacyVoltageBanner } from '@/components/survey/LegacyVoltageBanner';
 import { uploadToCloudinary } from '@/utils/uploadToCloudinary';
 import { findApprovalStage } from '@/lib/approvalStages';
@@ -721,6 +722,10 @@ export function ApproverSurveyReviewPage() {
           )}
         </div>
       </div>
+
+      {/* Admin-only repair. Sits above the chain so the state being corrected
+          and the chain it lands in are read together. */}
+      {currentUser?.role === 'admin' && <AdminStateFixPanel survey={survey} />}
 
       {/* Where this survey sits in the approval chain — above the preview. */}
       <StageIndicator

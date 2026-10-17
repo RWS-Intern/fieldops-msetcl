@@ -137,6 +137,16 @@ function formatTime(ms: number): string {
  * anything is still local:// afterward — the caller falls back to queueing
  * in that case rather than ever submitting a local:// reference to Firestore.
  */
+/**
+ * A signature is captured as a transparent PNG. Re-encoding it as JPEG drops
+ * the alpha channel, which turned the whole image black — and even with a
+ * white background painted in, lossy compression only costs a few kilobytes
+ * of line art its crispness. Uploaded byte-for-byte instead.
+ */
+function isSignatureTarget(kind: string): boolean {
+  return kind === 'signOffSurveyorSignature' || kind === 'signOffMsetclSignature';
+}
+
 async function resolveOnlinePhotoUploads(
   data: SurveyReport,
   siteCode: string,
@@ -144,15 +154,23 @@ async function resolveOnlinePhotoUploads(
   let resolved = data;
   let allUploaded = true;
 
-  for (const { photoId } of findLocalPhotoRefs(data)) {
+  for (const { photoId, target } of findLocalPhotoRefs(data)) {
     const stored = await getPhoto(photoId);
     if (!stored) {
       allUploaded = false; // orphan reference — nothing recoverable locally
       continue;
     }
     try {
-      const file = new File([stored.blob], `${photoId}.jpg`, { type: stored.mimeType });
-      const result = await uploadToCloudinary(file, { taskNum: siteCode, photoType: 'completion', index: 0 });
+      // Extension derived from the stored MIME type, not hardcoded .jpg — a
+      // PNG signature named .jpg misreports itself to Cloudinary.
+      const ext  = stored.mimeType === 'image/png' ? 'png' : 'jpg';
+      const file = new File([stored.blob], `${photoId}.${ext}`, { type: stored.mimeType });
+      const result = await uploadToCloudinary(file, {
+        taskNum: siteCode,
+        photoType: 'completion',
+        index: 0,
+        skipCompression: isSignatureTarget(target.kind),
+      });
       resolved = replaceLocalPhotoRef(resolved, `local://${photoId}`, result.url);
       await deletePhoto(photoId).catch(() => { });
     } catch (err) {

@@ -63,6 +63,17 @@ export function SignaturePad({ value, onChange, workOrderId, readOnly, signerLab
       ctx.strokeStyle = '#111827';
     }
     hasStrokesRef.current = false;
+
+    // The pen must start UP every time the pad opens.
+    //
+    // drawingRef survives across editing sessions, and a stroke can end
+    // without a pointerup ever reaching this canvas: the debounced save fires
+    // mid-stroke, commitSignature flips isEditing to false, and the canvas
+    // unmounts while the pointer is still down. drawingRef is then left true,
+    // so the next time Re-sign mounts the canvas, plain hovering draws —
+    // which is exactly the runaway-pen glitch.
+    drawingRef.current   = false;
+    lastPointRef.current = null;
   }, [isEditing]);
 
   useEffect(() => {
@@ -103,7 +114,11 @@ export function SignaturePad({ value, onChange, workOrderId, readOnly, signerLab
     if (!drawingRef.current) return;
     drawingRef.current = false;
     lastPointRef.current = null;
-    canvasRef.current?.releasePointerCapture(e.pointerId);
+    // Guarded: releasePointerCapture throws if this pointer is not captured,
+    // which is the normal case when onLostPointerCapture is what called us.
+    if (canvasRef.current?.hasPointerCapture(e.pointerId)) {
+      canvasRef.current.releasePointerCapture(e.pointerId);
+    }
     scheduleSave();
   }
 
@@ -118,7 +133,28 @@ export function SignaturePad({ value, onChange, workOrderId, readOnly, signerLab
 
     setSaving(true);
     try {
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+      // FLATTEN ONTO WHITE BEFORE EXPORT.
+      //
+      // The live canvas has a TRANSPARENT background — only the strokes are
+      // painted. Exporting that transparency is what produced black signature
+      // boxes: anything downstream that drops the alpha channel (a JPEG
+      // re-encode, a PDF rasteriser, a thumbnail service) fills transparent
+      // pixels with BLACK, and the strokes are #111827, which is near enough
+      // to black to vanish into it.
+      //
+      // Baking the white in HERE means the exported file is correct on its
+      // own, whatever handles it next. The downstream guards still exist, but
+      // nothing has to rely on them.
+      const flat = document.createElement('canvas');
+      flat.width  = canvas.width;
+      flat.height = canvas.height;
+      const flatCtx = flat.getContext('2d');
+      if (!flatCtx) return;
+      flatCtx.fillStyle = '#FFFFFF';
+      flatCtx.fillRect(0, 0, flat.width, flat.height);
+      flatCtx.drawImage(canvas, 0, 0);
+
+      const blob = await new Promise<Blob | null>((resolve) => flat.toBlob(resolve, 'image/png'));
       if (!blob) return;
 
       const photoId = crypto.randomUUID();
@@ -192,6 +228,11 @@ export function SignaturePad({ value, onChange, workOrderId, readOnly, signerLab
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
+            // Fires whenever capture ends for ANY reason the two above miss —
+            // the element being removed mid-stroke, the browser revoking
+            // capture, a device disconnecting. Without it the pen can be left
+            // down with no event ever arriving to lift it.
+            onLostPointerCapture={handlePointerUp}
           />
           <div className="print:hidden border-t border-gray-400 pt-1 flex items-center justify-between">
             <span className="text-xs text-gray-600">{signerName || 'Unnamed'}</span>

@@ -21,7 +21,9 @@
     "init:v3-counters": "npx ts-node --esm scripts/initV3Counters.ts",
     "migrate:engineer-codes": "npx ts-node --esm scripts/migrateEngineerCodes.ts",
     "test:features": "node scripts/runFeatureTests.mjs",
-    "test:rules:ci": "firebase emulators:exec --only firestore --project demo-rules-test \"npm --prefix tests/rules test\""
+    "test:rules:ci": "firebase emulators:exec --only firestore --project demo-rules-test \"npm --prefix tests/rules test\"",
+    "migrate:chain-v4": "npx ts-node --esm scripts/migrateApprovalChainV4.ts",
+    "fix:stuck-approvals": "npx ts-node --esm scripts/sendStuckSurveysToApproval.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -62,6 +64,7 @@
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
+    "firebase-admin": "^14.5.0",
     "globals": "^17.4.0",
     "postcss": "^8.5.10",
     "sharp": "^0.34.5",

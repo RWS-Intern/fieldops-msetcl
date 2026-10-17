@@ -23,6 +23,12 @@ export interface ApprovalStageDef {
 export const SURVEY_APPROVAL_STAGES: readonly ApprovalStageDef[] = [
   { key: 'approver_level_1', label: 'Approver Level 1' },
   { key: 'approver_level_2', label: 'Approver Level 2' },
+  // Added when the chain went from three stages to four. Placed BEFORE
+  // final_approver, not after it: "Final Approver" is the last word on a
+  // submission by definition, and a stage behind it would contradict its own
+  // name. Only the label is a judgement call — the key and position are what
+  // the migration and the rules are built around.
+  { key: 'approver_level_3', label: 'Approver Level 3' },
   { key: 'final_approver',   label: 'Final Approver' },
 ] as const;
 

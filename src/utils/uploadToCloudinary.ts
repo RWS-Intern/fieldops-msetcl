@@ -39,6 +39,18 @@ export async function uploadToCloudinary(
     photoType?:    'subtask' | 'completion';
     index?:        number;
     resourceType?: 'image' | 'auto';
+    /**
+     * Skip the JPEG re-encode and upload the file byte-for-byte.
+     *
+     * For SIGNATURES. They are captured as a PNG with a TRANSPARENT
+     * background and dark strokes; JPEG has no alpha channel, so the
+     * re-encode turns every transparent pixel black and the signature
+     * disappears into a black rectangle. compressImage now paints white
+     * first, which stops that — but a signature is a few kilobytes of line
+     * art that gains nothing from lossy compression and loses crispness to
+     * it, so the honest answer is not to re-encode it at all.
+     */
+    skipCompression?: boolean;
   },
 ): Promise<UploadResult> {
   const cloudName        = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME    as string;
@@ -49,7 +61,10 @@ export async function uploadToCloudinary(
     throw new Error('Cloudinary env vars not set');
   }
 
-  const { onProgress, taskNum, subtaskId, photoType, index, resourceType = 'image' } = options ?? {};
+  const {
+    onProgress, taskNum, subtaskId, photoType, index,
+    resourceType = 'image', skipCompression = false,
+  } = options ?? {};
 
   // Build folder path: <VITE_CLOUDINARY_FOLDER>/<taskNum> or <VITE_CLOUDINARY_FOLDER>
   const folder = taskNum ? `${cloudinaryFolder}/${taskNum}` : cloudinaryFolder;
@@ -67,7 +82,7 @@ export async function uploadToCloudinary(
   // compressImage re-encodes through a canvas as JPEG, which would corrupt any
   // non-image payload rather than shrink it.
   const isImage = file.type.startsWith('image/');
-  const payload = isImage ? await compressImage(file) : file;
+  const payload = isImage && !skipCompression ? await compressImage(file) : file;
 
   const formData = new FormData();
   formData.append('file',          payload);

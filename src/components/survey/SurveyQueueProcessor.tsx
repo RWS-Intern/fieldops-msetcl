@@ -46,7 +46,15 @@ async function uploadPendingPhoto(photo: PendingSurveyPhoto, siteCode: string): 
     return photo.localUrl;
   }
 
-  const file = base64ToFile(photo.localUrl, `${photo.photoId}.jpg`);
+  // Same reasoning as the online path in SurveyWizardPage: a signature is a
+  // transparent PNG, and a JPEG re-encode drops the alpha channel — which is
+  // what turned the signed BOQ page's signatures into black rectangles. The
+  // extension follows the data URI's own MIME type rather than assuming .jpg.
+  const isSignature =
+    photo.target.kind === 'signOffSurveyorSignature' ||
+    photo.target.kind === 'signOffMsetclSignature';
+  const isPng = photo.localUrl.startsWith('data:image/png');
+  const file  = base64ToFile(photo.localUrl, `${photo.photoId}.${isPng ? 'png' : 'jpg'}`);
   // Survey photos don't have their own Cloudinary photoType bucket yet —
   // 'completion' is a reasonable placeholder categorisation; only the
   // folder/filename are affected, not correctness.
@@ -54,6 +62,7 @@ async function uploadPendingPhoto(photo: PendingSurveyPhoto, siteCode: string): 
     taskNum:   siteCode,
     photoType: 'completion',
     index:     0,
+    skipCompression: isSignature,
   });
   return result.url;
 }

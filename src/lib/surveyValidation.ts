@@ -29,6 +29,21 @@ export const SURVEY_STEP_LABELS = [
   'Sign-Off',
 ] as const;
 
+/**
+ * Indices of SURVEY_STEP_LABELS that no wizard step claims any more.
+ *
+ * Index 2 is CRP Relay Details, removed from the wizard once MSETCL confirmed
+ * it is not required. The slot is KEPT so indices 3-7 do not shift (see the
+ * note in getStepStatuses), which is invisible to the wizard — it matches
+ * validationIndex BY VALUE and simply never asks for 2.
+ *
+ * It is NOT invisible to anything that walks the array positionally. Such a
+ * consumer renders a section that can never be filled, and counts it toward a
+ * total, which is exactly what the survey tracker did. Any new reader of
+ * SURVEY_STEP_LABELS or getStepStatuses must filter on this.
+ */
+export const RETIRED_STEP_INDICES: ReadonlySet<number> = new Set([2]);
+
 const STEP = {
   siteVisit:      0,
   feeders:        1,
